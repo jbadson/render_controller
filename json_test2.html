@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<meta charset="UTF-8">
+<!--<script src="/Users/jim/Desktop/work_unsynced/website_update/jquery-2.0.3.js"></script>-->
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.js"></script>
+<script>
+$(document).ready(function(){
+	$.getJSON( "render_status.json", function( data ) {
+		var items = []; 
+		$.each( data, function( key, val ) {
+			items.push( "<li id='" + key + "'>"+ key + ": " + val + "</li>" );
+		});
+
+
+		$( "<ul/>", {
+			"class": "my-new-list",
+			html: items.join( "" )
+		}).appendTo( "body" );
+	});
+
+});
+
+</script>
+
+<body>
+
+body
+
+</body>
+</html>

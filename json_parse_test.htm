@@ -1,0 +1,55 @@
+<!--Testing parsing of JSON file exported by render controller -->
+<!DOCTYPE html>
+<html>
+<meta charset="UTF-8">
+<script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
+
+
+<body>
+
+<br>
+----------
+<br>
+body
+
+<script>
+
+$(document).ready(function() { //wait for page to finish loading before running script
+
+	var renderdata;
+	//tested & working with URL to json file if this page is also on server
+	$.getJSON('render_status.json', function(data){
+		renderdata = data;
+		//All uses of renderdata variable must occur inside this function
+		//document.write(renderdata.job1status);
+		//document.write(renderdata[job1status]);
+		
+		for (i = 1; i < 6; i++) { //sort into groups by job number
+	
+			document.write('Job '+i+' Data:<BR/>');
+	
+			for (var x in renderdata) {
+				var str = x;
+				if (str.search('job'+i) >= 0) {
+					document.write(x+': '+renderdata[x]+'<BR/>');
+				};
+			};
+	
+			document.write('---------------------------<BR/>');
+		};
+	
+		document.write('all stuff in getJSON function is done'); //debugging
+	
+	})
+	.done(function() {console.log("getJSON done"); })
+
+	.fail(function() {console.log("getJSON fail"); })
+});
+
+//Page load not finishing becuase of document.write inside main function. Not sure why
+document.write('main script is done');
+	
+
+</script>
+</body>
+</html>

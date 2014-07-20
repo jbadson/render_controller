@@ -1,0 +1,376 @@
+jim@conundrum:/Applications/Terragen 3/Terragen 3.app/Contents/MacOS$ ./Terragen\ 3 -p /Users/jim/test_render/terragen_test.tgd -hide -exit -r -f 1
+Constructing trPrivateGlobals
+./Terragen 3
+-p
+/Users/jim/test_render/terragen_test.tgd
+-hide
+-exit
+-r
+-f
+1
+<<<### APP RUN STARTED ###>>>
+Terragen 3 v3.0 (build 3.0.10.0)
+Licensed to Joseph Rogers
+Found license for Professional Edition with Animation
+Found 8 processor cores.
+AddClass: added class group (43097325444309732624)
+AddClass: added class null (43097326724309732752)
+AddClass: added class camera (43097328004309732880)
+AddClass: added class render (43097324164309732496)
+AddClass: added class render_bucket_controls (43097331044309733296)
+AddClass: added class render_GI_settings (43097333444309733424)
+AddClass: added class render_element (43097329284309733024)
+AddClass: added class render_layer (43097329284309733024)
+AddClass: added class render_pixel_sampler (43097345444309734624)
+AddClass: added class render_subdiv_settings (43097352644309735344)
+AddClass: added class object_part (43097353924309735472)
+AddClass: added class heightfield_load (43097355204309735600)
+AddClass: added class geog_heightfield_load (43097356484309735728)
+AddClass: added class lwo_reader (43097357764309735888)
+AddClass: added class obj_reader (43097359364309736016)
+AddClass: added class plane (43097360644309736144)
+AddClass: added class card (43097361924309736272)
+AddClass: added class disc (43097363204309736400)
+AddClass: added class sphere (43097364484309736528)
+AddClass: added class spotlight (43097365764309736656)
+AddClass: added class sunlight (43097367044309736784)
+AddClass: added class light_source (43097368324309736912)
+AddClass: added class enviro_light (43097369604309737040)
+AddClass: added class painted_shader (43097370884309737168)
+AddClass: added class parts_shader (43097384804309737216)
+AddClass: added class populator_v4 (43097372644309737344)
+AddClass: added class populator_v4_cache_settings (43097373924309737472)
+AddClass: added class displacement_shader (45787173124578641504)
+AddClass: added class function_to_displacement_shader (45787173124578641504)
+AddClass: added class vector_displacement_shader (45787193284578641872)
+AddClass: added class null_shader (45786416644578641792)
+AddClass: added class null_shader (45786416644578641792)
+AddClass: added class null_shader (45786416644578641792)
+AddClass: added class null_shader (45786416644578641792)
+AddClass: added class constant_colour (45786991844578644096)
+AddClass: added class constant_scalar (45787050564578644144)
+AddClass: added class constant_vector (45786922084578644192)
+AddClass: added class PI_scalar (45787054404578648400)
+AddClass: added class get_altitude (45787057444578644240)
+AddClass: added class get_altitude_in_texture (45787060484578644288)
+AddClass: added class get_diffuse_colour (45786995844578644384)
+AddClass: added class get_emitted_colour (45786998884578644432)
+AddClass: added class get_specular_colour (45787001924578645008)
+AddClass: added class get_final_alpha (45787004964578644480)
+AddClass: added class get_final_colour (45787008004578644528)
+AddClass: added class get_final_opacity (45787011044578644576)
+AddClass: added class get_frame_number (45787063524578644624)
+AddClass: added class get_camera_position (45786926084578644336)
+AddClass: added class get_ray_origin (45786929124578644960)
+AddClass: added class get_normal (45786932164578644768)
+AddClass: added class get_normal_in_geometry (45786935204578644672)
+AddClass: added class get_normal_in_texture (45786938244578644720)
+AddClass: added class get_position (45786941284578644912)
+AddClass: added class get_position_in_geometry (45786944324578644816)
+AddClass: added class get_position_in_texture (45786947364578644864)
+AddClass: added class add_colour (45787197924578642064)
+AddClass: added class add_scalar (45787205604578642256)
+AddClass: added class add_vector (45787213284578642448)
+AddClass: added class subtract_colour (45787220964578642496)
+AddClass: added class subtract_scalar (45787228644578642544)
+AddClass: added class subtract_vector (45787236324578642592)
+AddClass: added class difference_colour (45787244004578642640)
+AddClass: added class difference_scalar (45787251684578642688)
+AddClass: added class mix_colour (45787260804578642736)
+AddClass: added class mix_scalar (45787271684578642784)
+AddClass: added class mix_vector (45787282564578642832)
+AddClass: added class component_mix_vector (45787293444578642880)
+AddClass: added class negate_colour (45787014084578642928)
+AddClass: added class negate_scalar (45787066564578642976)
+AddClass: added class negate_vector (45786950404578643024)
+AddClass: added class complement_colour (45787017124578643072)
+AddClass: added class complement_scalar (45787069604578643120)
+AddClass: added class inverse_scalar (45787072644578643168)
+AddClass: added class inverse_vector (45786953444578643216)
+AddClass: added class rotate_x_vector (45786958084578643264)
+AddClass: added class rotate_y_vector (45786964804578643312)
+AddClass: added class rotate_z_vector (45786971524578643568)
+AddClass: added class abs_colour (45787020164578643616)
+AddClass: added class abs_scalar (45787075684578643664)
+AddClass: added class abs_vector (45786976644578643712)
+AddClass: added class clamp_0_1_colour (45787023204578643760)
+AddClass: added class clamp_0_colour (45787026244578643808)
+AddClass: added class clamp_colour (45787304324578643856)
+AddClass: added class clamp_0_1_scalar (45787078724578643904)
+AddClass: added class clamp_0_scalar (45787081764578643952)
+AddClass: added class clamp_scalar (45787315204578644000)
+AddClass: added class cross_product (45787324644578645056)
+AddClass: added class dot_product (45787332324578645104)
+AddClass: added class multiply_colour (45787340004578645152)
+AddClass: added class multiply_scalar (45787347684578645200)
+AddClass: added class multiply_vector (45787355364578645248)
+AddClass: added class divide_colour (45787363044578645296)
+AddClass: added class divide_scalar (45787370724578645344)
+AddClass: added class divide_vector (45787378404578645392)
+AddClass: added class modulo_scalar (45787386084578647456)
+AddClass: added class power_colour (45787393764578645440)
+AddClass: added class power_scalar (45787401444578645488)
+AddClass: added class square_colour (45787029284578645536)
+AddClass: added class square_scalar (45787084804578645584)
+AddClass: added class square_root_colour (45787032324578645632)
+AddClass: added class square_root_scalar (45787087844578645680)
+AddClass: added class exp_colour (45787035364578645728)
+AddClass: added class exp_scalar (45787090884578645776)
+AddClass: added class log_colour (45787038404578645824)
+AddClass: added class log_scalar (45787093924578645872)
+AddClass: added class bias_scalar (45787409124578648160)
+AddClass: added class gain_scalar (45787416804578648208)
+AddClass: added class floor_scalar (45787096964578645920)
+AddClass: added class ceiling_scalar (45787100004578645968)
+AddClass: added class nearest_integer (45787103044578646016)
+AddClass: added class build_colour (45787427844578646064)
+AddClass: added class scalar_to_colour (45787041444578646112)
+AddClass: added class vector_to_colour (45787044484578646160)
+AddClass: added class red_to_scalar (45787106084578646208)
+AddClass: added class green_to_scalar (45787109124578646256)
+AddClass: added class blue_to_scalar (45787112164578646304)
+AddClass: added class luminance_to_scalar (45787115204578646352)
+AddClass: added class colour_to_greyscale_colour (45787047524578644048)
+AddClass: added class x_to_scalar (45787118244578646400)
+AddClass: added class y_to_scalar (45787121284578646448)
+AddClass: added class z_to_scalar (45787124324578646496)
+AddClass: added class length_to_scalar (45787127364578646544)
+AddClass: added class build_vector (45787442724578646592)
+AddClass: added class colour_to_vector (45786979684578646688)
+AddClass: added class scalar_to_vector (45786982724578646640)
+AddClass: added class degrees_to_radians_scalar (45787130404578648256)
+AddClass: added class radians_to_degrees_scalar (45787133444578648304)
+AddClass: added class normalise_vector (45786985764578648448)
+AddClass: added class displacement_shader_to_scalar (45787136484578646736)
+AddClass: added class displacement_shader_to_vector (45786988804578646784)
+AddClass: added class perlin_3D_scalar (45787459524578646832)
+AddClass: added class perlin_4D_scalar (45787492004578646880)
+AddClass: added class voronoi_3D_cell_scalar (45787498084578646928)
+AddClass: added class voronoi_3D_diff_scalar (45787508964578646976)
+AddClass: added class voronoi_3D_A_vector (45787519844578647024)
+AddClass: added class voronoi_3D_B_vector (45787530724578647072)
+AddClass: added class arccos_scalar (45787139524578647120)
+AddClass: added class arcsin_scalar (45787142564578647168)
+AddClass: added class arctan_scalar (45787145604578647216)
+AddClass: added class arctan2_scalar (45787540164578648352)
+AddClass: added class cos_scalar (45787148644578647264)
+AddClass: added class sin_scalar (45787151684578647312)
+AddClass: added class tan_scalar (45787154724578647360)
+AddClass: added class boolean_NOT_scalar (45787157764578648016)
+AddClass: added class scalar_to_Boolean_scalar (45787547844578648064)
+AddClass: added class conditional_Boolean_scalar (45787564484578648112)
+AddClass: added class adjust_saturation_colour (45787569124578647408)
+AddClass: added class step_scalar (45787576804578647504)
+AddClass: added class linear_step_scalar (45787585924578647552)
+AddClass: added class smooth_step_scalar (45787596804578647600)
+AddClass: added class hard_step_scalar (45787606244578647648)
+AddClass: added class conditional_scalar (45787630724578647968)
+AddClass: added class image_writer_exr (46334949364633495008)
+AddClass: added class image_writer_tiff (46334948424633494914)
+AddClass: added class default_shader (46372914564637291536)
+AddClass: added class surface_layer (46372936964637293776)
+AddClass: added class alpine_fractal_shader (46372899044637289984)
+AddClass: added class alpine_fractal_shader_v2 (46372900324637290112)
+AddClass: added class distribution_shader_v2 (46372917124637291792)
+AddClass: added class distribution_shader_v3 (46372918404637291920)
+AddClass: added class distribution_shader_v4 (46372919684637292048)
+AddClass: added class cloud_layer_v2 (46372907364637290816)
+AddClass: added class cloud_fractal_shader_v3 (46372906084637290688)
+AddClass: added class crater_shader (46372908644637290944)
+AddClass: added class colour_adjust_shader (46372909924637291072)
+AddClass: added class constant_shader (46373181604637291152)
+AddClass: added class distance_shader (46372915844637291664)
+AddClass: added class fake_stones_shader (46372920964637292176)
+AddClass: added class heightfield_displacement_shader (46372924804637292560)
+AddClass: added class heightfield_shader (46372923524637292432)
+AddClass: added class image_map_shader (46372912484637291408)
+AddClass: added class image_map_shader (46372913284637291408)
+AddClass: added class lambert_shader (46373184324637292608)
+AddClass: added class merge_shader (46373277124637292656)
+AddClass: added class MOLA_map_shader (46372927044637292784)
+AddClass: added class multi_shader (46373260004637292832)
+AddClass: added class planet_atmosphere (46373443684637292880)
+AddClass: added class planet_surface_shader (46373206244637292928)
+AddClass: added class power_fractal_shader_v2 (46372929764637293056)
+AddClass: added class power_fractal_shader_v3 (46372904804637290560)
+AddClass: added class power_fractal_shader_v3 (46372904004637290560)
+AddClass: added class redirect_shader (46372931044637293184)
+AddClass: added class reflective_shader (46373228964637291200)
+AddClass: added class translucent_shader (46373229764637293952)
+AddClass: added class strata_and_outcrops_shader_v2 (46372935684637293648)
+AddClass: added class transform_input_shader (46372945124637294592)
+AddClass: added class transform_merge_shader (46372946404637294720)
+AddClass: added class transform_shader (46372946404637294720)
+AddClass: added class fractal_warp_shader (46372922244637292304)
+AddClass: added class twist_and_shear_shader (46372940004637294080)
+AddClass: added class visualise_normal (46372941284637294208)
+AddClass: added class visualise_tex_coords (46372942564637294336)
+AddClass: added class vortex_warp_shader (46372947684637294848)
+AddClass: added class warp_input_shader (46372948964637294976)
+AddClass: added class warp_merge_shader (46372950244637295104)
+AddClass: added class warp_shader (46372950244637295104)
+AddClass: added class water_shader (46372943844637294464)
+AddClass: added class simple_shape_shader (46372955364637295616)
+AddClass: added class simple_shape_shader (46372955364637295616)
+AddClass: added class shader_array (46372956644637295744)
+AddClass: added class shader_array (46372956644637295744)
+AddClass: added class contour_shader (46372957924637295872)
+AddClass: added class sphere_geometry_shader (46373011204637293520)
+AddClass: added class terrain_set (46372938244637293904)
+AddClass: added class shader_set (46372932324637293312)
+AddClass: added class tex_coords_from_XYZ (46372951524637295232)
+AddClass: added class compute_normal (46372952804637295360)
+AddClass: added class compute_terrain (46372954084637295488)
+AddClass: added class experiment_TEST (46372899044637289984)
+AddClass: added class heightfield_generate (46372969444637297024)
+AddClass: added class heightfield_adjust_vertical (46372959204637296000)
+AddClass: added class heightfield_clip_vertical (46372961764637296256)
+AddClass: added class heightfield_curve_vertical (46372963044637296384)
+AddClass: added class heightfield_crop (46372960484637296128)
+AddClass: added class heightfield_erode_v2 (46372964324637296512)
+AddClass: added class heightfield_erode_v3 (46372965604637296640)
+AddClass: added class heightfield_export_LWO (46372966884637296768)
+AddClass: added class heightfield_from_shader (46372968164637296896)
+AddClass: added class heightfield_make_river (46372970724637297152)
+AddClass: added class heightfield_merge (46372972004637297280)
+AddClass: added class heightfield_resize (46372973284637297408)
+AddClass: added class heightfield_smooth (46372974564637297536)
+AddClass: added class heightfield_smooth_erode (46372975844637297664)
+AddClass: added class heightfield_erode_experiment (46372977124637297792)
+AddClass: added class micro_exporter (46372978404637297920)
+AddClass: added class lwo_micro_exporter (46372979684637298048)
+AddClass: added class grass_clump (46372980964637298176)
+AddClass: added class planet (46373260804637298528)
+AddClass: added class populator_v3 (46372985764637298656)
+AddClass: added class rock (46372987044637298784)
+AddClass: added class tgo_reader (46372988324637298912)
+AddClass: added class landmark (46372989604637299040)
+AddClass: added class lake (46372982244637298304)
+AddClass: added class object_writer_err (46372992644637299360)
+AddClass: added class object_writer_lwo (46372994084637299488)
+AddClass: added class object_writer_obj (46372995364637299616)
+AddClass: added class object_writer_tgo (46372996644637299744)
+AddClass: added class object_writer_fbx (46372997924637299872)
+AddClass: added class notifier (46373318724637299920)
+AddClass: added class live_value_display (46373355524637299968)
+AddClass: added class timed_trigger (46373023044637300160)
+AddClass: added class vortex_vector (46373377124637300352)
+AddClass: added class image_file_processor (46373004004637300480)
+AddClass: added class note (46373038084637300720)
+Loaded 3 modules in this directory
+Loaded a total of 3 plugin modules
+ReadXML: Attempting to read file: "/Users/jim/test_render/terragen_test.tgd"
+creating camera (4309732800)
+creating render (4309732416)
+creating render_bucket_controls (4309733104)
+creating render_GI_settings (4309733344)
+creating render_pixel_sampler (4309734544)
+creating render_subdiv_settings (4309735264)
+creating enviro_light (4309736960)
+creating sunlight (4309736704)
+creating sphere_geometry_shader (4637301120)
+creating constant_shader (4637318160)
+creating sphere (4309736448)
+creating sphere_geometry_shader (4637301120)
+creating constant_shader (4637318160)
+creating planet (4637326080)
+creating sphere_geometry_shader (4637301120)
+creating transform_shader (4637294640)
+creating planet_atmosphere (4637344368)
+creating power_fractal_shader_v3 (4637290480)
+creating simple_shape_shader (4637295536)
+creating power_fractal_shader_v3 (4637290480)
+creating fractal_warp_shader (4637292224)
+creating compute_terrain (4637295408)
+creating group (4309732544)
+creating group (4309732544)
+creating group (4309732544)
+creating group (4309732544)
+creating group (4309732544)
+creating group (4309732544)
+creating group (4309732544)
+creating group (4309732544)
+ReadXML: done
+Content path for "Project" set to "/Users/jim/test_render/"
+Starting render...
+Frame list (-f) = 1
+Preparing to render frame 1
+Number of buckets:   22 x 22 between 8 threads
+Largest bucket size: 137 x 137
+Starting pre pass
+Rendering pre pass... 0:00:30s, 15% of pre pass
+Rendering pre pass... 0:01:00s, 29% of pre pass
+Rendering pre pass... 0:01:30s, 48% of pre pass
+Rendering pre pass... 0:02:00s, 69% of pre pass
+Rendering pre pass... 0:02:30s, 90% of pre pass
+Rendered 100% of pre pass
+Starting final pass
+Number of buckets:   22 x 22 between 8 threads
+Largest bucket size: 137 x 137
+Rendering final pass... 0:03:00s, 0% of final pass, 36604 micro-triangles
+Rendering final pass... 0:03:30s, 3% of final pass, 649675 micro-triangles
+Rendering final pass... 0:04:00s, 6% of final pass, 1340138 micro-triangles
+Rendering final pass... 0:04:30s, 8% of final pass, 1697030 micro-triangles
+Rendering final pass... 0:05:00s, 11% of final pass, 2409005 micro-triangles
+Rendering final pass... 0:05:30s, 13% of final pass, 2767508 micro-triangles
+Rendering final pass... 0:06:00s, 15% of final pass, 3303428 micro-triangles
+Rendering final pass... 0:06:30s, 18% of final pass, 3840693 micro-triangles
+Rendering final pass... 0:07:00s, 20% of final pass, 4240139 micro-triangles
+Rendering final pass... 0:07:30s, 23% of final pass, 4905825 micro-triangles
+Rendering final pass... 0:08:00s, 25% of final pass, 5305332 micro-triangles
+Rendering final pass... 0:08:30s, 27% of final pass, 5748646 micro-triangles
+Rendering final pass... 0:09:00s, 29% of final pass, 6324428 micro-triangles
+Rendering final pass... 0:09:30s, 31% of final pass, 6823840 micro-triangles
+Rendering final pass... 0:10:00s, 33% of final pass, 7259552 micro-triangles
+Rendering final pass... 0:10:30s, 34% of final pass, 7747177 micro-triangles
+Rendering final pass... 0:11:00s, 36% of final pass, 8318293 micro-triangles
+Rendering final pass... 0:11:30s, 36% of final pass, 8318293 micro-triangles
+Rendering final pass... 0:12:00s, 36% of final pass, 8715117 micro-triangles
+Rendering final pass... 0:12:30s, 38% of final pass, 9427597 micro-triangles
+Rendering final pass... 0:13:00s, 38% of final pass, 9427597 micro-triangles
+Rendering final pass... 0:13:30s, 39% of final pass, 10601346 micro-triangles
+Rendering final pass... 0:14:00s, 39% of final pass, 10601346 micro-triangles
+Rendering final pass... 0:14:30s, 39% of final pass, 10734625 micro-triangles
+Rendering final pass... 0:15:00s, 41% of final pass, 11873618 micro-triangles
+Rendering final pass... 0:15:30s, 41% of final pass, 11873618 micro-triangles
+Rendering final pass... 0:16:00s, 41% of final pass, 12045827 micro-triangles
+Rendering final pass... 0:16:30s, 42% of final pass, 13197401 micro-triangles
+Rendering final pass... 0:17:00s, 42% of final pass, 13197401 micro-triangles
+Rendering final pass... 0:17:30s, 43% of final pass, 13504986 micro-triangles
+Rendering final pass... 0:18:00s, 44% of final pass, 14467669 micro-triangles
+Rendering final pass... 0:18:30s, 44% of final pass, 14636281 micro-triangles
+Rendering final pass... 0:19:00s, 45% of final pass, 15414008 micro-triangles
+Rendering final pass... 0:19:30s, 47% of final pass, 16471585 micro-triangles
+Rendering final pass... 0:20:00s, 48% of final pass, 17552496 micro-triangles
+Rendering final pass... 0:20:30s, 49% of final pass, 18095415 micro-triangles
+Rendering final pass... 0:21:00s, 50% of final pass, 18933408 micro-triangles
+Rendering final pass... 0:21:30s, 52% of final pass, 19698986 micro-triangles
+Rendering final pass... 0:22:00s, 54% of final pass, 20649287 micro-triangles
+Rendering final pass... 0:22:30s, 55% of final pass, 21532895 micro-triangles
+Rendering final pass... 0:23:00s, 57% of final pass, 22265317 micro-triangles
+Rendering final pass... 0:23:30s, 59% of final pass, 23171486 micro-triangles
+Rendering final pass... 0:24:00s, 61% of final pass, 24053113 micro-triangles
+Rendering final pass... 0:24:30s, 63% of final pass, 24881810 micro-triangles
+Rendering final pass... 0:25:00s, 65% of final pass, 25570269 micro-triangles
+Rendering final pass... 0:25:30s, 67% of final pass, 26120364 micro-triangles
+Rendering final pass... 0:26:00s, 69% of final pass, 26852248 micro-triangles
+Rendering final pass... 0:26:30s, 71% of final pass, 27698265 micro-triangles
+Rendering final pass... 0:27:00s, 73% of final pass, 28291354 micro-triangles
+Rendering final pass... 0:27:30s, 75% of final pass, 28884876 micro-triangles
+Rendering final pass... 0:28:00s, 78% of final pass, 29688617 micro-triangles
+Rendering final pass... 0:28:30s, 80% of final pass, 30183085 micro-triangles
+Rendering final pass... 0:29:00s, 82% of final pass, 30780408 micro-triangles
+Rendering final pass... 0:29:30s, 85% of final pass, 31522652 micro-triangles
+Rendering final pass... 0:30:00s, 87% of final pass, 32022419 micro-triangles
+Rendering final pass... 0:30:30s, 89% of final pass, 32686108 micro-triangles
+Rendering final pass... 0:31:00s, 91% of final pass, 33218794 micro-triangles
+Rendering final pass... 0:31:30s, 94% of final pass, 33808400 micro-triangles
+Rendering final pass... 0:32:00s, 96% of final pass, 34422244 micro-triangles
+Rendering final pass... 0:32:30s, 99% of final pass, 35161252 micro-triangles
+Rendered 100% of final pass
+creating image_writer_tiff (4633494842)
+ImageWriterTIFF successful
+destroying image_writer_tiff (4633494914)
+Finished rendering: 0:33:57s, 35161252 micro-triangles
+Destroying trPrivateGlobals
+jim@conundrum:/Applications/Terragen 3/Terragen 3.app/Contents/MacOS$ 

@@ -1,0 +1,42 @@
+{
+ "job1extraframes": [], 
+ "job5startframe": 0, 
+ "job1computer_status": null, 
+ "job4startframe": 0, 
+ "job2complist": [
+  "conundrum"
+ ], 
+ "job2status": "Waiting", 
+ "job4complist": [], 
+ "job1status": "Rendering", 
+ "job3filepath": "", 
+ "job3extraframes": [], 
+ "job3endframe": 0, 
+ "job4status": "Empty", 
+ "job2job_progress": 1, 
+ "job4job_progress": 0, 
+ "job3complist": [], 
+ "job5filepath": "", 
+ "job4filepath": "", 
+ "job5extraframes": [], 
+ "job3job_progress": 0, 
+ "job5job_progress": 0, 
+ "job3status": "Empty", 
+ "job5status": "Empty", 
+ "job1startframe": 1, 
+ "job4extraframes": [], 
+ "job1complist": [
+  "conundrum"
+ ], 
+ "job2startframe": 1, 
+ "job5endframe": 0, 
+ "job5complist": [], 
+ "job1filepath": "/Users/igp/test_render/test_render.blend", 
+ "job2endframe": 435, 
+ "job1endframe": 10, 
+ "job4endframe": 0, 
+ "job2filepath": "/Users/igp/test_render/fast.blend", 
+ "job2extraframes": [], 
+ "job3startframe": 0, 
+ "job1job_progress": 50
+}

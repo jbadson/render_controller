@@ -745,8 +745,18 @@ class RenderThread(object):
     def check_warn(self, output):
         '''returns true if blender throws a warning'''
         if self.output.find('Warning:') >= 0:
+            print('WARNING was found') #debugging
+            print self.output #debugging
             return True 
+            
+        #hack to fix issue with blender completing renders but returning error for "not freed memory blocks"
+        elif self.output.find('Error: Not freed'):
+            print('had not freed memory error, returning false in check_warn()') #debugging
+            return False
+
         elif self.output.find('Error:') >= 0:
+            print('ERROR was found') #debugging
+            print self.output #debugging
             return True 
         else:
             return False 
@@ -1819,14 +1829,11 @@ smallfont = tkFont.Font(family='System', size='10')
 
 #test font width & adjust font size to make sure everything fits with different system fonts
 fontwidth = smallfont.measure('abc ijk 123.456')
-print('fontwidth=', fontwidth)
-newsize = 10
 if fontwidth > 76:
     while fontwidth > 76:
         newsize -= 1
         smallfont = tkFont.Font(family='System', size=newsize)
         fontwidth = smallfont.measure('abc ijk 123.456')
-print('newsize=', newsize)
 
 
 

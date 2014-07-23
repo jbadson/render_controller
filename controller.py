@@ -3,7 +3,8 @@
 
 import Queue
 import subprocess
-from threading import Thread, RLock 
+#from threading import Thread, RLock
+import threading
 from Tkinter import *
 import time
 import tkMessageBox
@@ -12,6 +13,7 @@ import tkFont
 import ttk
 from os import path, _exit
 import ScrolledText as st
+import json
 
 
 
@@ -33,6 +35,7 @@ class Job(object):
 		self.status = renderJobs[self.index][8]
 		self.termout = renderJobs[self.index][10]
 		self.timestart = renderJobs[self.index][11]
+		self.render_engine = renderJobs[self.index][12]
 
 		if killflags[self.index] == 1:
 			self.status = 'Stopped'
@@ -51,7 +54,7 @@ class Job(object):
 		'''updates global renderJobs and self.render_data'''
 
 		with threadlock:
-			self.render_data = [self.path, self.startframe, self.endframe, self.extraframes, self.computerList, self.threads, self.currentFrames, self.totalFrames, self.status, self.index, self.termout, self.timestart]
+			self.render_data = [self.path, self.startframe, self.endframe, self.extraframes, self.computerList, self.threads, self.currentFrames, self.totalFrames, self.status, self.index, self.termout, self.timestart, self.render_engine]
 		with threadlock:
 			renderJobs[self.index] = self.render_data
 
@@ -72,6 +75,7 @@ class Job(object):
 		self.status = 'Empty'
 		self.termout = ''
 		self.timestart = ''
+		self.render_engine = 'blender'
 		self.update()
 		threadlock.release()
 
@@ -116,6 +120,8 @@ class Job(object):
 		if not path.exists(self.path): 
 			Dialog(10).warn()
 			return False
+
+		self.render_engine = render_eng.get()
 
 
 		try:
@@ -165,6 +171,8 @@ class Job(object):
 
 		with threadlock:
 			killflags[self.index] = 0 #reset killflag just in case
+
+		RenderTimer(self.index).clear() #set timer to zero for a fresh render
 
 		self.status = 'Waiting'
 		self.update()
@@ -259,6 +267,7 @@ class Job(object):
 			#---FINISH LOOP---
 			#Waits for remaining renders to finish, catches any errors
 			while queue['q'+str(self.index)].empty():
+			#while 0 in renderJobs[self.index][7]: #trying checking for completion by returned frames instead of queue empty (this breaks stragglers thread. Need to restructure render/finish loops to use this mechanism if desired.
 				if killflags[self.index] == 1:
 					break
 			
@@ -292,12 +301,13 @@ class Job(object):
 				time.sleep(0.01)
 			
 			if not queue['q'+str(self.index)].empty(): #catch any frames that were returned to queue in finish loop
-				stragglers = Thread(target=masterthread, args=())
+				stragglers = threading.Thread(target=masterthread, args=())
 				stragglers.start()
 
 			else: #Render is done, clean up
 				print('Job:'+str(self.index)+'|Finished rendering.')
 				RenderLog(self.index).render_finished()
+				RenderTimer(self.index).stop()
 				self.status = 'Finished'
 				with threadlock:
 					renderJobs[self.index][8] = self.status
@@ -308,7 +318,7 @@ class Job(object):
 				return
 
 
-		master = Thread(target=masterthread, args=())
+		master = threading.Thread(target=masterthread, args=())
 		master.start()
 
 
@@ -375,6 +385,7 @@ class Job(object):
 				compflags[str(self.index)+'_'+computer] = 0
 
 		RenderLog(self.index).render_killed()
+		RenderTimer(self.index).stop()
 
 		threadlock.acquire()
 		self.status = 'Stopped'
@@ -422,7 +433,7 @@ class Job(object):
 			Dialog(6).warn()
 			return
 
-		self.status = 'Rendering'
+		#self.status = 'Rendering' #only do this in render() to simplify things 
 		with threadlock:
 			killflags[self.index] = 0 #reset killflag
 
@@ -449,7 +460,7 @@ class Job(object):
 		with threadlock:
 			queue['q'+str(self.index)] = None #destroy queue object
 
-		RenderTimer(self.index).clear()
+		#RenderTimer(self.index).clear()
 
 		print('Job:'+str(self.index)+'|Render resumed by user.')
 		RenderLog(self.index).render_resumed()
@@ -477,12 +488,19 @@ class RenderThread(object):
 		self.computer = computer
 		self.frame = frame
 
+		global renderJobs
+		self.render_engine = renderJobs[self.index][12]
+
 
 	def create(self): 
 		'''creates a thread for a single frame on a specified computer'''
 
-		t = Thread(target=self.send_command, args=())
-		t.start()
+		if self.render_engine == 'blender':
+			t = threading.Thread(target=self.send_command, args=())
+			t.start()
+		elif self.render_engine == 'terragen':
+			t = threading.Thread(target=self.send_command_terragen, args=())
+			t.start()
 
 
 	def send_command(self): #this is for Blender. Later rename and add sibling classes for Terragen and Ludvig's script
@@ -497,11 +515,11 @@ class RenderThread(object):
 		RenderLog(self.index).frame_sent(self.computer, self.frame)
 
 		if self.computer in macs:
-			blenderpath = blenderpath_mac #/Applications/blender.app/Contents/MacOS/blender 
+			renderpath = blenderpath_mac #/Applications/blender.app/Contents/MacOS/blender 
 		else:
-			blenderpath = blenderpath_linux #/usr/local/bin/blender
+			renderpath = blenderpath_linux #/usr/local/bin/blender
 
-		command = subprocess.Popen('ssh igp@'+self.computer+' "'+blenderpath+' -b '+self.path+' -f '+str(self.frame)+' & pgrep -n blender"', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+		command = subprocess.Popen('ssh igp@'+self.computer+' "'+renderpath+' -b '+self.path+' -f '+str(self.frame)+' & pgrep -n blender"', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
 		self.output = ''
 		for line in iter(command.stdout.readline, ''):
@@ -518,11 +536,9 @@ class RenderThread(object):
 					renderJobs[self.index][5][self.computer] = pid
 				if self.computer in renice_list: #renice process to lowest priority on specified comps 
 					subprocess.call('ssh igp@'+self.computer+' "renice 20 -p '+str(pid)+'"', shell=True)
-					print('reniced PID '+str(pid)+' to pri 20 on '+self.computer) #for debugging
 				if skiplists[self.index]:
 					with threadlock:
 						skiplists[self.index].pop(0) #remove oldest entry from skip list
-						print('frame sent. Removing oldest item from skiplist') #debugging
 
 	
 			elif line.find('Saved:') >= 0:
@@ -539,7 +555,6 @@ class RenderThread(object):
 					try:
 						del renderJobs[self.index][6][self.computer] #delete currentFrames entry
 					except:
-						print 'failed to delete currentFrames entry for ', self.computer #debugging
 						pass
 
 				with threadlock:
@@ -547,9 +562,7 @@ class RenderThread(object):
                         else:
                                 self.output = self.output + line
 
-			if not verbose: #use normal terminal output
-				pass 
-			else: #verbose terminal output
+			if verbose: #verbose terminal output
 				if line:
 					print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDOUT: '+line)
 
@@ -561,7 +574,6 @@ class RenderThread(object):
 					compflags[str(self.index)+'_'+self.computer] = 0 #reset compflag to try again on next round
 				with threadlock:
 					skiplists[self.index].append(self.computer)
-					print('Text in stderr. Adding '+self.computer+' to skiplist') #debugging
 
 				print('ERROR:Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDERR: '+line) 
 				RenderLog(self.index).error(self.computer, self.frame, 3, line) #error code 1
@@ -577,6 +589,129 @@ class RenderThread(object):
 
 
 
+	def send_command_terragen(self): #this is for Terragen. Need to modify self.create() to call correct function according to selected renderer
+		'''sends the render command via ssh'''
+
+		global skiplists
+
+		with threadlock: 
+			renderJobs[self.index][6][self.computer] = [self.frame, time.time()] #start timeout timer
+
+		print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Sent') #need to add timestamp
+		RenderLog(self.index).frame_sent(self.computer, self.frame)
+
+		if self.computer in macs:
+			renderpath = terragenpath_mac
+		else:
+			renderpath = terragenpath_linux
+		#NOTE: '''From terragen mac command line documentation: If Terragen is not in the current working directory, it will probably make lots of complaints when it starts. It's not enough just to pass the full path of the Terragen 3 command when you run it. Terragen needs to know where it can find other related files.'''
+		#can edit the TERRAGEN_PATH env var or cd to terragen directory before running
+
+		#for now reassigning renderpath to include cd
+		renderpath = 'cd /Applications/Terragen\ 3/Terragen\ 3.app/Contents/MacOS/&&./Terragen\ 3'
+
+		command = subprocess.Popen('ssh igp@'+self.computer+' "'+renderpath+' -p '+self.path+' -hide -exit -r -f '+str(self.frame)+' & pgrep -n Terragen&wait"', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+		print('sending command with renderpath '+renderpath) #debugging
+
+		self.output = ''
+		for line in iter(command.stdout.readline, ''):
+			if line:
+			#NOTE: timeout will be a problem.  Need to find workaround for terragen. Maybe make timeout an instance var instead of global
+				with threadlock:
+					renderJobs[self.index][6][self.computer] = [self.frame, time.time()] #reset timer every time an update is received
+
+			#No continuous status info, so parseline replaced with a few specific conditionals
+			#actually it appears there are periodic updates, just not if render time is quick
+			if line.find('Starting') >= 0:
+				#starting overall render or one of the render passes
+				ellipsis = line.find('...')
+				passname = line[9:ellipsis]
+				print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Starting '+passname)
+
+			elif line.find('Rendered') >= 0:
+				#finished one of the render passes
+				mark = line.find('of ')
+				passname = line[mark+3:]
+				print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Finished '+passname)
+
+			elif line.find('Rendering') >= 0:
+				#pattern 'Rendering pre pass... 0:00:30s, 2% of pre pass'
+				#NOTE: terragen ALWAYS has at least 2 passes, so prog bars to to 100% twice.  Need to note this somewhere or workaround.
+				#could scale percentages so that prepass accounts for no more than 50% of progress bar
+
+				#get name of pass:
+				ellipsis = line.find('...')
+				passname = line[10:ellipsis]
+
+				#get percent complete for pass
+				for i in line.split():
+					if '%' in i:
+						pct_str = i
+						percent = float(pct_str[:-1])
+
+				print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Rendering '+passname+', '+pct_str+' complete.')
+				#pass info to progress bars (equiv of parseline())
+				self.termout = [self.computer, self.frame, percent] 
+				with threadlock:
+					renderJobs[self.index][10] = self.termout
+
+			elif line.strip().isdigit(): #detect PID at first line
+				pid = int(line)
+				if pid != self.frame: #necessary b/c terragen echoes frame # at start. Hopefully PID will never be same as frame #
+					with threadlock:
+						renderJobs[self.index][5][self.computer] = pid
+					if self.computer in renice_list: #renice process to lowest priority on specified comps 
+						subprocess.call('ssh igp@'+self.computer+' "renice 20 -p '+str(pid)+'"', shell=True)
+					if skiplists[self.index]:
+						with threadlock:
+							skiplists[self.index].pop(0) #remove oldest entry from skip list
+
+			elif line.find('Finished') >= 0:
+				rendertime = line.split()[2][:-1]
+
+				print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Finished frame after '+rendertime) 
+				RenderLog(self.index).frame_received(self.computer, self.frame, rendertime)
+				with threadlock:
+					compflags[str(self.index)+'_'+self.computer] = 0
+				with threadlock:
+					if 0 in renderJobs[self.index][7]: #total frames
+						renderJobs[self.index][7].remove(0) #remove a placeholder
+					renderJobs[self.index][7].append(self.frame)
+					try:
+						del renderJobs[self.index][6][self.computer] #delete currentFrames entry
+					except:
+						pass
+				with threadlock:
+					queue['q'+str(self.index)].task_done() 
+                        else:
+                                self.output = self.output + line
+
+			if verbose: #verbose terminal output
+				if line:
+					print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDOUT: '+line)
+
+
+		for line in iter(command.stderr.readline, ''):
+			if line.find('WindowServer') >= 0: #terragen throwing window server error but still saving file?
+				print('got window server error in STDERR, ignoring')
+				pass
+
+			elif line: #assume any text in STDERR (other than above) means connection/render failure
+				with threadlock:
+					queue['q'+str(self.index)].put(self.frame)
+				with threadlock:
+					compflags[str(self.index)+'_'+self.computer] = 0 #reset compflag to try again on next round
+				with threadlock:
+					skiplists[self.index].append(self.computer)
+				print('STDERR:'+line)
+
+				print('ERROR:Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDERR: '+line) 
+				RenderLog(self.index).error(self.computer, self.frame, 3, line) #error code 1
+
+
+
+
+
 
 	def parseline(self, line, frame, computer, index): #prints render progress in compact form
 		self.line = line
@@ -586,7 +721,7 @@ class RenderThread(object):
 	                tiles = int(tiles)
 	                total = int(total)
 	                percent = float(tiles) / total * 100
-			self.termout = [self.computer, self.frame, tiles, total, percent] #doing it this way to try to fix frame -1 issue
+			self.termout = [self.computer, self.frame, percent] #doing it this way to try to fix frame -1 issue
 			with threadlock:
 				renderJobs[self.index][10] = self.termout
 
@@ -615,8 +750,21 @@ class RenderTimer(object):
 
 	def start(self):
 		'''starts a render timer'''
+		#with threadlock:
+		#	ttime[self.index][0] = time.time()
+		if ttime[self.index][0] == 0: #starting a totally new render
+			with threadlock:
+				ttime[self.index][0] = time.time()
+		else: #resuming a stopped render, leave timer unaffected.
+			prev_elapsed_time = ttime[self.index][1] - ttime[self.index][0] #time rendering before stopped
+			with threadlock:
+				ttime[self.index][0] = time.time() - prev_elapsed_time
+
+	def stop(self):
+		'''stops a render timer **but does not reset it to zero**'''
+
 		with threadlock:
-			ttime[self.index][0] = time.time()
+			ttime[self.index][1] = time.time()
 
 
 	def get(self): 
@@ -625,9 +773,10 @@ class RenderTimer(object):
 		if self.status != 'Rendering':
 			rendertime = ttime[self.index][1] - ttime[self.index][0]
 		else:
-			with threadlock:
-				ttime[self.index][1] = time.time()
-			rendertime = ttime[self.index][1] - ttime[self.index][0]
+			#with threadlock:
+			#	ttime[self.index][1] = time.time()
+			#rendertime = ttime[self.index][1] - ttime[self.index][0]
+			rendertime = time.time() - ttime[self.index][0]
 
 		return rendertime
 
@@ -953,8 +1102,9 @@ class Status(Job):
 		'''sets computer progress bar to 100%'''
 		for computer in computers:
 			if computer in self.threads: #if computer recently rendered a frame
-				self.termout[0] = computer
-				self.termout[-1] = 100
+				self.termout = [computer, '', 100]
+				#self.termout[0] = computer
+				#self.termout[-1] = 100
 				self.drawBar()
 			else:
 				statframe.nametowidget(computer+'_statbox.'+computer+'_compdata').delete('all')
@@ -1149,6 +1299,84 @@ class Dialog(object):
 			return True
 		else:
 			return False
+
+
+
+class SystemStatus(object):
+	'''Methods for checking various system status indicators'''
+
+	def __init__(self, computer):
+		self.computer = computer
+		if self.computer in macs:
+			arg = '-l'
+		else:
+			arg = '-bn'
+		try:
+			self.top = subprocess.check_output(['ssh', 'igp@'+self.computer, 'top', arg, '1'])
+		except:
+			self.top = 'error'
+
+
+	def get_cpu(self):
+		'''returns % CPU utilization'''
+		if self.top == 'error':
+			return 0
+
+		if self.computer in macs:
+			for line in self.top.split('\n'):
+				if 'CPU usage' in line:
+					cpu_line = line
+			cpu_free = float(cpu_line.split()[-2][:-1])
+			cpu_used = 100 - cpu_free
+		else:
+			for line in self.top.split('\n'):
+				if 'Cpu(s)' in line:
+					cpu_line = line
+			cpu_free = float(cpu_line.split()[4][:-4])
+			cpu_used = 100 - float(cpu_free)
+
+		return cpu_used
+
+
+	def get_memory(self):
+		'''returns ram utilization in GB'''
+		if self.top == 'error':
+			return 0
+
+		if self.computer in macs:
+			for line in self.top.split('\n'):
+				if 'PhysMem' in line:
+					mem_line = line
+
+			mem_free = float(mem_line.split()[-2][:-1]) #must use free mem b/c of issue w/ top reporting incorrect ram use in mavericks
+
+			#make adjustments if units are not GB
+			suffix = mem_line.split()[-2][-1]
+			if suffix == 'K':
+				mem_free = mem_free / 1e6
+			elif suffix == 'M':
+				mem_free = mem_free / 1e3
+
+			for computer in maxram:
+				if self.computer == computer:
+					mem_used = maxram[computer] - mem_free
+
+		else:
+			for line in self.top.split('\n'):
+				if 'Mem:' in line:
+					mem_line = line
+
+			#mem_used = float(mem_line[-4][:-1]) / 1e6 #check that these units are right
+			mem_str = mem_line.split()[3]
+			mem_used = ''
+			for char in mem_str:
+				if char.isdigit():
+					mem_used += char
+			mem_used = float(mem_used) / 1e6
+
+		return mem_used
+
+			
 
 
 
@@ -1351,7 +1579,8 @@ def parseOutput(): #called by update(), reads renderJobs & updates UI status ind
 		Status(i).globalJobstat()
 
 	if not Job(index).checkSlotFree(): #update detailed info only for CURRENT slot
-		if len(termout) == 5:
+		#if len(termout) == 3:
+		if type(termout) == list and len(termout) == 3: 
 			Status(index).drawBar()
 		if status == 'Finished':
 			Status(index).fillAllBars()
@@ -1415,123 +1644,59 @@ def quit(): #forces immediate exit without waiting for loops to terminate
 
 
 
-def check_missing_frames(index):
-	if index in range(1, queueslots + 1): #checking a currently-queued job
-		path = renderJobs[index][0]
-		start = renderJobs[index][1]
-		end = renderJobs[index][2]
-		extras = renderJobs[index][3]
-	else:
-		path = check_path.get()
-		start = int(check_start.get())
-		end = int(check_end.get())
+def export_json(): #exports a formatted JSON file with current status for website
+	global renderJobs
 
-	frames_theoretical = []
-	frames_actual = []
-	frames_missing = []
+	#need job no., status, filepath, start, end, extras, complist, progress, computer+frame+status
+	export_data = dict()
+	for index in renderJobs:
+		export_data['job'+str(index)+'status'] = renderJobs[index][8]
+		export_data['job'+str(index)+'filepath'] = renderJobs[index][0]
+		export_data['job'+str(index)+'startframe'] = renderJobs[index][1]
+		export_data['job'+str(index)+'endframe'] = renderJobs[index][2]
+		export_data['job'+str(index)+'extraframes'] = renderJobs[index][3]
+		export_data['job'+str(index)+'complist'] = renderJobs[index][4]
 
-	for frame in range(start, end + 1):
-		frames_theoretical.append(frame)
+		#calculate percent complete
+		totalFrames = renderJobs[index][7]
+		finished_frames = 0
+		for i in renderJobs:
+			if i != 0:
+				finished_frames += 1
 
-	dir_contents = subprocess.check_output('ls '+path, shell=True).split()
-
-	for line in dir_contents:
-		if line[-3:] in allowed_filetypes:
-			filename = line
-			name, ext = line.split('.')
-			print filename, ext
-			no_allowed_files = False
-			break
+		if len(totalFrames) != 0:
+			percent_complete = int(finished_frames / float(len(totalFrames)) * 100)
 		else:
-			no_allowed_files = True
-	
-	if no_allowed_files == True:
-		print('Error: No suitable files found.')
-		return 'Error: No suitable files found.', None, None
+			percent_complete = 0
 
-	#reverse filename and check backwards from end until a non-digit is found.  Assume this is start of name text
-	#intended to prevent problems if there are numbers in filename before sequential numbers
-	length = range(len(name))
-	length.reverse()
-	for i in length:
-		if not name[i].isdigit():
-			leftbreak = i+1
-			rightbreak = len(filename) - len(ext) - 1 #assuming sequential #s go to end of filename
-			sequentials = filename[leftbreak:rightbreak]
-			break
+		export_data['job'+str(index)+'job_progress'] = percent_complete
 
-	def nametext_confirm():
-		ntconf = Toplevel()
-		ntframe = LabelFrame(ntconf, text='Confirm Filename Parsing')
-		ntframe.grid(row=0, column=0, padx=10, pady=10)
+		#create list of computer statuses
+		#not currently working
+		termout = renderJobs[index][10]
+		compstatus = []
+		for comp in termout:
+			export_data['job'+str(index)+'computer_status'] = compstatus.append([comp, termout[1], termout[-1]]) #[computer, frame, percent]
 
-		def get_slider():
-			leftbreak = int(slider_left.get())
-			rightbreak = int(slider_right.get())
-			sequentials = filename[leftbreak:rightbreak]
-			a.config(text=filename[0:leftbreak])
-			b.config(text=sequentials)
-			c.config(text=filename[rightbreak:])
-
-		a = Label(ntframe, text=filename[0:leftbreak], fg='gray50')
-		a.grid(row=0, column=0, sticky=E)
-		b = Label(ntframe, text=sequentials, fg='DarkRed')
-		b.grid(row=0, column=1, sticky=N)
-		c = Label(ntframe, text=filename[rightbreak:], fg='gray50')
-		c.grid(row=0, column=2, sticky=W)
-
+	data_out = open('render_status.json', 'w')
+	data_out.write(json.dumps(export_data, indent=1))
+	data_out.close()
+	print('JSON file exported') #debugging
 		
-		slidelength = len(filename)
-		slider_left = ttk.Scale(ntframe, from_=0, to=slidelength, orient=HORIZONTAL, length=slidelength*9, command=lambda x: get_slider())
-		slider_left.grid(row=1, column=0, columnspan=3, sticky=W)
-		slider_left.set(leftbreak)
-		
-		slider_right = ttk.Scale(ntframe, from_=0, to=slidelength, orient=HORIZONTAL, length=slidelength*9, command=lambda x: get_slider())
-		slider_right.grid(row=2, column=0, columnspan=3, sticky=W)
-		slider_right.set(rightbreak)
-
-		a.config(text=filename[0:leftbreak])
-		b.config(text=sequentials)
-		c.config(text=filename[rightbreak:])
-
-		Button(ntframe, text='Close', command=ntconf.destroy).grid(row=3)
-
-	nametext_confirm()
-	
-	for line in dir_contents:
-		if line[-3:] in allowed_filetypes:
-			frameno = int(line[leftbreak:rightbreak])
-			frames_actual.append(frameno)
-
-	for frame in frames_theoretical:
-		if not frame in frames_actual:
-			frames_missing.append(frame)
-
-
-	if not frames_missing:
-		print('No missing frames found.')
-	else:
-		for frame in frames_missing:
-			print('Missing frame '+str(frame))
-
-	return dir_contents, frames_theoretical, frames_missing
-
-
-	
 
 
 
-#----------Global Variables----------
+#----------GLOBAL VARIABLES----------
 
 queueslots = 5 #total number of queue slots (for scalability purposes, used in various range() functions)
 
 
 #create list of all computers available for rendering
-computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'snowmass', 'humberto', 'tabeguache', 'conundrum', 'paradox'] 
+computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache', 'conundrum', 'paradox'] 
 
 fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 'eldiente'] #list of computers in the 'fast' group
 
-farm = ['lindsey', 'wetterhorn', 'lincoln', 'snowmass', 'humberto', 'tabeguache'] #list of computers in the 'farm' group
+farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] #list of computers in the 'farm' group
 
 extracomps = ['conundrum', 'paradox'] #list of computers that may not always be available for rendering.
 
@@ -1543,9 +1708,13 @@ blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' #path to bl
 
 blenderpath_linux = '/usr/local/bin/blender' #path to blender executable on Linux computers
 
+terragenpath_mac = '/mnt/data/software/terragen3/terragen3_mac/terragen3.app/Contents/MacOS/Terragen_3'
+
+terragenpath_linux = '/mnt/data/software/Terragen3-Linux-30110/terragen'
+
 allowed_filetypes = ['png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] #allowed file extensions (last 3 chars only) for check_missing_files
 
-timeout = 60 #timeout for failed machine in seconds
+timeout = 300 #timeout for failed machine in seconds
 
 startnext = 1 #start next job when current one finishes. On by default
 
@@ -1554,7 +1723,7 @@ maxglobalrenders = 1 #maximum number of simultaneous renders for the start_next_
 
 #create global renderJobs dictionary
 #holds render info for each job
-#format: { job(int) : [path(str), startframe(int), endframe(int), extraframes(list), computerList(list), threads(dict), currentFrames(dict), totalFrames(list), status(str), index(int), termout(str), timestart(str) }
+#format: { job(int) : [path(str), startframe(int), endframe(int), extraframes(list), computerList(list), threads(dict), currentFrames(dict), totalFrames(list), status(str), index(int), termout(str), timestart(str), render_engine(str) }
 #Definitions:
 	#extraframes: list of non-sequential frames to be rendered (must be outside of range(startframe, endframe + 1)
 	#computerList: list of computers on which to render the current job
@@ -1565,11 +1734,12 @@ maxglobalrenders = 1 #maximum number of simultaneous renders for the start_next_
 	#index: integer representing the number of the job. This is the same as the queue slot's index in the job number (redundant, there was a reason for this originally)
 	#termout: string containing per-computer render progress, parsed to update progress bars.
 	#log_path: time of render start for logging purposes 
+	#render_engine: which render engine to use. Currently 'blender' or 'terragen'
  
 
 renderJobs= dict()
 for job in range(1, queueslots + 1): #put empty placeholders so parsing/checking functions work
-	renderJobs[job] = ['', 0, 0, [], [], {}, {}, [], 'Empty', job, '', '']
+	renderJobs[job] = ['', 0, 0, [], [], {}, {}, [], 'Empty', job, '', '', 'blender']
 
 
 #create global dictionary of queues
@@ -1604,7 +1774,7 @@ for job in range(1, queueslots + 2): #+2 b/c first index is 0
 verbose = 0
 
 #create re-entrant thread lock
-threadlock = RLock()
+threadlock = threading.RLock()
 
 #create dict for check_missing_frames
 checkframes = dict()
@@ -1627,16 +1797,25 @@ root.bind('<Command-q>', lambda x: quit()) #use internal quit function instead o
 root.bind('<Control-q>', lambda x: quit())
 #ttk.Style().theme_use('clam') #use clam theme for widgets in Linux
 
-bigboldfont = tkFont.Font(family='Default', size='16', weight='bold')
-medboldfont = tkFont.Font(family='Default', size='14', weight='bold')
-smallfont = tkFont.Font(family='Default', size='10')
+smallfont = tkFont.Font(family='System', size='10')
+
+#test font width & adjust font size to make sure everything fits with different system fonts
+fontwidth = smallfont.measure('abc ijk 123.456')
+print('fontwidth=', fontwidth)
+newsize = 10
+if fontwidth > 76:
+	while fontwidth > 76:
+		newsize -= 1
+		smallfont = tkFont.Font(family='System', size=newsize)
+		fontwidth = smallfont.measure('abc ijk 123.456')
+print('newsize=', newsize)
 
 
 
 #---GUI Variables---
 
 pathInput = StringVar(None)
-pathInput.set('/mnt/data/test_render/test_render.blend')
+pathInput.set('/Users/igp/test_render/terragen_test.tgd')
 
 startInput = StringVar(None)
 startInput.set('1')
@@ -1682,6 +1861,9 @@ for i in range(1, queueslots + 1):
 check_path = StringVar()
 check_start = StringVar()
 check_end = StringVar()
+
+#create render engine variable
+render_eng = StringVar()
 
 
 
@@ -1787,31 +1969,22 @@ def input_window(): #opens a new window for render queue input
 	extrasin = Entry(inputBox, textvariable=extrasInput, width=42)
 	extrasin.grid(row=3, column=2, padx=5, sticky=W)
 
-	#---Input Buttons---
 
-	buttonFrame = Frame(inputBox)
-	buttonFrame.grid(row=5, column=0, columnspan=3, padx=5, pady=5, sticky=W)
 
-	okbutton = Button(buttonFrame, text='OK', command=queueJob, borderwidth=4)
-	okbutton.grid(row=0, column=0, sticky=W)
-	input_win.bind('<Return>', lambda x: okbutton.invoke()) #activates OK button when user presses enter
-	input_win.bind('<KP_Enter>', lambda x: okbutton.invoke()) #for the numpad enter key
-
-	cancelbutton = Button(buttonFrame, text='Cancel', command=input_win.destroy)
-	cancelbutton.grid(row=0, column=1, sticky=W)
-	input_win.bind('<Escape>', lambda x: cancelbutton.invoke()) #activates cancel button when user presses Esc
-
-	clearcomps = Button(buttonFrame, text='Reset Computers', command=uncheckAll)
-	clearcomps.grid(row=0, column=2,  sticky=E)
-
-	clearbutton = Button(buttonFrame, text='Reset All', command=clearInputs)
-	clearbutton.grid(row=0, column=3, sticky=E)
+	#---Render Engine Radiobuttons---
+	rebox = LabelFrame(inputBox, text='Render Engine')
+	rebox.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky=W)
+	rebtn_blender = Radiobutton(rebox, text='Blender', variable=render_eng, value='blender')
+	rebtn_blender.grid(row=0, column=0, padx=5, pady=5, sticky=W)
+	rebtn_tgn = Radiobutton(rebox, text='Terragen', variable=render_eng, value='terragen')
+	rebtn_tgn.grid(row=0, column=1, padx=5, pady=5, sticky=W)
+	rebtn_blender.invoke()
 
 
 	#---Computer Checkboxes---
 
 	compBox = LabelFrame(inputBox, name='compBox', text='Computers:')
-	compBox.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky=W)
+	compBox.grid(row=5, column=0, columnspan=3, padx=5, pady=5, sticky=W)
 
 	compAll = Checkbutton(compBox, text='All', variable=compAllvar, command=checkAll)
 	compAll.grid(row=0, column=0, padx=5, pady=5, sticky=W)
@@ -1833,211 +2006,33 @@ def input_window(): #opens a new window for render queue input
 			compButton = Checkbutton(compBox, name=computers[i]+'_button', text=computers[i], variable=compvars[i], command=uncheckTop)
 			compButton.grid(row=3, column=i-12, padx=5, pady=5, sticky=W)
 
+	#---Buttons---
+
+	buttonFrame = Frame(inputBox)
+	buttonFrame.grid(row=6, column=0, columnspan=3, padx=5, pady=5, sticky=W)
+
+	okbutton = Button(buttonFrame, text='OK', command=queueJob, borderwidth=4)
+	okbutton.grid(row=0, column=0, sticky=W)
+	input_win.bind('<Return>', lambda x: okbutton.invoke()) #activates OK button when user presses enter
+	input_win.bind('<KP_Enter>', lambda x: okbutton.invoke()) #for the numpad enter key
+
+	cancelbutton = Button(buttonFrame, text='Cancel', command=input_win.destroy)
+	cancelbutton.grid(row=0, column=1, sticky=W)
+	input_win.bind('<Escape>', lambda x: cancelbutton.invoke()) #activates cancel button when user presses Esc
+
+	clearcomps = Button(buttonFrame, text='Reset Computers', command=uncheckAll)
+	clearcomps.grid(row=0, column=2,  sticky=E)
+
+	clearbutton = Button(buttonFrame, text='Reset All', command=clearInputs)
+	clearbutton.grid(row=0, column=3, sticky=E)
+
 
 
 
 
 
 #------DUMP VARIABLES WINDOW------
-
-def dump_vars_win(): 
-	dv_win = Toplevel()
-	dv_win.config(bg='gray90')
-	dv_win.title('Show Variables')
-	autoref = IntVar() #autorefresh (true/false)
-	autoref.set(0) #off by default
-	refint = StringVar() #user specified refresh interval in ms 
-	dv_win.bind('<Command-q>', lambda x: quit()) #use internal quit function instead of OSX
-	dv_win.bind('<Control-q>', lambda x: quit())
-	
-	def dump_renderJobs():
-		global renderJobs
-		rjtext.delete(0.0, END) #probably don't want to include this later
-		for i in renderJobs:
-			rjtext.insert(END, str(i)+':')
-			rjtext.insert(END, renderJobs[i])
-			rjtext.insert(END, '\n\n')
-
-	def dump_compflags():
-		global compflags
-		global queueslots
-		cftext1.delete(0.0, END)
-		cftext2.delete(0.0, END)
-		cftext3.delete(0.0, END)
-		cftext4.delete(0.0, END)
-		cftext5.delete(0.0, END)
-
-		for flag in compflags:
-			if flag[0] == '1':
-				cftext1.insert(END, flag+':'+str(compflags[flag])+'\n')
-			elif flag[0] == '2':
-				cftext2.insert(END, flag+':'+str(compflags[flag])+'\n')
-			elif flag[0] == '3':
-				cftext3.insert(END, flag+':'+str(compflags[flag])+'\n')
-			elif flag[0] == '4':
-				cftext4.insert(END, flag+':'+str(compflags[flag])+'\n')
-			elif flag[0] == '5':
-				cftext5.insert(END, flag+':'+str(compflags[flag])+'\n')
-
-	def dump_killflags():
-		global killflags
-		kftext.delete(0.0, END)
-		kftext.insert(END, killflags)
-
-	def dump_queue():
-		global queue
-		qtext.delete(0.0, END)
-		qtext.insert(END, queue)
-
-	def dump_ttime():
-		global ttime
-		tttext.delete(0.0, END)
-		tttext.insert(END, ttime)
-
-	def dump_all():
-		dump_renderJobs()
-		dump_compflags()
-		dump_killflags()
-		dump_queue()
-		dump_ttime()
-
-	def autorefresh():
-		dump_all()
-		try:
-			interval = int(refint.get())
-		except:
-			interval = 300 #default interval of 0.3 sec
-		if autoref.get() == 1:
-			dv_win.after(interval, autorefresh)
-
-	dv_topbar = Frame(dv_win, bg='gray90')
-	dv_topbar.grid(row=0, column=0, padx=5, sticky=W)
-	ttk.Button(dv_topbar, text='renderJobs', command=dump_renderJobs, style='Toolbutton').grid(row=0, column=0, padx=5, pady=5, sticky=W)
-	ttk.Button(dv_topbar, text='compflags', command=dump_compflags, style='Toolbutton').grid(row=0, column=1, padx=5, pady=5, sticky=W)
-	ttk.Button(dv_topbar, text='killflags', command=dump_killflags, style='Toolbutton').grid(row=0, column=2, padx=5, pady=5, sticky=W)
-	ttk.Button(dv_topbar, text='queue', command=dump_queue, style='Toolbutton').grid(row=0, column=3, padx=5, pady=5, sticky=W)
-	ttk.Button(dv_topbar, text='ttime', command=dump_ttime, style='Toolbutton').grid(row=0, column=4, padx=5, pady=5, sticky=W)
-
-	arfframe = Frame(dv_topbar, bg='gray90', bd=2, relief=GROOVE)
-	arfframe.grid(row=0, column=5, sticky=E)
-	arfbtn = ttk.Checkbutton(arfframe, text='Auto Refresh', command=autorefresh, variable=autoref, style='Toolbutton')
-	arfbtn.grid(row=0, column=0, padx=1, pady=1, sticky=W)
-	Label(arfframe, text='Interval (ms):', bg='gray90').grid(row=0, column=1, padx=1, sticky=W)
-	intentry = Entry(arfframe, textvariable=refint, width=4, highlightthickness=0)
-	intentry.grid(row=0, column=2, padx=1, sticky=W)
-	intentry.insert(END, '300') #display default interval in entry field
-	
-	
-	#--renderJobs--
-	
-	rjlabel = LabelFrame(dv_win, text='Global renderJobs', bg='gray90')
-	rjlabel.grid(row=1, column=0, padx=10)
-
-	rjtextframe = Frame(rjlabel)
-	rjtextframe.pack(padx=5, pady=5)
-	
-	rjscroll = Scrollbar(rjtextframe)
-	rjscroll.pack(side=RIGHT, fill=Y)
-	
-	rjtext = Text(rjtextframe, width=100, height=12, bg='black', fg='white', highlightthickness=0)
-	rjtext.pack()
-
-	rjtext.config(yscrollcommand=rjscroll.set)
-	rjscroll.config(command=rjtext.yview)
-	
-	#--compflags--
-
-	cflabel = LabelFrame(dv_win, text='Global compflags', bg='gray90')
-	cflabel.grid(row=2, column=0, padx=10)
-
-	cftextframe = Frame(cflabel)
-	cftextframe.pack(padx=5, pady=5)
-
-	cfscroll = Scrollbar(cftextframe)
-	cfscroll.pack(side=RIGHT, fill=Y)
-
-	cftext1 = Text(cftextframe, width=20, height=14, bg='black', fg='white', highlightthickness=0)
-	cftext1.pack(side=LEFT)
-
-	cftext2 = Text(cftextframe, width=20, height=14, bg='black', fg='white', highlightthickness=0)
-	cftext2.pack(side=LEFT)
-
-	cftext3 = Text(cftextframe, width=20, height=14, bg='black', fg='white', highlightthickness=0)
-	cftext3.pack(side=LEFT)
-
-	cftext4 = Text(cftextframe, width=20, height=14, bg='black', fg='white', highlightthickness=0)
-	cftext4.pack(side=LEFT)
-
-	cftext5 = Text(cftextframe, width=20, height=14, bg='black', fg='white', highlightthickness=0)
-	cftext5.pack(side=LEFT)
-
-	cftext1.config(yscrollcommand=cfscroll.set)
-	cfscroll.config(command=cftext1.yview)
-
-	cftext2.config(yscrollcommand=cfscroll.set)
-	cfscroll.config(command=cftext2.yview)
-
-	cftext3.config(yscrollcommand=cfscroll.set)
-	cfscroll.config(command=cftext3.yview)
-
-	cftext4.config(yscrollcommand=cfscroll.set)
-	cfscroll.config(command=cftext4.yview)
-
-	cftext5.config(yscrollcommand=cfscroll.set)
-	cfscroll.config(command=cftext5.yview)
-
-	#--killflags--
-
-	kflabel = LabelFrame(dv_win, text='Global killflags', bg='gray90')
-	kflabel.grid(row=3, column=0, padx=10)
-
-	kftextframe = Frame(kflabel)
-	kftextframe.pack(padx=5, pady=5)
-
-	kfscroll = Scrollbar(kftextframe)
-	kfscroll.pack(side=RIGHT, fill=Y)
-
-	kftext = Text(kftextframe, width=100, height=1, bg='black', fg='white', highlightthickness=0)
-	kftext.pack()
-
-	kftext.config(yscrollcommand=cfscroll.set)
-	kfscroll.config(command=kftext.yview)
-
-	#--queue--
-
-	qlabel = LabelFrame(dv_win, text='Global queue', bg='gray90')
-	qlabel.grid(row=4, column=0, padx=10)
-
-	qtextframe = Frame(qlabel)
-	qtextframe.pack(padx=5, pady=5)
-
-	qscroll = Scrollbar(qtextframe)
-	qscroll.pack(side=RIGHT, fill=Y)
-
-	qtext = Text(qtextframe, width=100, height=3, bg='black', fg='white', highlightthickness=0)
-	qtext.pack()
-
-	qtext.config(yscrollcommand=qscroll.set)
-	qscroll.config(command=qtext.yview)
-
-	#--ttime--
-
-	ttlabel = LabelFrame(dv_win, text='Global ttime', bg='gray90')
-	ttlabel.grid(row=6, column=0, padx=10)
-
-	tttextframe = Frame(ttlabel)
-	tttextframe.pack(padx=5, pady=5)
-
-	ttscroll = Scrollbar(tttextframe)
-	ttscroll.pack(side=RIGHT, fill=Y)
-
-	tttext = Text(tttextframe, width=100, height=3, bg='black', fg='white', highlightthickness=0)
-	tttext.pack()
-
-	tttext.config(yscrollcommand=ttscroll.set)
-	ttscroll.config(command=tttext.yview)
-
-	dump_all() #populate all fields to start
+#Removed. See backups as of Mar. 26, 2014 if needed.
 
 
 
@@ -2045,14 +2040,6 @@ def dump_vars_win():
 #----------PREFERENCES WINDOW----------
 
 def prefs():
-	prefs_win = Toplevel()
-	prefs_win.title('Preferences')
-	prefs_win.config(bg='gray90')
-	prefs_win.bind('<Command-q>', lambda x: quit()) #use internal quit function instead of OSX
-	prefs_win.bind('<Control-q>', lambda x: quit())
-	prefs_win.bind('<Return>', lambda x: prefsok.invoke())
-	prefs_win.bind('<KP_Enter>', lambda x: prefsok.invoke())
-
 	#--variables--
 	tout = StringVar() #tkinter variable corresponding to global timeout
 	rnice = StringVar() #tkinter variable corresponding to renice_list
@@ -2117,6 +2104,14 @@ def prefs():
 		global allowed_filetypes
 		allowed_filetypes = ftlist.get().split()
 
+	prefs_win = Toplevel()
+	prefs_win.title('Preferences')
+	prefs_win.config(bg='gray90')
+	prefs_win.bind('<Command-q>', lambda x: quit()) #use internal quit function instead of OSX
+	prefs_win.bind('<Control-q>', lambda x: quit())
+	prefs_win.bind('<Return>', lambda x: prefsok.invoke())
+	prefs_win.bind('<KP_Enter>', lambda x: prefsok.invoke())
+
 	toframe = LabelFrame(prefs_win, text='Global Timeout', bg='gray90')
 	toframe.grid(row=0, column=0, padx=10, pady=10, sticky=W)
 	Label(toframe, text='Maximum time renderer will wait between updates before marking a computer as offline and retrying.', wraplength=225, bg='gray90').pack()
@@ -2180,6 +2175,220 @@ def prefs():
 	
 
 
+#----------SYSTEM STATUS WINDOW----------
+maxram = {'bierstadt':64, 'massive':64, 'sneffels':64, 'sherman':64, 'the-holy-cross':64, 'eldiente':32, 'lindsey':16, 'wetterhorn':8, 'lincoln':8, 'snowmass':8, 'humberto':8, 'tabeguache':8, 'conundrum':16, 'paradox':16 } #dict containing max ram for each computer
+
+proc_threads = {'bierstadt':12, 'massive':12, 'sneffels':12, 'sherman':12, 'the-holy-cross':12, 'eldiente':8, 'lindsey':4, 'wetterhorn':2, 'lincoln':2, 'snowmass':2, 'humberto':2, 'tabeguache':2, 'conundrum':8, 'paradox':8} #dict containing number of processor threads for each computer
+
+statdict = dict()
+for computer in computers: #dictionary of CPU and RAM status, format is {computer: [cpu_peak, ram_peak, cpu_history, ram_history]}
+	statdict[computer] = [0, 0, [], []] 
+
+#generate list of x coordinates for status graph
+ycoord_max = 69#location of graph baseline (pixels below top of canv)
+ycoord_min = 9 #location of 100% line (pixels below top of canv). NOTE: 4 pixels lower than top of graph window so 100% line doesn't overlap frame
+xcoords = []
+n = 5 
+while n <= 285:
+	xcoords.append(n)
+	n += 28
+
+#create list of y-coordinates 
+ycoords = []
+n = ycoord_min
+while n <= ycoord_max:
+	ycoords.append(n)
+	n += 16
+
+systat_test = 0 #flag to prevent opening more than one systat window at a time
+
+
+systat_update_interval = 1 #update frequency in seconds
+systat_update_tk = DoubleVar() #tkinter version of above
+systat_update_tk.set(systat_update_interval)
+
+def systat():
+
+	global systat_test
+	if systat_test == 1:
+		return
+
+	systat_test = 1
+
+	def set_systat_interval():
+		global systat_update_interval
+		systat_update_interval = systat_update_tk.get()
+		print('System status will now update once every '+str(systat_update_interval)+' seconds.')
+
+	def get_sysinfo():
+		#blargag = ['conundrum'] #for testing, so I don't have to wait for every computer to update
+		for computer in computers: 
+
+			cpu = SystemStatus(computer).get_cpu() #NOTE: get_cpu() is reporting CPU out of 100% ALREADY. Need to verify this is true for Linux as well
+			mem = SystemStatus(computer).get_memory()
+			#cpubar = cpu / (100 * proc_threads[computer]) * 100 #normalizes CPU usage for # of cores
+			rambar = mem / (maxram[computer]) * 100 #normalizes ram usage out of 100
+
+			if cpu > statdict[computer][0]: #replace max CPU value
+				statdict[computer][0] = cpu
+			if mem > statdict[computer][1]:
+				statdict[computer][1] = mem #replace max ram value
+
+			#fill empty slots in CPU & RAM histories with zeros to prevent index errors
+			while len(statdict[computer][2]) < 11: 
+				statdict[computer][2].append(0)
+
+			while len(statdict[computer][3]) < 11:
+				statdict[computer][3].append(0)
+
+			#append most recent values to CPU & RAM histories
+			statdict[computer][2].append(cpu)
+			statdict[computer][2].pop(0) #remove oldest history entry
+
+			statdict[computer][3].append(rambar)
+			statdict[computer][3].pop(0)
+
+			#print current numbers
+			#using try statements to prevent errors if window is closed in middle of an operation
+			try:
+				systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).delete('statnumbers')
+	
+				systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_text(30, ycoord_max + 5, text=str(round(cpu, 1))+'%', anchor=NW, font=smallfont, tag='statnumbers')
+				systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_text(120, ycoord_max + 5, text=str(round(statdict[computer][0], 1))+'%', anchor=NW, font=smallfont, tag='statnumbers')
+				systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_text(187, ycoord_max + 5, text=str(round(mem, 1))+'GB', anchor=NW, font=smallfont, tag='statnumbers')
+				systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_text(282, ycoord_max + 5, text=str(round(statdict[computer][1], 1))+'GB', anchor=NW, font=smallfont, tag='statnumbers')
+			except:
+				print('exception in get_sysinfo() attempting to put text in canv. Exiting function') #debugging
+				return #no point in attempting to draw graph if function fails here
+
+			draw_graph(computer)
+
+
+
+	def draw_graph(computer):
+		cpu_history = statdict[computer][2]
+		ram_history = statdict[computer][3]
+
+		#invert CPU history so that graph displays correctly with top of canvas = 0 
+		cpu_history_inverted = []
+		for i in cpu_history:
+			x = 60 * i/100.0 #correct for y scale. Using 60 so that 100% line falls slightly below top border of graph canvas.
+			cpu_history_inverted.append(ycoord_max - x) #use ycoord_max so top isn't clipped
+			
+		#invert RAM history
+		ram_history_inverted = []
+		for i in ram_history:
+			x = 60 * i/100.0 #correct for y scale
+			ram_history_inverted.append(ycoord_max - x)
+
+		try:
+			systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).delete('graph')
+			systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).delete('frame')
+		except:
+			pass
+
+		try:
+			#create CPU history graph
+			systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_polygon(xcoords[0]-0.01, ycoord_max, xcoords[0],  cpu_history_inverted[0], xcoords[1],  cpu_history_inverted[1], xcoords[2],  cpu_history_inverted[2], xcoords[3],  cpu_history_inverted[3], xcoords[4],  cpu_history_inverted[4], xcoords[5],  cpu_history_inverted[5], xcoords[6],  cpu_history_inverted[6], xcoords[7],  cpu_history_inverted[7], xcoords[8],  cpu_history_inverted[8], xcoords[9], cpu_history_inverted[9], xcoords[10], cpu_history_inverted[10], xcoords[10]+0.01, ycoord_max, fill='', outline='blue', tag='graph', width=2)
+
+			#create RAM history graph
+			systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_polygon(xcoords[0]-0.01, ycoord_max, xcoords[0],  ram_history_inverted[0], xcoords[1],  ram_history_inverted[1], xcoords[2],  ram_history_inverted[2], xcoords[3],  ram_history_inverted[3], xcoords[4],  ram_history_inverted[4], xcoords[5],  ram_history_inverted[5], xcoords[6],  ram_history_inverted[6], xcoords[7],  ram_history_inverted[7], xcoords[8],  ram_history_inverted[8], xcoords[9], ram_history_inverted[9], xcoords[10], ram_history_inverted[10], xcoords[10]+0.01, ycoord_max, fill='', outline='red', tag='graph', width=2)
+
+			#redraw frame to make sure it's always on top
+			systatframe.nametowidget('sysinfoframe_'+computer+'.graphcanv_'+computer).create_rectangle(xcoords[0], 5, xcoords[-1], ycoord_max, fill='', outline='black', tag='frame', width=2)
+
+		except:
+			pass
+
+
+
+	def sysinfohandler(): 
+		while 1:
+			try: #get state to check if window is still open
+				systatwin.state() 
+			except: #assume exception means window is closed, break loop.
+				global systat_test
+				systat_test = 0 #reset flag
+				break
+
+			get_sysinfo()
+			global systat_update_interval
+			time.sleep(systat_update_interval) #graph update frequency in seconds
+
+
+	systatwin = Toplevel()
+	systatwin.config(bg='gray90')
+	systatwin.bind('<Command-q>', lambda x: quit()) #use internal quit function instead of OSX
+	systatwin.bind('<Control-q>', lambda x: quit())
+	
+	tbarframe = Frame(systatwin, bg='gray90', highlightthickness=0)
+	tbarframe.grid(row=0, column=0, padx=10, pady=5, sticky=W)
+	uffframe = LabelFrame(tbarframe, bg='gray90', highlightthickness=0)
+	uffframe.grid(row=0, column=0)
+	Label(uffframe, text='Update interval:', highlightthickness=0, bg='gray90').grid(row=0, column=0, sticky=W)
+	Entry(uffframe, textvariable=systat_update_tk, width=4, highlightthickness=0).grid(row=0, column=1, sticky=W)
+	Label(uffframe, text='sec.', highlightthickness=0, bg='gray90').grid(row=0, column=2, sticky=W)
+	ttk.Button(uffframe, text='Set', style='Toolbutton', command=set_systat_interval).grid(row=0, column=3, sticky=W)
+	systatframe = LabelFrame(systatwin)
+	systatframe.grid(row=1, column=0, padx=10, ipadx=5, ipady=5)
+
+
+	for i in range(len(computers)): #generate system info boxes for each computer
+
+		if i < 5: #create three-column layout
+			col = 0
+			rww = i
+		elif i < 10:
+			col = 1
+			rww = i - 5
+		else:
+			col = 2
+			rww = i - 10
+
+		sysinfoframe = LabelFrame(systatframe, text=computers[i], name='sysinfoframe_'+computers[i])
+		sysinfoframe.grid(row=rww, column=col, padx=10)
+		graphcanv = Canvas(sysinfoframe, width=320, height=85, name='graphcanv_'+computers[i])
+		graphcanv.grid(row=0, column=0)
+
+		#create time labels and vertical lines
+		t = 10 #number of x-axis data points on graph
+		for xcoord in xcoords:
+			if t % 2 == 0: #only draw lines for even numbers
+				graphcanv.create_line(xcoord, 5, xcoord, ycoord_max, fill='PaleGreen', dash=(4, 4))
+			t -= 1
+		
+		#create y-axis labels and horizontal lines
+		for ycoord in ycoords:
+			graphcanv.create_line(xcoords[0], ycoord, xcoords[-1], ycoord, fill='LightSkyBlue', dash=(4,4))
+		graphcanv.create_text(xcoords[-1]+5, ycoord_min, text='100%', anchor=W, font=smallfont)
+		graphcanv.create_text(xcoords[-1]+5, ycoord_max / 2 + ycoord_min, text='50%', anchor=W, font=smallfont) 
+		graphcanv.create_text(xcoords[-1]+5, ycoord_max, text='0%', anchor=W, font=smallfont)
+
+		#create CPU & RAM number labels
+		graphcanv.create_text(5, ycoord_max + 5, text='CPU:', anchor=NW, font=smallfont, fill='blue')
+		graphcanv.create_text(70, ycoord_max + 5, text='CPU Peak:', anchor=NW, font=smallfont)
+		graphcanv.create_text(160, ycoord_max + 5, text='RAM:', anchor=NW, font=smallfont, fill='red')
+		graphcanv.create_text(230, ycoord_max + 5, text='RAM Peak:', anchor=NW, font=smallfont)
+
+		#create placeholders for CPU & RAM values
+		graphcanv.create_text(30, ycoord_max + 5, text='...', anchor=NW, font=smallfont, tag='statnumbers')
+		graphcanv.create_text(120, ycoord_max + 5, text='...', anchor=NW, font=smallfont, tag='statnumbers')
+		graphcanv.create_text(187, ycoord_max + 5, text='...', anchor=NW, font=smallfont, tag='statnumbers')
+		graphcanv.create_text(282, ycoord_max + 5, text='...', anchor=NW, font=smallfont, tag='statnumbers')
+
+		#create frame around graph
+		graphcanv.create_rectangle(xcoords[0], 5, xcoords[-1], ycoord_max, fill='', outline='black', tag='frame', width=2)
+
+		Frame(systatwin).grid(row=2, pady=5) #padding for bottom of window
+
+	#encapsulate get_sysinfo in new thread to prevent blocking GUI processes
+	sysinfothread = threading.Thread(target=sysinfohandler, args=())
+	sysinfothread.start()	
+
+	
+
+
+
 
 #----------EXTRAFRAMES BALLOON---------
 #displays long list of extraframes in popup box
@@ -2240,6 +2449,108 @@ def nameballoon(event, index):
 
 
 #----------CHECK MISSING FRAMES WINDOW---------
+def check_missing_frames(index):
+	if index in range(1, queueslots + 1): #checking a currently-queued job
+		path = renderJobs[index][0]
+		start = renderJobs[index][1]
+		end = renderJobs[index][2]
+		extras = renderJobs[index][3]
+	else:
+		path = check_path.get()
+		start = int(check_start.get())
+		end = int(check_end.get())
+
+	frames_theoretical = []
+	frames_actual = []
+	frames_missing = []
+
+	for frame in range(start, end + 1):
+		frames_theoretical.append(frame)
+
+	dir_contents = subprocess.check_output('ls '+path, shell=True).split()
+
+	for line in dir_contents:
+		if line[-3:] in allowed_filetypes:
+			filename = line
+			name, ext = line.split('.')
+			print filename, ext
+			no_allowed_files = False
+			break
+		else:
+			no_allowed_files = True
+	
+	if no_allowed_files == True:
+		print('Error: No suitable files found.')
+		return 'Error: No suitable files found.', None, None
+
+	#reverse filename and check backwards from end until a non-digit is found.  Assume this is start of name text
+	#intended to prevent problems if there are numbers in filename before sequential numbers
+	length = range(len(name))
+	length.reverse()
+	for i in length:
+		if not name[i].isdigit():
+			leftbreak = i+1
+			rightbreak = len(filename) - len(ext) - 1 #assuming sequential #s go to end of filename
+			sequentials = filename[leftbreak:rightbreak]
+			break
+
+	def nametext_confirm():
+		ntconf = Toplevel()
+		ntframe = LabelFrame(ntconf, text='Confirm Filename Parsing')
+		ntframe.grid(row=0, column=0, padx=10, pady=10)
+
+		def get_slider():
+			leftbreak = int(slider_left.get())
+			rightbreak = int(slider_right.get())
+			sequentials = filename[leftbreak:rightbreak]
+			a.config(text=filename[0:leftbreak])
+			b.config(text=sequentials)
+			c.config(text=filename[rightbreak:])
+
+		a = Label(ntframe, text=filename[0:leftbreak], fg='gray50')
+		a.grid(row=0, column=0, sticky=E)
+		b = Label(ntframe, text=sequentials, fg='DarkRed')
+		b.grid(row=0, column=1, sticky=N)
+		c = Label(ntframe, text=filename[rightbreak:], fg='gray50')
+		c.grid(row=0, column=2, sticky=W)
+
+		
+		slidelength = len(filename)
+		slider_left = ttk.Scale(ntframe, from_=0, to=slidelength, orient=HORIZONTAL, length=slidelength*9, command=lambda x: get_slider())
+		slider_left.grid(row=1, column=0, columnspan=3, sticky=W)
+		slider_left.set(leftbreak)
+		
+		slider_right = ttk.Scale(ntframe, from_=0, to=slidelength, orient=HORIZONTAL, length=slidelength*9, command=lambda x: get_slider())
+		slider_right.grid(row=2, column=0, columnspan=3, sticky=W)
+		slider_right.set(rightbreak)
+
+		a.config(text=filename[0:leftbreak])
+		b.config(text=sequentials)
+		c.config(text=filename[rightbreak:])
+
+		Button(ntframe, text='Close', command=ntconf.destroy).grid(row=3)
+
+	nametext_confirm()
+	
+	for line in dir_contents:
+		if line[-3:] in allowed_filetypes:
+			frameno = int(line[leftbreak:rightbreak])
+			frames_actual.append(frameno)
+
+	for frame in frames_theoretical:
+		if not frame in frames_actual:
+			frames_missing.append(frame)
+
+
+	if not frames_missing:
+		print('No missing frames found.')
+	else:
+		for frame in frames_missing:
+			print('Missing frame '+str(frame))
+
+	return dir_contents, frames_theoretical, frames_missing
+
+
 def check_frames_window():
 
 	def get_breaks():
@@ -2278,9 +2589,9 @@ def check_frames_window():
 		slider_right.config(to=slidelength)
 		slider_left.set(leftbreak)
 		slider_right.set(rightbreak)
-		nameleft.config(text=filename[0:leftbreak])
-		nameseq.config(text=sequentials)
-		nameright.config(text=filename[rightbreak:])
+		nameleft.config(text=filename[0:leftbreak], bg='white')
+		nameseq.config(text=sequentials, bg='DodgerBlue')
+		nameright.config(text=filename[rightbreak:], bg='white')
 		checkframes['rightbreak'] = rightbreak
 		checkframes['leftbreak'] = leftbreak
 		checkframes['sequentials'] = sequentials
@@ -2313,9 +2624,9 @@ def check_frames_window():
 		leftbreak = int(slider_left.get())
 		rightbreak = int(slider_right.get())
 		sequentials = filename[leftbreak:rightbreak]
-		nameleft.config(text=filename[0:leftbreak])
-		nameseq.config(text=sequentials)
-		nameright.config(text=filename[rightbreak:])
+		nameleft.config(text=filename[0:leftbreak], bg='white')
+		nameseq.config(text=sequentials, bg='DodgerBlue')
+		nameright.config(text=filename[rightbreak:], bg='white')
 		checkframes['leftbreak'] = leftbreak
 		checkframes['rightbreak'] = rightbreak
 		checkframes['sequentials'] = sequentials
@@ -2387,9 +2698,9 @@ def check_frames_window():
 	checkjob.set(0)
 	Label(cfwin, text='Compare the contents of a directory against a generated file list to search for missing frames.', bg='gray90').grid(row=0, column=0, padx=10, pady=10, sticky=W)
 
-	cfframe = LabelFrame(cfwin)
+	cfframe = LabelFrame(cfwin, bg='gray90')
 	cfframe.grid(row=1, column=0, padx=10, pady=10)
-	Label(cfframe, text='Check existing job:').grid(row=0, column=0, padx=5, pady=5, sticky=E)
+	Label(cfframe, text='Check existing job:', bg='gray90').grid(row=0, column=0, padx=5, pady=5, sticky=E)
 	bbox = Frame(cfframe)
 	bbox.grid(row=0, column=1, columnspan=3, padx=5, pady=5, sticky=W)
 	ttk.Radiobutton(bbox, text='None', variable=checkjob, value=0, command=put_text, style='Toolbutton').grid(row=0, column=1, sticky=W)
@@ -2401,40 +2712,41 @@ def check_frames_window():
 			btnstate = 'normal'
 		ttk.Radiobutton(bbox, text=str(i), variable=checkjob, value=i, command=put_text, state=btnstate, style='Toolbutton').grid(row=0, column=i+1, sticky=W)
 	
-	Label(cfframe, text='Directory to check:').grid(row=1, column=0, padx=5, pady=5, sticky=E)
-	checkin = Entry(cfframe, textvariable=check_path, width=50)
+	Label(cfframe, text='Directory to check:', bg='gray90').grid(row=1, column=0, padx=5, pady=5, sticky=E)
+	checkin = Entry(cfframe, textvariable=check_path, width=50, highlightthickness=0)
 	checkin.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky=W)
-	Button(cfframe, text='Browse', command=get_framecheck_path).grid(row=1, column=4, padx=5, pady=5, sticky=W)
+	ttk.Button(cfframe, text='Browse', command=get_framecheck_path).grid(row=1, column=4, padx=5, pady=5, sticky=W)
 	
-	Label(cfframe, text='Start frame:').grid(row=2, column=0, padx=5, pady=5, sticky=E)
-	startent = Entry(cfframe, textvariable=check_start, width=20)
+	Label(cfframe, text='Start frame:', bg='gray90').grid(row=2, column=0, padx=5, pady=5, sticky=E)
+	startent = Entry(cfframe, textvariable=check_start, width=20, highlightthickness=0)
 	startent.grid(row=2, column=1, padx=5, pady=5, sticky=W)
 
-	Label(cfframe, text='End frame:').grid(row=3, column=0, padx=5, pady=5, sticky=E)
-	endent = Entry(cfframe, textvariable=check_end, width=20)
+	Label(cfframe, text='End frame:', bg='gray90').grid(row=3, column=0, padx=5, pady=5, sticky=E)
+	endent = Entry(cfframe, textvariable=check_end, width=20, highlightthickness=0)
 	endent.grid(row=3, column=1, padx=5, pady=5, sticky=W)
 
-	startbtn = Button(cfframe, text='Generate lists', command=get_breaks)
-	startbtn.grid(row=4, column=0, padx=5, pady=5, sticky=E)
-	Button(cfframe, text='Update lists', command=getlist).grid(row=4, column=1, sticky=W)
+	startbtn = ttk.Button(cfframe, text='Start', width=10, command=get_breaks)
+	startbtn.grid(row=4, column=1, padx=5, pady=5, sticky=W)
 	cfwin.bind('<Return>', lambda x: startbtn.invoke())
 	cfwin.bind('<KP_Enter>', lambda x: startbtn.invoke())
 	cfwin.bind('<Command-w>', lambda x: chkclose())
 	cfwin.bind('<Control-w>', lambda x: chkclose())
 	
 
-	confirmframe = LabelFrame(cfframe, text='Adjust Filename Parsing')
+	confirmframe = LabelFrame(cfframe, text='Adjust Filename Parsing', bg='gray90')
 	confirmframe.grid(row=2, rowspan=3 , column=2, columnspan=3, padx=10, pady=5, ipady=5, sticky=W)
-	Label(confirmframe, text='Move sliders to isolate sequential file numbers.').grid(row=0, column=0, columnspan=3)
+	Label(confirmframe, text='Move sliders to isolate sequential file numbers.', bg='gray90').grid(row=0, column=0, columnspan=3)
 
-	nameleft = Label(confirmframe, fg='gray50')
-	nameleft.grid(row=1, column=0)
+	nameframe = Frame(confirmframe, bg='gray90', highlightthickness=0)
+	nameframe.grid(row=1, column=0, columnspan=3)
+	nameleft = Label(nameframe, fg='gray50', highlightthickness=0, bg='gray90')
+	nameleft.grid(row=1, column=0, sticky=E)
 
-	nameseq = Label(confirmframe, fg='DarkRed')
+	nameseq = Label(nameframe, fg='white', highlightthickness=0, bg='gray90')
 	nameseq.grid(row=1, column=1)
 
-	nameright = Label(confirmframe, fg='gray50')
-	nameright.grid(row=1, column=2)
+	nameright = Label(nameframe, fg='gray50', highlightthickness=0, bg='gray90')
+	nameright.grid(row=1, column=2, sticky=W)
 	
 	slider_left = ttk.Scale(confirmframe, from_=0, to=100, orient=HORIZONTAL, length=300, command=lambda x: get_slider())
 	slider_left.grid(row=2, column=0, columnspan=3)
@@ -2442,26 +2754,29 @@ def check_frames_window():
 	slider_right = ttk.Scale(confirmframe, from_=0, to=100, orient=HORIZONTAL, length=300, command=lambda x: get_slider())
 	slider_right.grid(row=3, column=0, columnspan=3)
 
+	ttk.Button(confirmframe, text='Update', command=getlist).grid(row=4, column=0, columnspan=3)
 	
-	resultframe = LabelFrame(cfframe, text='Result')
+
+	
+	resultframe = LabelFrame(cfframe, text='Result', bg='gray90')
 	resultframe.grid(row=5, column=0, columnspan=5, padx=10, pady=5, ipady=5)
 
-	Label(resultframe, text='Directory contents:').grid(row=0, column=0, padx=5, sticky=W)
+	Label(resultframe, text='Directory contents:', bg='gray90').grid(row=0, column=0, padx=5, sticky=W)
 	dirconts = st.ScrolledText(resultframe, width=38, height=10, highlightthickness=0, bd=4) #directory contents
 	dirconts.frame.config(border=2, relief=GROOVE)
 	dirconts.grid(row=1, column=0, padx=5, sticky=W)
 
-	Label(resultframe, text='Found:').grid(row=0, column=1, padx=5, sticky=W)
+	Label(resultframe, text='Found:', bg='gray90').grid(row=0, column=1, padx=5, sticky=W)
 	foundfrms = st.ScrolledText(resultframe, width=10, height=10, highlightthickness=0, bd=4) #found frame numbers after parsing
 	foundfrms.frame.config(border=2, relief=GROOVE)
 	foundfrms.grid(row=1, column=1, padx=5, sticky=W)
 
-	Label(resultframe, text='Expected:').grid(row=0, column=2, padx=5, sticky=W)
+	Label(resultframe, text='Expected:', bg='gray90').grid(row=0, column=2, padx=5, sticky=W)
 	expfrms = st.ScrolledText(resultframe, width=10, height=10, highlightthickness=0, bd=4) #expected frames
 	expfrms.frame.config(border=2, relief=GROOVE)
 	expfrms.grid(row=1, column=2, padx=5, sticky=W)
 
-	Label(resultframe, text='Missing:').grid(row=0, column=3, padx=5, sticky=W)
+	Label(resultframe, text='Missing:', bg='gray90').grid(row=0, column=3, padx=5, sticky=W)
 	missfrms = st.ScrolledText(resultframe, width=10, height=10, highlightthickness=0, bd=4) #missing frames
 	missfrms.frame.config(border=2, relief=GROOVE)
 	missfrms.grid(row=1, column=3, padx=5, sticky=W)
@@ -2483,20 +2798,23 @@ topbar.grid(row=0, column=0, padx=10, sticky=W)
 verbosebtn = ttk.Checkbutton(topbar, text='Verbose', variable=verbosity, command=toggle_verbosity, style='Toolbutton')
 verbosebtn.grid(row=0, column=0, pady=5, sticky=W)
 
-autobtn = ttk.Checkbutton(topbar, text='Autostart', variable=stnext, command=set_startnext, style='Toolbutton')
+autobtn = ttk.Checkbutton(topbar, text='Autostart New Renders', variable=stnext, command=set_startnext, style='Toolbutton')
 autobtn.grid(row=0, column=1, padx=5, sticky=W)
 
 prefsbutton = ttk.Button(topbar, text='Prefs', command=prefs, style='Toolbutton')
 prefsbutton.grid(row=0, column=2, padx=5, sticky=W)
 
-dumpbtn = ttk.Button(topbar, text='Show Variables', command=dump_vars_win, style='Toolbutton')
-dumpbtn.grid(row=0, column=3, padx=5, pady=5, sticky=W)
-
 chkfrmbtn = ttk.Button(topbar, text='Check Missing Frames', command=check_frames_window, style='Toolbutton')
-chkfrmbtn.grid(row=0, column=4, padx=5, pady=5, sticky=W)
+chkfrmbtn.grid(row=0, column=3, padx=5, pady=5, sticky=W)
+
+systatbtn = ttk.Button(topbar, text='System Stats', command=systat, style='Toolbutton')
+systatbtn.grid(row=0, column=4, padx=5, pady=5, sticky=W)
 
 quitbutton = ttk.Button(topbar, text='Quit', command=quit, style='Toolbutton')
 quitbutton.grid(row=0, column=5, padx=5, pady=5, sticky=E)
+
+jsonbutton = ttk.Button(topbar, text='Export JSON', command=export_json, style='Toolbutton')
+jsonbutton.grid(row=0, column=6, padx=6, pady=6, sticky=E)
 
 
 
@@ -2619,7 +2937,7 @@ Frame(root).grid(row=2, column=0, pady=5) #spacer to pad bottom of window
 
 
 
-set_job(1) #always starts with the first queue slot active
+set_job(1) #opens with the first queue slot active
 update()
-check_job_queue()
+check_job_queue() 
 root.mainloop()

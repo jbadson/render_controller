@@ -1808,6 +1808,7 @@ smallfont = tkFont.Font(family='System', size='10')
 
 #test font width & adjust font size to make sure everything fits with different system fonts
 fontwidth = smallfont.measure('abc ijk 123.456')
+newsize = 10
 if fontwidth > 76:
     while fontwidth > 76:
         newsize -= 1

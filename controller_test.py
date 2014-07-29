@@ -716,20 +716,28 @@ class RenderThread(object):
 
         for line in iter(command.stderr.readline, ''):
             if line.find('WindowServer') >= 0: #terragen throwing window server error but still saving file?
-                print('got window server error in STDERR, ignoring')
+                print('Got terragen window server error in STDERR on '+self.computer+', frame '+str(self.frame)+', ignoring')
+                pass
+
+            elif line.find('ERROR 4') >= 0: #terragen has wierd `' does not exist in file system error
+                print('Got terragen ERROR 4 in STDERR on '+self.computer+', frame '+str(self.frame)+', ignoring.')
                 pass
 
             elif line: #assume any text in STDERR (other than above) means connection/render failure
-                with threadlock:
-                    queue['q'+str(self.index)].put(self.frame)
-                with threadlock:
-                    compflags[str(self.index)+'_'+self.computer] = 0 #reset compflag to try again on next round
-                with threadlock:
-                    skiplists[self.index].append(self.computer)
-                print('Text in stderr.'+self.computer+' STDERR:'+line ) #debugging
+                print('Text in stderr, ignoring because this error checking function is temporarily disabled') #debugging
+                pass
 
-                print('ERROR:Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDERR: '+line) 
-                RenderLog(self.index).error(self.computer, self.frame, 3, line) #error code 1
+                #ignore following blocks
+                #with threadlock:
+                #    queue['q'+str(self.index)].put(self.frame)
+                #with threadlock:
+                #    compflags[str(self.index)+'_'+self.computer] = 0 #reset compflag to try again on next round
+                #with threadlock:
+                #    skiplists[self.index].append(self.computer)
+                #print('Text in stderr.'+self.computer+' STDERR:'+line ) #debugging
+
+                #print('ERROR:Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDERR: '+line) 
+                #RenderLog(self.index).error(self.computer, self.frame, 3, line) #error code 1
 
 
 

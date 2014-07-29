@@ -1,0 +1,7 @@
+#!/usr/bin/env python
+
+#This is a script to simplify launching the render controller from the command line
+
+import subprocess
+subprocess.call('python /mnt/data/script/render_controller/controller_test.py', shell=True)
+quit()

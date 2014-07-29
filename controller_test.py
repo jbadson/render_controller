@@ -115,13 +115,25 @@ class Job(object):
             return False
 
 
+        self.render_engine = render_eng.get()
         
         self.path = pathInput.get()
         if not path.exists(self.path): 
             Dialog(10).warn()
             return False
 
-        self.render_engine = render_eng.get()
+        #verify that file suffix matches selected render engine
+        if self.render_engine == 'blender':
+            if not self.path.find('.blend') > 0:
+                Dialog(17).warn()
+                return False
+        elif self.render_engine == 'terragen':
+            if not self.path.find('.tgd') > 0:
+                Dialog(17).warn()
+                return False
+        else:
+            print('Unknown error in render engine selector.')
+            return False
 
         try:
             self.startframe = int(startInput.get())
@@ -158,11 +170,6 @@ class Job(object):
         if self.computerList == []:
             Dialog(5).warn()
             return False
-
-        for computer in self.computerList:
-            if computer in extracomps: #confirm that extra computers are available
-                if not Dialog(4).confirm():
-                    return False
 
         for i in range(self.startframe, self.endframe + 1 + len(self.extraframes)):
             self.totalFrames.append(0) #fill totalFrames list with zeros so that len(totalFrames) returns total number to be rendered. Used for calculating percent complete.
@@ -617,7 +624,7 @@ class RenderThread(object):
         #can edit the TERRAGEN_PATH env var or cd to terragen directory before running
 
         #for now reassigning renderpath to include cd
-        renderpath = 'cd /Applications/Terragen\ 3/Terragen\ 3.app/Contents/MacOS/&&./Terragen\ 3'
+        #renderpath = 'cd /Applications/Terragen\ 3/Terragen\ 3.app/Contents/MacOS/&&./Terragen\ 3'
 
         command = subprocess.Popen('ssh igp@'+self.computer+' "'+renderpath+' -p '+self.path+' -hide -exit -r -f '+str(self.frame)+' & pgrep -n Terragen&wait"', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         print('sending command with renderpath '+renderpath) #debugging
@@ -657,6 +664,7 @@ class RenderThread(object):
                     if '%' in i:
                         pct_str = i
                         percent = float(pct_str[:-1])
+                        break
 
                 print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Rendering '+passname+', '+pct_str+' complete.')
                 #pass info to progress bars (equiv of parseline())
@@ -718,8 +726,7 @@ class RenderThread(object):
                     compflags[str(self.index)+'_'+self.computer] = 0 #reset compflag to try again on next round
                 with threadlock:
                     skiplists[self.index].append(self.computer)
-                print('Text in stderr.' ) #debugging
-                print('STDERR:'+line)
+                print('Text in stderr.'+self.computer+' STDERR:'+line ) #debugging
 
                 print('ERROR:Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|STDERR: '+line) 
                 RenderLog(self.index).error(self.computer, self.frame, 3, line) #error code 1
@@ -1303,6 +1310,8 @@ class Dialog(object):
             txt = 'Cannot remove a job while rendering.  Stop render first.'
         elif self.msg == 16:
             txt = 'No render thread currently assigned to this computer.'
+        elif self.msg == 17:
+            txt = 'File suffix does not match selected render engine.'
 
         tkMessageBox.showwarning('Achtung!', txt)
 
@@ -1726,8 +1735,6 @@ fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 'eldien
 
 farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] #list of computers in the 'farm' group
 
-extracomps = ['conundrum', 'paradox'] #list of computers that may not always be available for rendering.
-
 renice_list = ['conundrum', 'paradox'] #list of computer to renice processes to lowest priority. Can be changed from prefs window.
 
 macs = ['conundrum', 'paradox', 'sherman'] #computers running OSX. Needed because blender uses different path
@@ -1736,13 +1743,13 @@ blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' #path to bl
 
 blenderpath_linux = '/usr/local/bin/blender' #path to blender executable on Linux computers
 
-terragenpath_mac = '/mnt/data/software/terragen3/terragen3_mac/terragen3.app/Contents/MacOS/Terragen_3'
+terragenpath_mac = '/mnt/data/software/terragen_rendernode/osx/terragen3.app/Contents/MacOS/Terragen_3'
 
-terragenpath_linux = '/mnt/data/software/Terragen3-Linux-30110/terragen'
+terragenpath_linux = '/mnt/data/software/terragen_rendernode/linux/terragen'
 
 allowed_filetypes = ['png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] #allowed file extensions (last 3 chars only) for check_missing_files
 
-timeout = 300 #timeout for failed machine in seconds
+timeout = 1000 #timeout for failed machine in seconds
 
 startnext = 1 #start next job when current one finishes. On by default
 
@@ -1841,7 +1848,7 @@ if fontwidth > 76:
 #---GUI Variables---
 
 pathInput = StringVar(None)
-pathInput.set('/Users/igp/test_render/terragen_test.tgd')
+pathInput.set('/mnt/data/test_render/terragen_test.tgd')
 
 startInput = StringVar(None)
 startInput.set('1')

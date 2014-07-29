@@ -1735,7 +1735,7 @@ fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 'eldien
 
 farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] #list of computers in the 'farm' group
 
-renice_list = ['conundrum', 'paradox'] #list of computer to renice processes to lowest priority. Can be changed from prefs window.
+renice_list = ['conundrum', 'paradox', 'sherman'] #list of computer to renice processes to lowest priority. Can be changed from prefs window.
 
 macs = ['conundrum', 'paradox', 'sherman'] #computers running OSX. Needed because blender uses different path
 

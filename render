@@ -1,7 +1,30 @@
 #!/usr/bin/env python
-
 #This is a script to simplify launching the render controller from the command line
-
 import subprocess
+from time import strftime
+
+'''
 subprocess.call('python /mnt/data/script/render_controller/controller_test.py', shell=True)
+quit()
+'''
+
+
+'''Testing ways to log all terminal output and error tracebacks'''
+log_suffix = strftime('%Y-%m-%d_%H%M')
+fout = open('/mnt/data/renderlogs/errorlog.'+log_suffix+'.txt', 'w')
+#initialize log heading
+timestamp = strftime('%c')
+fout.write('Render controller started at '+timestamp+'\n')
+fout.write('Output from stderr will be recorded here.\n')
+
+controller = subprocess.Popen('python /mnt/data/script/render_controller/controller_test.py', 
+    shell=True, stderr=subprocess.PIPE)
+
+for line in iter(controller.stderr.readline, ''):
+    print line
+    fout.write(line)
+    fout.flush()
+
+
+fout.close()
 quit()

@@ -739,7 +739,10 @@ class RenderThread(object):
         #can edit the TERRAGEN_PATH env var or cd to terragen directory before 
         #running
 
-        command = subprocess.Popen('ssh igp@'+self.computer+' "'+renderpath+' -p '+self.path+' -hide -exit -r -f '+str(self.frame)+' & pgrep -n Terragen&wait"', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        command = subprocess.Popen('ssh igp@'+self.computer+' "'+renderpath+' -p '
+            +self.path+' -hide -exit -r -f '+str(self.frame)+
+            ' & pgrep -n Terragen&wait"', stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, shell=True)
         print('sending command with renderpath '+renderpath) #debugging
 
         self.output = ''
@@ -859,7 +862,7 @@ class RenderThread(object):
                     +self.computer+', frame '+str(self.frame)+', ignoring')
                 pass
 
-            #terragen has wierd `' does not exist in file system error
+            #terragen has weird `' does not exist in file system error
             elif line.find('ERROR 4') >= 0: 
                 print('Got terragen ERROR 4 in STDERR on '+self.computer+
                     ', frame '+str(self.frame)+', ignoring.')
@@ -869,7 +872,7 @@ class RenderThread(object):
             #connection/render failure
             elif line: 
                 print('Text in stderr, ignoring because this error checking '
-                    'function is temporarily disabled') #debugging
+                    'function is temporarily disabled', line) #debugging
                 pass
 
                 #ignore following blocks

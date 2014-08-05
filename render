@@ -1,30 +1,41 @@
 #!/usr/bin/env python
 #This is a script to simplify launching the render controller from the command line
-import subprocess
+#import subprocess
+from subprocess import call, Popen, PIPE
 from time import strftime
 
-'''
-subprocess.call('python /mnt/data/script/render_controller/controller_test.py', shell=True)
-quit()
-'''
+#if firstwrite == true, print header information before error line
+firstwrite = True
 
-
-'''Testing ways to log all terminal output and error tracebacks'''
 log_suffix = strftime('%Y-%m-%d_%H%M')
-fout = open('/mnt/data/renderlogs/errorlog.'+log_suffix+'.txt', 'w')
-#initialize log heading
-timestamp = strftime('%c')
-fout.write('Render controller started at '+timestamp+'\n')
-fout.write('Output from stderr will be recorded here.\n')
+logpath = '/mnt/data/renderlogs/errorlog_' + log_suffix + '.txt'
+timestart = strftime('%c')
+controller = Popen('python /mnt/data/script/render_controller/controller_test.py', 
+    shell=True, stderr=PIPE)
 
-controller = subprocess.Popen('python /mnt/data/script/render_controller/controller_test.py', 
-    shell=True, stderr=subprocess.PIPE)
+
+def check_first(firstwrite):
+    '''write header info if this is the first line received from stderr'''
+    if firstwrite == True:
+        timestamp = strftime('%c')
+        print('Error detected at ' + timestamp +'.\n' +
+            'Writing logfile at ' + logpath)
+        call('echo "Render controller started at ' + timestart +
+            '.\nError detected at '+ timestamp +'.\n\n" >> ' + logpath, shell=True)
+        return False
+    else:
+        return False
+
+
+
+
+print('Render controller started at ' + timestart)
 
 for line in iter(controller.stderr.readline, ''):
-    print line
-    fout.write(line)
-    fout.flush()
+    if line:
+        firstwrite = check_first(firstwrite)
+        print(line)
+        call('echo "' + line + '" >> ' + logpath, shell=True)
 
 
-fout.close()
 quit()

@@ -1,19 +1,17 @@
 {
  "job1extraframes": [], 
  "job5startframe": 0, 
- "job1computer_status": null, 
+ "job1filepath": "", 
  "job4startframe": 0, 
- "job2complist": [
-  "conundrum"
- ], 
- "job2status": "Waiting", 
+ "job2complist": [], 
+ "job2status": "Empty", 
  "job4complist": [], 
- "job1status": "Rendering", 
+ "job1status": "Empty", 
  "job3filepath": "", 
  "job3extraframes": [], 
  "job3endframe": 0, 
  "job4status": "Empty", 
- "job2job_progress": 1, 
+ "job2job_progress": 0, 
  "job4job_progress": 0, 
  "job3complist": [], 
  "job5filepath": "", 
@@ -23,20 +21,17 @@
  "job5job_progress": 0, 
  "job3status": "Empty", 
  "job5status": "Empty", 
- "job1startframe": 1, 
+ "job1startframe": 0, 
  "job4extraframes": [], 
- "job1complist": [
-  "conundrum"
- ], 
- "job2startframe": 1, 
+ "job1complist": [], 
+ "job2startframe": 0, 
  "job5endframe": 0, 
  "job5complist": [], 
- "job1filepath": "/Users/igp/test_render/test_render.blend", 
- "job2endframe": 435, 
- "job1endframe": 10, 
+ "job2endframe": 0, 
+ "job1endframe": 0, 
  "job4endframe": 0, 
- "job2filepath": "/Users/igp/test_render/fast.blend", 
+ "job2filepath": "", 
  "job2extraframes": [], 
  "job3startframe": 0, 
- "job1job_progress": 50
+ "job1job_progress": 0
 }

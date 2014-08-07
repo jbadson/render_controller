@@ -14,6 +14,7 @@ import ttk
 from os import path, _exit
 import ScrolledText as st
 import json
+import cfgfile
 
 
 
@@ -921,7 +922,7 @@ class RenderThread(object):
         #hack to fix issue with blender completing renders but returning error 
         #for "not freed memory blocks"
         elif self.output.find('Error: Not freed'):
-            print('had not freed memory error, returning false in check_warn()')                #debugging
+            print('had not freed memory error, returning false in check_warn()')#debugging
             return False
 
         elif self.output.find('Error:') >= 0:
@@ -1791,7 +1792,8 @@ def add_remove_computer(computer):
         Job(index).add_computer(computer)
     else:
         if len(computerList) <= 1:
-            if not Dialog('Are you sure you want to remove the last computer from the pool?').confirm():
+            if not Dialog('Are you sure you want to remove the last computer '
+                            + 'from the pool?').confirm():
                 return
         Job(index).remove_computer(computer)
 
@@ -1890,6 +1892,10 @@ def toggle_verbosity():
     '''#toggles python verbose variable based on tkinter verbosity checkbox'''
     global verbose
     verbose = verbosity.get()
+    if verbose == 1:
+        print('Verbose on')
+    else:
+        print('Verbose off')
 
 
 def start_next_job(): 
@@ -1978,7 +1984,8 @@ def export_json(): #exports a formatted JSON file with current status for websit
         compstatus = []
         for comp in termout:
             #[computer, frame, percent]
-            export_data['job'+str(index)+'computer_status'] = compstatus.append([comp, termout[1], termout[-1]]) 
+            export_data['job'+str(index)+'computer_status'] = compstatus.append([comp, termout[1], 
+                termout[-1]]) 
 
     data_out = open('render_status.json', 'w')
     data_out.write(json.dumps(export_data, indent=1))
@@ -1988,54 +1995,133 @@ def export_json(): #exports a formatted JSON file with current status for websit
 
 
 
+#----------CONFIG FILE----------
+def set_defaults():
+    '''Restores all config settings to default values.'''
+
+    #create list of all computers available for rendering
+    computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
+        'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache', 
+        'conundrum', 'paradox'] 
+    
+    #list of computers in the 'fast' group
+    fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
+        'eldiente'] 
+    #list of computers in the 'farm' group
+    farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
+    
+    #list of computer to renice processes to lowest priority. 
+    #Can be changed from prefs window.
+    renice_list = ['conundrum', 'paradox', 'sherman'] 
+    
+    #computers running OSX. Needed because blender uses different path
+    macs = ['conundrum', 'paradox', 'sherman'] 
+    
+    #path to blender executable on OSX computers
+    blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' 
+    
+    #path to blender executable on Linux computers
+    blenderpath_linux = '/usr/local/bin/blender' 
+    
+    terragenpath_mac = '/mnt/data/software/terragen_rendernode/osx/terragen3.app/Contents/MacOS/Terragen_3'
+    
+    terragenpath_linux = '/mnt/data/software/terragen_rendernode/linux/terragen'
+    
+    #allowed file extensions (last 3 chars only) for check_missing_files
+    allowed_filetypes = ['png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 
+        'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
+    
+    #timeout for failed machine in seconds
+    timeout = 1000 
+    
+    #start next job when current one finishes. 1=yes, 0=no, on by default
+    startnext = 1 
+    
+    #maximum number of simultaneous renders for the start_next_job() function
+    maxglobalrenders = 1 
+
+    #terminal output verbose. 0 = normal, 1 = write everything from render 
+    #stdout to terminal
+    verbose = 0
+
+    #default path, start, and end frame to put in New / Edit job window
+    default_path = '/mnt/data/test_render/test_render.blend'
+    default_start = 1
+    default_end = 3
+
+    defaults = [computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, 
+            terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext,
+            maxglobalrenders, verbose, default_path, default_start, default_end]
+
+    return defaults
+
+def define_global_config_vars(settings):
+    '''Defines/updates global variables from config settings.'''
+    global cfgsettings
+    global computers
+    global fast
+    global farm
+    global renice_list
+    global macs
+    global blenderpath_mac
+    global blenderpath_linux
+    global terragenpath_mac
+    global terragenpath_linux
+    global allowed_filetypes
+    global timeout
+    global startnext
+    global maxglobalrenders
+    global verbose
+    global default_path
+    global default_start
+    global default_end
+
+    print('Updating global config variables.')
+    cfgsettings = settings
+    computers = settings[0]
+    fast = settings[1]
+    farm = settings[2]
+    renice_list = settings[3]
+    macs = settings[4]
+    blenderpath_mac = settings[5]
+    blenderpath_linux = settings[6]
+    terragenpath_mac = settings[7]
+    terragenpath_linux = settings[8]
+    allowed_filetypes = settings[9]
+    timeout = settings[10]
+    startnext = settings[11]
+    maxglobalrenders = settings[12]
+    verbose = settings[13]
+    default_path = settings[14]
+    default_start = settings[15]
+    default_end = settings[16]
+
+
+#check for a config file
+if not cfgfile.check():
+    print('No config file found. Creating one from defaults.')
+    cfgsettings = cfgfile.write(set_defaults())
+else:
+    print('Config file found. Reading...')
+    cfgsettings = cfgfile.read()
+
+#now define variables in main based on cfgsettings
+define_global_config_vars(cfgsettings)
+
+def update_cfgfile():
+    cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, 
+            terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext,
+            maxglobalrenders, verbose, default_path, default_start, default_end]
+    print('Updating config file.')
+    cfgfile.write(cfgsettings)
+
+
+
 #----------GLOBAL VARIABLES----------
 
 #total number of queue slots (for scalability purposes
 #used in various range() functions)
 queueslots = 5 
-
-
-#create list of all computers available for rendering
-computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-    'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache', 
-    'conundrum', 'paradox'] 
-
-#list of computers in the 'fast' group
-fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-    'eldiente'] 
-#list of computers in the 'farm' group
-farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
-
-#list of computer to renice processes to lowest priority. 
-#Can be changed from prefs window.
-renice_list = ['conundrum', 'paradox', 'sherman'] 
-
-#computers running OSX. Needed because blender uses different path
-macs = ['conundrum', 'paradox', 'sherman'] 
-
-#path to blender executable on OSX computers
-blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' 
-
-#path to blender executable on Linux computers
-blenderpath_linux = '/usr/local/bin/blender' 
-
-terragenpath_mac = '/mnt/data/software/terragen_rendernode/osx/terragen3.app/Contents/MacOS/Terragen_3'
-
-terragenpath_linux = '/mnt/data/software/terragen_rendernode/linux/terragen'
-
-#allowed file extensions (last 3 chars only) for check_missing_files
-allowed_filetypes = ['png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 
-    'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
-
-#timeout for failed machine in seconds
-timeout = 1000 
-
-#start next job when current one finishes. 1=yes, 0=no, on by default
-startnext = 1 
-
-#maximum number of simultaneous renders for the start_next_job() function
-maxglobalrenders = 1 
-
 
 #create global renderJobs dictionary
 #holds render info for each job
@@ -2102,11 +2188,6 @@ killflags = []
 for job in range(1, queueslots + 2): #+2 b/c first index is 0
     killflags.append(0)
 
-
-#terminal output verbose. 0 = normal, 1 = write everything from render 
-#stdout to terminal
-verbose = 0
-
 #create re-entrant thread lock
 threadlock = threading.RLock()
 
@@ -2149,13 +2230,13 @@ if fontwidth > 76:
 #---GUI Variables---
 
 pathInput = StringVar(None)
-pathInput.set('/mnt/data/test_render/test_render.blend')
+pathInput.set(default_path)
 
 startInput = StringVar(None)
-startInput.set('1')
+startInput.set(default_start)
 
 endInput = StringVar(None)
-endInput.set('3')
+endInput.set(default_end)
 
 extrasInput = StringVar(None)
 
@@ -2165,7 +2246,7 @@ jobNumber = IntVar()
 jobNumber.set(1)
 
 verbosity = IntVar() #tkinter equivalent of verbose variable
-verbosity.set(0)
+verbosity.set(verbose)
 
 compAllvar = IntVar()
 compFastvar = IntVar()
@@ -2379,169 +2460,348 @@ def input_window():
 
 
 #----------PREFERENCES WINDOW----------
-
 def prefs():
-    #--variables--
-    tout = StringVar() #tkinter variable corresponding to global timeout
-    rnice = StringVar() #tkinter variable corresponding to renice_list
-    rnice_str = '' #string version of renice_list for readability
-    maclist = StringVar() #tkinter variable corresponding to macs list
-    maclist_str = '' #more readable verson of macs list
-    bpathmac = StringVar() #corresponds to blenderpath_mac
-    bpathlin = StringVar() #corresponds to blenderpath_linux
-    mgrenders = StringVar() #tkinter var corresponding to maxglobalrenders
-    ftlist = StringVar() #corresponds to allowed_filetypes
-    allowed_filetypes_str = ''#more readable version of allowed_filetypes
+    #define tk variables corresponding to global cfgsettings
+    cb_macs = [] #checkboxes for macs
+    cb_fast = [] #checkboxes for fast
+    cb_farm = [] #checkboxes for farm
+    cb_renice = [] #checkboxes for renice_list
+    for i in range(len(computers)):
+        cb_macs.append(IntVar())
+        cb_fast.append(IntVar())
+        cb_farm.append(IntVar())
+        cb_renice.append(IntVar())
+    
+    tk_blenderpath_mac = StringVar()
+    tk_blenderpath_linux = StringVar()
+    tk_terragenpath_mac = StringVar()
+    tk_terragenpath_linux = StringVar()
+    tk_allowed_filetypes = StringVar()
+    tk_timeout = StringVar()
+    tk_startnext = IntVar()
+    tk_maxglobalrenders = StringVar()
+    tk_verbose = IntVar()
+    tk_default_path = StringVar()
+    tk_default_start = StringVar()
+    tk_default_end = StringVar()
+    
+    
+    def populate_prefs_fields(cfgsettings):
+        '''Populates the preferences window fields.'''
+        for i in range(len(cfgsettings[0])):
+            if cfgsettings[0][i] in cfgsettings[4]:
+                cb_macs[i].set(1)
+            else:
+                cb_macs[i].set(0)
+    
+            if cfgsettings[0][i] in cfgsettings[1]:
+                cb_fast[i].set(1)
+            else:
+                cb_fast[i].set(0)
+    
+            if cfgsettings[0][i] in cfgsettings[2]:
+                cb_farm[i].set(1)
+            else:
+                cb_farm[i].set(0)
+    
+            if cfgsettings[0][i] in cfgsettings[3]:
+                cb_renice[i].set(1)
+            else:
+                cb_renice[i].set(0)
+    
+        #clear fields
+        bpath_mac_input.delete(0, END)
+        bpath_linux_input.delete(0, END)
+        tgnpath_mac_input.delete(0, END)
+        tgnpath_linux_input.delete(0, END)
+        aftinput.delete(0, END)
+        toinput.delete(0, END)
+        mginput.delete(0, END)
+        defpathinput.delete(0, END)
+        defstart_entry.delete(0, END)
+        defend_entry.delete(0, END)
+        
+        bpath_mac_input.insert(END, cfgsettings[5])
+        bpath_linux_input.insert(END, cfgsettings[6])
+        tgnpath_mac_input.insert(END, cfgsettings[7])
+        tgnpath_linux_input.insert(END, cfgsettings[8])
+        toinput.insert(END, cfgsettings[10])
+        mginput.insert(END, cfgsettings[12])
+        defpathinput.insert(END, cfgsettings[14])
+        defstart_entry.insert(END, cfgsettings[15])
+        defend_entry.insert(END, cfgsettings[16])
+        
+        #format list as string for display in input fields
+        str_allowed_filetypes = ''
+        for i in cfgsettings[9]:
+            str_allowed_filetypes = str_allowed_filetypes + i + ' '
+        
+        aftinput.insert(END, str_allowed_filetypes)
 
-    for comp in renice_list: #makes readable list to put in input field
-        rnice_str = rnice_str + comp + ' '
+        #set button states
+        if cfgsettings[11] == 1:
+            tk_startnext.set(1)
+        else:
+            tk_startnext.set(0)
 
-    for comp in macs:
-        maclist_str = maclist_str + comp + ' '
+        if cfgsettings[13] == 1:
+            tk_verbose.set(1)
+        else:
+            tk_verbose.set(0)
+    
+    
+    def save_prefs():
+        '''Gets input from fields, sets global variable values, updates config file, closes prefs 
+                window.'''
+    
+        #clear each variable then put new values
+        fast, farm, renice_list, macs = [], [], [], []
+        for i in range(len(computers)):
+            if cb_fast[i].get() == 1:
+                fast.append(computers[i])
+        for i in range(len(computers)):
+            if cb_farm[i].get() == 1:
+                farm.append(computers[i])
+        for i in range(len(computers)):
+            if cb_renice[i].get() == 1:
+                renice_list.append(computers[i])
+        for i in range(len(computers)):
+            if cb_macs[i].get() == 1:
+                macs.append(computers[i])
+    
+        blenderpath_mac = tk_blenderpath_mac.get()
+        blenderpath_linux = tk_blenderpath_linux.get()
+        terragenpath_mac = tk_terragenpath_mac.get()
+        terragenpath_linux = tk_terragenpath_linux.get()
+        allowed_filetypes = tk_allowed_filetypes.get().split()
+        timeout = float(tk_timeout.get())
+        startnext = int(tk_startnext.get())
+        maxglobalrenders = int(tk_maxglobalrenders.get())
+        verbose = int(tk_verbose.get())
+        default_path = tk_default_path.get()
+        default_start = int(tk_default_start.get())
+        default_end = int(tk_default_end.get())
+    
+        cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, 
+                terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext,
+                maxglobalrenders, verbose, default_path, default_start, default_end]
+        define_global_config_vars(cfgsettings)
+        cfgfile.write(cfgsettings)
+        prefs_win.destroy()
+    
+    
+    def reset_prefs():
+        '''Resets preferences to default values.'''
+        defaults = set_defaults()
+        #force restart if computer list differs from default 
+        #prevents crash on GUI refresh
+        if len(defaults[0]) != len(computers):
+            if Dialog('Program must quit immediately to restore default computer list.').confirm():
+                cfgfile.write(defaults)
+                quit()
+            else:
+                #do not proceed if lists don't match (disaster would ensue)
+                print('Cancelled reset')
+                return
 
-    for i in allowed_filetypes:
-        allowed_filetypes_str = allowed_filetypes_str + i + ' '
+        #also make sure contents of lists are the same even if length matches
+        for comp in computers:
+            if not comp in defaults[0]:
+                if Dialog('Program must quit immediately to restore default computer list.').confirm():
+                    cfgfile.write(defaults)
+                    quit()
+                else:
+                    #do not proceed if lists don't match (disaster would ensue)
+                    print('Cancelled reset')
+                    return
 
-    def set_timeout(): #updates global timeout variable from toinput
-        global timeout
-        newtime = tout.get()
-        try:
-            timeout = float(newtime)
-            print('timeout is now '+str(timeout)+' s')
-        except:
-            Dialog('Must be a number.').warn()
+        print('Default preferences restored.')
+        populate_prefs_fields(defaults)
+    
+    
+    def update_complist():
+        '''Updates computerlist edited by edit_complist()'''
+        pass
+        
+    def edit_complist():
+        '''Opens a popup window to edit the main computer list.'''
 
-    def set_renice(): #updates global renice_list from rninput
-        global renice_list
-        renice_list = rnice.get().split()
-        print('renice_list: ', renice_list)
+        def update_complist():
+            raw_complist = complist.get(0.0, END)
+            cfgsettings[0] = raw_complist.split()
+            print('Updating config file. Restart to show changes.')
+            print cfgsettings[0] #debugging
+            cfgfile.write(cfgsettings)
+            compsedit.destroy()
+            prefs_win.destroy()
+            Dialog('Computer list updated. Changes will not be visible until the program is '
+                    + 'relaunched.').warn()
 
+        compsedit = Toplevel()
+        compsedit.config(bg='gray90')
+        Label(compsedit, text=('Enter one computer per line. No spaces or commas. '
+                + 'Name must be exactly as it appears in the hosts file.'), 
+                wraplength='190', justify=LEFT, bg='gray90').pack(padx=10, pady=10)
+        clframe = LabelFrame(compsedit, bg='gray90')
+        clframe.pack(padx=10, pady=0)
+        complist = st.ScrolledText(clframe, width=23, height=15)
+        complist.pack(padx=0, pady=0)
+        
+        #populate the text box
+        for i in computers:
+            complist.insert(END, i + '\n')
+    
+        btnframe = Frame(compsedit, bg='gray90')
+        btnframe.pack(padx=10, pady=10, anchor=W)
+        ttk.Button(btnframe, text='Save', command=update_complist, 
+            style='Toolbutton').pack(side=LEFT)
+        ttk.Button(btnframe, text='Cancel', command=compsedit.destroy, 
+            style='Toolbutton').pack(padx=5, side=RIGHT)
 
-    def set_maxglobalrenders(): #updates maxglobalrenders
-        global maxglobalrenders
-        try:
-            maxglobalrenders = int(mgrenders.get())
-            print('Now allowing ' + str(maxglobalrenders) + 'simultaneous renders from autostart')
-        except:
-            Dialog('Must be an integer.').warn()
-
-
-    def set_maclist(): #updates global macs list from maclist
-        global macs
-        macs = maclist.get().split()
-        print('macs list changed: ', macs)
-
-    def set_bpathmac(): #sets blenderpath_mac
-        global blenderpath_mac
-        blenderpath_mac = bpathmac.get()
-        print('OSX path to blender executable is now', blenderpath_mac)
-
-    def set_bpathlin(): #sets blenderpath_linux
-        global blenderpath_linux
-        blenderpath_linux = bpathlin.get()
-        print('Linux path to blender executable is now', blenderpath_linux)
-
-    def set_ftlist(): #sets allowed_filetypes
-        global allowed_filetypes
-        allowed_filetypes = ftlist.get().split()
-
+    
+    #create window
     prefs_win = Toplevel()
     prefs_win.title('Preferences')
     prefs_win.config(bg='gray90')
     #use internal quit function instead of OSX
     prefs_win.bind('<Command-q>', lambda x: quit()) 
     prefs_win.bind('<Control-q>', lambda x: quit())
-    prefs_win.bind('<Return>', lambda x: prefsok.invoke())
-    prefs_win.bind('<KP_Enter>', lambda x: prefsok.invoke())
+    prefs_win.bind('<Return>', lambda x: save_prefs())
+    prefs_win.bind('<KP_Enter>', lambda x: save_prefs())
+    #override native window close to be sure prefsopen is reset
+    prefs_win.bind('<Escape>', lambda x: prefs_win.destroy())
 
-    toframe = LabelFrame(prefs_win, text='Global Timeout', bg='gray90')
-    toframe.grid(row=0, column=0, padx=10, pady=10, sticky=W)
-    Label(toframe, text='Maximum time renderer will wait between updates before '
-        'marking a computer as offline and retrying.', wraplength=225, 
-        bg='gray90').pack()
-    toinput = Entry(toframe, textvariable=tout, width=5, highlightthickness=0)
-    toinput.pack(side=LEFT, padx=3, pady=3)
-    Label(toframe, text='sec.', bg='gray90', highlightthickness=0).pack(side=LEFT)
-    ttk.Button(toframe, text='Set', command=set_timeout).pack(side=RIGHT, 
-        padx=3, pady=3)
-    toinput.insert(END, timeout)
+    #left block
+    leftframe = Frame(prefs_win, bg='gray90')
+    leftframe.grid(row=0, column=0, padx=10, pady=10, sticky=NW)
 
-    mgframe = LabelFrame(prefs_win, text='Max. Simul. Renders', bg='gray90')
-    mgframe.grid(row=0, column=1, padx=10, pady=10, sticky=E)
-    Label(mgframe, text='Max number of simultaneous renders that can be '
-        'initiated by the autostart function.', wraplength=225, 
-        bg='gray90').pack()
-    mginput = Entry(mgframe, textvariable=mgrenders, width=5, 
-        highlightthickness=0)
-    mginput.pack(side=LEFT, padx=3, pady=3)
-    ttk.Button(mgframe, text='Set', 
-        command=set_maxglobalrenders).pack(side=RIGHT, padx=3, pady=3)
-    mginput.insert(END, maxglobalrenders)
+    compframe = LabelFrame(leftframe, text='Computer List', bg='gray90')
+    compframe.pack()
+    
+    Label(compframe, text='Computer Name', bg='gray90').grid(row=0, column=0, 
+        sticky=W, padx=5, pady=5)
+    Label(compframe, text='OSX', bg='gray90').grid(row=0, column=1, sticky=W, 
+        pady=5)
+    Label(compframe, text='Fast', bg='gray90').grid(row=0, column=2, sticky=W, 
+        pady=5)
+    Label(compframe, text='Farm', bg='gray90').grid(row=0, column=3, sticky=W, 
+        pady=5)
+    Label(compframe, text='Renice', bg='gray90').grid(row=0, column=4, sticky=W,
+        pady=5)
+    
+    for i in range(len(computers)):
+        Label(compframe, text=computers[i], bg='gray90').grid(row=i+1, column=0, 
+        sticky=W, padx=5)
+        Checkbutton(compframe, bg='gray90', variable=cb_macs[i]).grid(row=i+1, 
+        column=1, sticky=W)
+        Checkbutton(compframe, bg='gray90', variable=cb_fast[i]).grid(row=i+1, 
+        column=2, sticky=W)
+        Checkbutton(compframe, bg='gray90', variable=cb_farm[i]).grid(row=i+1, 
+        column=3, sticky=W)
+        Checkbutton(compframe, bg='gray90', variable=cb_renice[i]).grid(row=i+1,
+            column=4)
+    
+    ttk.Button(compframe, text='Edit List', command=edit_complist, 
+        style='Toolbutton').grid(row=len(computers)+1, column=0, sticky=SW, padx=5, 
+        pady=5)
 
-    rnframe = LabelFrame(prefs_win, text='Renice List', bg='gray90')
-    rnframe.grid(row=1, column=0, columnspan=2, padx=10, pady=10)
-    Label(rnframe, text='Space-separated list of computers to run at lowest '
-        'priority.', bg='gray90').grid(row=0, column=0, columnspan=2, padx=3, 
-        pady=3, sticky=W)
-    rninput = Entry(rnframe, textvariable=rnice, width=50, highlightthickness=0)
-    rninput.grid(row=1, column=0, padx=3, pady=3)
-    ttk.Button(rnframe, text='Set', command=set_renice).grid(row=1, column=1, 
-        padx=3, pady=3)
-    rninput.insert(END, rnice_str)
+    btnframe = Frame(leftframe, bg='gray90')
+    btnframe.pack(anchor=W)
+    ttk.Button(btnframe, text='Save', style='Toolbutton', command=save_prefs).pack(side=LEFT, 
+        padx=0, pady=5)
+    ttk.Button(btnframe, text='Cancel', style='Toolbutton', 
+        command=prefs_win.destroy).pack(side=LEFT, padx=5, pady=5)
+    ttk.Button(btnframe, text='Restore Defaults', style='Toolbutton', 
+        command=reset_prefs).pack(side=RIGHT, padx=0, pady=5)
+    
+    #middle block
+    midframe = Frame(prefs_win, bg='gray90')
+    midframe.grid(row=0, column=1, padx=0, pady=10, sticky=NW)
+    
+    pathbox = LabelFrame(midframe, text='Render Engine Paths', bg='gray90')
+    pathbox.pack()
+    
+    Label(pathbox, text='Blender OSX Path', bg='gray90').pack(anchor=W, padx=5)
+    bpath_mac_input = Entry(pathbox, width=50, highlightthickness=0, textvariable=tk_blenderpath_mac)
+    bpath_mac_input.pack(padx=5, pady=5)
+    
+    Label(pathbox, text='Blender Linux Path', bg='gray90').pack(anchor=W, padx=5)
+    bpath_linux_input = Entry(pathbox, width=50, highlightthickness=0, 
+        textvariable=tk_blenderpath_linux)
+    bpath_linux_input.pack(padx=5, pady=5)
+    
+    Label(pathbox, text='Terragen OSX Path', bg='gray90').pack(anchor=W, padx=5)
+    tgnpath_mac_input = Entry(pathbox, width=50, highlightthickness=0, 
+        textvariable=tk_terragenpath_mac)
+    tgnpath_mac_input.pack(padx=5, pady=5)
+    
+    Label(pathbox, text='Terragen Linux Path', bg='gray90').pack(anchor=W, padx=5)
+    tgnpath_linux_input = Entry(pathbox, width=50, highlightthickness=0, 
+        textvariable=tk_terragenpath_linux)
+    tgnpath_linux_input.pack(padx=5, pady=5)
+    
+    aftbox = LabelFrame(midframe, text='Allowed File Types', bg='gray90')
+    aftbox.pack() 
+    Label(aftbox, text=('Allowed file extensions for missing frame check. '
+        + 'For longer than 3 characters, enter only the last three '
+        + 'characters.'), bg='gray90', wraplength=400, justify=LEFT).pack(padx=5, 
+        pady=5, anchor=W)
+    aftinput = Entry(aftbox, width=50, highlightthickness=0, textvariable=tk_allowed_filetypes)
+    aftinput.pack(padx=5, pady=5)
 
-    bpath_mac_frame = LabelFrame(prefs_win, text='Blender OSX Path', bg='gray90')
-    bpath_mac_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=10)
-    Label(bpath_mac_frame, text='Path to Blender executable on Mac OSX.', 
-        bg='gray90').grid(row=0, column=0, columnspan=2, padx=3, pady=3, 
-        sticky=W)
-    bpath_mac_input = Entry(bpath_mac_frame, textvariable=bpathmac, width=50, 
-        highlightthickness=0)
-    bpath_mac_input.grid(row=1, column=0, padx=3, pady=3)
-    ttk.Button(bpath_mac_frame, text='Set', command=set_bpathmac).grid(row=1, 
-        column=1, padx=3, pady=3)
-    bpath_mac_input.insert(END, blenderpath_mac)
-
-    bpath_linux_frame = LabelFrame(prefs_win, text='Blender Linux Path', 
-        bg='gray90')
-    bpath_linux_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=10)
-    Label(bpath_linux_frame, text='Path to Blender executable on Linux.', 
-        bg='gray90').grid(row=0, column=0, columnspan=2, padx=3, pady=3, 
-        sticky=W)
-    bpath_linux_input = Entry(bpath_linux_frame, textvariable=bpathlin, 
-        width=50, highlightthickness=0)
-    bpath_linux_input.grid(row=1, column=0, padx=3, pady=3)
-    ttk.Button(bpath_linux_frame, text='Set', command=set_bpathlin).grid(row=1, 
-        column=1, padx=3, pady=3)
-    bpath_linux_input.insert(END, blenderpath_linux)
-
-    macsframe = LabelFrame(prefs_win, text='Mac Computer List', bg='gray90')
-    macsframe.grid(row=4, column=0, columnspan=2, padx=10, pady=10)
-    Label(macsframe, text='Space-separated list of OSX computers.', 
-        bg='gray90').grid(row=0, column=0, columnspan=2, padx=3, pady=3, 
-        sticky=W)
-    macsinput = Entry(macsframe, textvariable=maclist, width=50, 
-        highlightthickness=0)
-    macsinput.grid(row=1, column=0, padx=3, pady=3)
-    ttk.Button(macsframe, text='Set', command=set_maclist).grid(row=1, 
-        column=1, padx=3, pady=3)
-    macsinput.insert(END, maclist_str)
-
-    ftframe = LabelFrame(prefs_win, text='Allowed File Types', bg='gray90')
-    ftframe.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
-    Label(ftframe, text='Allowed file extensions (last 3 characters only) for '
-        'missing frame check', bg='gray90').grid(row=0, column=0, columnspan=2, 
-        padx=3, pady=3, sticky=W)
-    ftinput = Entry(ftframe, textvariable=ftlist, width=50, highlightthickness=0)
-    ftinput.grid(row=1, column=0, padx=3, pady=3)
-    ttk.Button(ftframe, text='Set', command=set_ftlist).grid(row=1, column=1, 
-        padx=3, pady=3)
-    ftinput.insert(END, allowed_filetypes_str)
-
-    prefsok = ttk.Button(prefs_win, text='Done', command=prefs_win.destroy, 
-        style='Toolbutton')
-    prefsok.grid(row=6, column=1, padx=10, pady=10, sticky=E)
+    defpathbox = LabelFrame(midframe, text='Default File Path', bg='gray90')
+    defpathbox.pack()
+    Label(defpathbox, text='Default file path in the New / Edit job window.', bg='gray90', 
+        justify=LEFT).pack(padx=5, pady=5, anchor=W)
+    defpathinput = Entry(defpathbox, width=50, highlightthickness=0, textvariable=tk_default_path)
+    defpathinput.pack(padx=5, pady=5)
     
     
+    #right block
+    rightframe = Frame(prefs_win, bg='gray90')
+    rightframe.grid(row=0, column=2, padx=10, pady=10, sticky=NW)
+    
+    toframe = LabelFrame(rightframe, text='Global Timeout', bg='gray90')
+    toframe.pack(anchor=W, fill=X)
+    toinput = Entry(toframe, width=7, highlightthickness=0, textvariable=tk_timeout)
+    toinput.pack(side=LEFT, padx=5)
+    Label(toframe, text='Sec.', bg='gray90').pack(side=LEFT, padx=0)
+    Label(toframe, text=('Maximum time controller will wait between updates before '
+        + 'marking a computer offline and retrying.'), wraplength=175, bg='gray90', 
+        justify=LEFT).pack(side=LEFT, padx=5, pady=5)
+    
+    mgframe = LabelFrame(rightframe, text='Max. Simul. Renders', bg='gray90')
+    mgframe.pack(anchor=W, fill=X)
+    mginput = Entry(mgframe, width=5, highlightthickness=0, textvariable=tk_maxglobalrenders)
+    mginput.pack(side=LEFT, padx=5)
+    Label(mgframe, text=('Max number of simultaneous renders that can be initiated '
+        + 'by the autostart function.'), wraplength=225, bg='gray90', 
+        justify=LEFT).pack(side=LEFT, padx=5, pady=5)
+    
+    subframe = LabelFrame(rightframe, text='Default Button States', bg='gray90')
+    subframe.pack(anchor=W, fill=X)
+    Label(subframe, text='This sets the defult button state at startup. Changes do not affect the '
+        + 'current settings in the main window.', bg='gray90', wraplength='300', justify=LEFT).pack()
+    Checkbutton(subframe, text='Autostart enabled', bg='gray90',
+        variable=tk_startnext).pack(anchor=W, padx=5, pady=5)
+    Checkbutton(subframe, text='Verbose enabled', bg='gray90', variable=tk_verbose).pack(anchor=W, 
+        padx=5, pady=5)
+
+    defframe_frame = LabelFrame(rightframe, text='Default Frame Numbers', bg='gray90')
+    defframe_frame.pack(anchor=W, fill=X)
+    Label(defframe_frame, text='Default start and end frame numbers for New / Edit job window.',
+        wraplength='300', justify=LEFT, bg='gray90').grid(row=0, column=0, columnspan=4)
+    Label(defframe_frame, text='Start:', bg='gray90').grid(row=1, column=0)
+    defstart_entry = Entry(defframe_frame, width=6, textvariable=tk_default_start, 
+        highlightthickness=0)
+    defstart_entry.grid(row=1, column=1, pady=5)
+    Label(defframe_frame, text='End:', bg='gray90').grid(row=1, column=2)
+    defend_entry = Entry(defframe_frame, width=6, textvariable=tk_default_end, highlightthickness=0)
+    defend_entry.grid(row=1, column=3, pady=5)
+
+    populate_prefs_fields(cfgsettings)
+
+
 
 
 #----------SYSTEM STATUS WINDOW----------
@@ -2772,6 +3032,8 @@ def systat():
         column=2, sticky=W)
     ttk.Button(uffframe, text='Set', style='Toolbutton', 
         command=set_systat_interval).grid(row=0, column=3, sticky=W)
+    ttk.Button(tbarframe, text='Close', style='Toolbutton', 
+        command=systatwin.destroy).grid(row=0, column=1, padx=10, sticky=W)
     systatframe = LabelFrame(systatwin)
     systatframe.grid(row=1, column=0, padx=10, ipadx=5, ipady=5)
 
@@ -2920,117 +3182,6 @@ def nameballoon(event, index):
 
 
 #----------CHECK MISSING FRAMES WINDOW---------
-def check_missing_frames(index):
-    #if checking a currently-queued job
-    if index in range(1, queueslots + 1): 
-        path = renderJobs[index][0]
-        start = renderJobs[index][1]
-        end = renderJobs[index][2]
-        extras = renderJobs[index][3]
-    #if checking something else
-    else:
-        path = check_path.get()
-        start = int(check_start.get())
-        end = int(check_end.get())
-
-    frames_theoretical = []
-    frames_actual = []
-    frames_missing = []
-
-    for frame in range(start, end + 1):
-        frames_theoretical.append(frame)
-
-    dir_contents = subprocess.check_output('ls '+path, shell=True).split()
-
-    for line in dir_contents:
-        if line[-3:] in allowed_filetypes:
-            filename = line
-            name, ext = line.split('.')
-            print filename, ext
-            no_allowed_files = False
-            break
-        else:
-            no_allowed_files = True
-    
-    if no_allowed_files == True:
-        print('Error: No suitable files found.')
-        return 'Error: No suitable files found.', None, None
-
-    #reverse filename and check backwards from end until a non-digit is found.  
-    #Assume this is start of name text
-    #intended to prevent problems if there are numbers in filename before 
-    #sequential numbers
-    length = range(len(name))
-    length.reverse()
-    for i in length:
-        if not name[i].isdigit():
-            leftbreak = i+1
-            #assuming sequential #s go to end of filename
-            rightbreak = len(filename) - len(ext) - 1 
-            sequentials = filename[leftbreak:rightbreak]
-            break
-
-    def nametext_confirm():
-        ntconf = Toplevel()
-        ntframe = LabelFrame(ntconf, text='Confirm Filename Parsing')
-        ntframe.grid(row=0, column=0, padx=10, pady=10)
-
-        def get_slider():
-            leftbreak = int(slider_left.get())
-            rightbreak = int(slider_right.get())
-            sequentials = filename[leftbreak:rightbreak]
-            a.config(text=filename[0:leftbreak])
-            b.config(text=sequentials)
-            c.config(text=filename[rightbreak:])
-
-        a = Label(ntframe, text=filename[0:leftbreak], fg='gray50')
-        a.grid(row=0, column=0, sticky=E)
-        b = Label(ntframe, text=sequentials, fg='DarkRed')
-        b.grid(row=0, column=1, sticky=N)
-        c = Label(ntframe, text=filename[rightbreak:], fg='gray50')
-        c.grid(row=0, column=2, sticky=W)
-
-        
-        slidelength = len(filename)
-        slider_left = ttk.Scale(ntframe, from_=0, to=slidelength, 
-            orient=HORIZONTAL, length=slidelength*9, 
-            command=lambda x: get_slider())
-        slider_left.grid(row=1, column=0, columnspan=3, sticky=W)
-        slider_left.set(leftbreak)
-        
-        slider_right = ttk.Scale(ntframe, from_=0, to=slidelength, 
-            orient=HORIZONTAL, length=slidelength*9, 
-            command=lambda x: get_slider())
-        slider_right.grid(row=2, column=0, columnspan=3, sticky=W)
-        slider_right.set(rightbreak)
-
-        a.config(text=filename[0:leftbreak])
-        b.config(text=sequentials)
-        c.config(text=filename[rightbreak:])
-
-        Button(ntframe, text='Close', command=ntconf.destroy).grid(row=3)
-
-    nametext_confirm()
-    
-    for line in dir_contents:
-        if line[-3:] in allowed_filetypes:
-            frameno = int(line[leftbreak:rightbreak])
-            frames_actual.append(frameno)
-
-    for frame in frames_theoretical:
-        if not frame in frames_actual:
-            frames_missing.append(frame)
-
-
-    if not frames_missing:
-        print('No missing frames found.')
-    else:
-        for frame in frames_missing:
-            print('Missing frame '+str(frame))
-
-    return dir_contents, frames_theoretical, frames_missing
-
-
 def check_frames_window():
 
     def get_breaks():
@@ -3261,9 +3412,8 @@ def check_frames_window():
 
     ttk.Button(confirmframe, text='Update', command=getlist).grid(row=4, 
         column=0, columnspan=3)
-    
 
-    
+
     resultframe = LabelFrame(cfframe, text='Result', bg='gray90')
     resultframe.grid(row=5, column=0, columnspan=5, padx=10, pady=5, ipady=5)
 
@@ -3300,7 +3450,7 @@ def check_frames_window():
     
     
     ttk.Button(cfframe, text='Close', command=chkclose, 
-        style='Toolbutton').grid(column=4, padx=10, pady=5, sticky=E)
+        style='Toolbutton').grid(column=0, padx=5, pady=5, sticky=W)
 
 
 
@@ -3321,7 +3471,7 @@ autobtn = ttk.Checkbutton(topbar, text='Autostart New Renders', variable=stnext,
     command=set_startnext, style='Toolbutton')
 autobtn.grid(row=0, column=1, padx=5, sticky=W)
 
-prefsbutton = ttk.Button(topbar, text='Prefs', command=prefs, style='Toolbutton')
+prefsbutton = ttk.Button(topbar, text='Preferences', command=prefs, style='Toolbutton')
 prefsbutton.grid(row=0, column=2, padx=5, sticky=W)
 
 chkfrmbtn = ttk.Button(topbar, text='Check Missing Frames', 

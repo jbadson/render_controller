@@ -4,23 +4,8 @@
 if __name__ == '__main__':
     print('This module contains methods to read and write simple JSON configuration files.')
 
-#actions needed:
-'''
-check for existing config file:
-    create if missing
-    read if present
-
-overwrite config file with defaults
-    could just delete config file and force recreate on next load (wouldn't affect current situation)
-
-create periodic backups?
-    only really useful for computer list
-'''
-
 from json import dumps, load
 from os import path
-
-
 
 #Config file goes in the same directory as main
 cfgpath = 'config.json'

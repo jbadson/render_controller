@@ -3,7 +3,6 @@
 
 import Queue
 import subprocess
-#from threading import Thread, RLock
 import threading
 from Tkinter import *
 import time
@@ -108,7 +107,8 @@ class Job(object):
                 Dialog('Cannot modify a queue item while it is rendering.').warn()
                 return False
             if self.status == 'Stopped':
-                Dialog('Cannot change start, end, or extra frames once render has been started.').warn()
+                Dialog('Cannot change start, end, or extra frames once render has '
+                        + 'been started.').warn()
                 return False
             if not Dialog('Overwrite existing queue contents?').confirm():
                 return False
@@ -116,7 +116,8 @@ class Job(object):
                 self.clear()
 
         if not pathInput.get():
-            Dialog('Path, start frame, end frame, and computers must be specified.').warn()
+            Dialog('Path, start frame, end frame, and computers must be '
+                    + 'specified.').warn()
             return False
 
 
@@ -149,7 +150,8 @@ class Job(object):
 
 
         if not self.endframe >= self.startframe:
-            Dialog('End frame must be greater than or equal to start frame.').warn()
+            Dialog('End frame must be greater than or equal to start '
+                    + 'frame.').warn()
             return False
 
         self.extraframes = []
@@ -158,7 +160,8 @@ class Job(object):
                 if frame != 0:
                     self.extraframes.append(int(frame))
             except:
-                Dialog('Extra frames must be integers separated by spaces only.').warn()
+                Dialog('Extra frames must be integers separated by spaces '
+                        + 'only.').warn()
                 return False
 
         if self.extraframes != []:
@@ -174,7 +177,8 @@ class Job(object):
                 self.computerList.append(computers[i])
 
         if self.computerList == []:
-            Dialog('Path, start frame, end frame, and computers must be specified.').warn()
+            Dialog('Path, start frame, end frame, and computers must be '
+                    + 'specified.').warn()
             return False
 
         '''fill totalFrames list with zeros so that len(totalFrames) returns 
@@ -197,7 +201,8 @@ class Job(object):
         '''creates a queue of frames and assigns them to RenderThreads()'''
 
         if self.status != 'Waiting':
-            Dialog('Render cannot be started unless job status is "Waiting"').warn()
+            Dialog('Render cannot be started unless job status is '
+                    + '"Waiting"').warn()
             return
 
         self.status = 'Rendering'
@@ -430,8 +435,8 @@ class Job(object):
             with threadlock:
                 compflags[str(self.index)+'_'+computer] = 1 
 
-        if Dialog('Kill active processes? Clicking "Cancel" will stop the job but allow currently '
-                'rendering frames to finish.').confirm():
+        if Dialog('Kill active processes? Clicking "Cancel" will stop the job but '
+                    + 'allow currently rendering frames to finish.').confirm():
 	        for computer in self.threads:
 	            #sending twice b/c stuff is getting missed
 	            subprocess.call('ssh igp@'+computer+' "kill '
@@ -439,9 +444,11 @@ class Job(object):
 	            subprocess.call('ssh igp@'+computer+' "kill '
 	                +str(self.threads[computer])+'"', shell=True) 
         else:
-            #add currently rendering frames to totalFrames (assume they finish successfully)
+            #add currently rendering frames to totalFrames (assume they finish 
+            #successfully)
             for computer in self.threads:
-                print('Attempting to let current frames finish. Removing them from resume list.')#debugging
+                print('Attempting to let current frames finish. Removing them '
+                        + 'from resume list.')#debugging
                 try:
                     frame = self.currentFrames[computer][0]
                     if not frame in self.totalFrames:
@@ -555,7 +562,8 @@ class Job(object):
         print('Job:'+str(self.index)+'|Render resumed by user.')
         RenderLog(self.index).render_resumed()
         
-        if Dialog('Start render immediately? Click "Cancel" to queue for later.').confirm():
+        if Dialog('Start render immediately? Click "Cancel" to queue for '
+                    + 'later.').confirm():
             self.status = 'Waiting'
             self.update()
             self.render()
@@ -601,7 +609,8 @@ class RenderThread(object):
             #start timeout timer
             renderJobs[self.index][6][self.computer] = [self.frame, time.time()] 
 
-        print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+'|Sent') #need to add timestamp
+        print('Job:'+str(self.index)+'|Fra:'+str(self.frame)+'|'+self.computer+
+                '|Sent') #need to add timestamp
         RenderLog(self.index).frame_sent(self.computer, self.frame)
 
         if self.computer in macs:
@@ -2049,9 +2058,13 @@ def set_defaults():
     default_start = 1
     default_end = 3
 
-    defaults = [computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, 
-            terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext,
-            maxglobalrenders, verbose, default_path, default_start, default_end]
+    #default render engine. Can be 'blender' or 'terragen'
+    default_renderer = 'blender'
+
+    defaults = [computers, fast, farm, renice_list, macs, blenderpath_mac, 
+            blenderpath_linux, terragenpath_mac, terragenpath_linux, 
+            allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, 
+            default_path, default_start, default_end, default_renderer]
 
     return defaults
 
@@ -2075,6 +2088,7 @@ def define_global_config_vars(settings):
     global default_path
     global default_start
     global default_end
+    global default_renderer
 
     print('Updating global config variables.')
     cfgsettings = settings
@@ -2095,6 +2109,7 @@ def define_global_config_vars(settings):
     default_path = settings[14]
     default_start = settings[15]
     default_end = settings[16]
+    default_renderer = settings[17]
 
 
 #check for a config file
@@ -2109,9 +2124,10 @@ else:
 define_global_config_vars(cfgsettings)
 
 def update_cfgfile():
-    cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, 
-            terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext,
-            maxglobalrenders, verbose, default_path, default_start, default_end]
+    cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, 
+            blenderpath_linux, terragenpath_mac, terragenpath_linux, 
+            allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, 
+            default_path, default_start, default_end, default_renderer]
     print('Updating config file.')
     cfgfile.write(cfgsettings)
 
@@ -2279,6 +2295,7 @@ check_end = StringVar()
 
 #create render engine variable
 render_eng = StringVar()
+render_eng.set(default_renderer)
 
 
 
@@ -2396,7 +2413,7 @@ def input_window():
     rebtn_tgn = Radiobutton(rebox, text='Terragen', variable=render_eng, 
         value='terragen')
     rebtn_tgn.grid(row=0, column=1, padx=5, pady=5, sticky=W)
-    rebtn_blender.invoke()
+    #rebtn_blender.invoke()
 
 
     #---Computer Checkboxes---
@@ -2484,6 +2501,7 @@ def prefs():
     tk_default_path = StringVar()
     tk_default_start = StringVar()
     tk_default_end = StringVar()
+    tk_default_renderer = StringVar()
     
     
     def populate_prefs_fields(cfgsettings):
@@ -2548,11 +2566,12 @@ def prefs():
             tk_verbose.set(1)
         else:
             tk_verbose.set(0)
-    
+
+        tk_default_renderer.set(cfgsettings[17]) 
     
     def save_prefs():
-        '''Gets input from fields, sets global variable values, updates config file, closes prefs 
-                window.'''
+        '''Gets input from fields, sets global variable values, updates config 
+            file, closes prefs window.'''
     
         #clear each variable then put new values
         fast, farm, renice_list, macs = [], [], [], []
@@ -2581,10 +2600,12 @@ def prefs():
         default_path = tk_default_path.get()
         default_start = int(tk_default_start.get())
         default_end = int(tk_default_end.get())
+        default_renderer = tk_default_renderer.get()
     
-        cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, 
-                terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext,
-                maxglobalrenders, verbose, default_path, default_start, default_end]
+        cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, 
+                blenderpath_linux, terragenpath_mac, terragenpath_linux, 
+                allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, 
+                default_path, default_start, default_end, default_renderer]
         define_global_config_vars(cfgsettings)
         cfgfile.write(cfgsettings)
         prefs_win.destroy()
@@ -2596,7 +2617,8 @@ def prefs():
         #force restart if computer list differs from default 
         #prevents crash on GUI refresh
         if len(defaults[0]) != len(computers):
-            if Dialog('Program must quit immediately to restore default computer list.').confirm():
+            if Dialog('Program must quit immediately to restore default computer '
+                        + 'list.').confirm():
                 cfgfile.write(defaults)
                 quit()
             else:
@@ -2607,7 +2629,8 @@ def prefs():
         #also make sure contents of lists are the same even if length matches
         for comp in computers:
             if not comp in defaults[0]:
-                if Dialog('Program must quit immediately to restore default computer list.').confirm():
+                if Dialog('Program must quit immediately to restore default '
+                            + 'computer list.').confirm():
                     cfgfile.write(defaults)
                     quit()
                 else:
@@ -2634,8 +2657,8 @@ def prefs():
             cfgfile.write(cfgsettings)
             compsedit.destroy()
             prefs_win.destroy()
-            Dialog('Computer list updated. Changes will not be visible until the program is '
-                    + 'relaunched.').warn()
+            Dialog('Computer list updated. Changes will not be visible until the '
+                    + 'program is relaunched.').warn()
 
         compsedit = Toplevel()
         compsedit.config(bg='gray90')
@@ -2702,13 +2725,13 @@ def prefs():
             column=4)
     
     ttk.Button(compframe, text='Edit List', command=edit_complist, 
-        style='Toolbutton').grid(row=len(computers)+1, column=0, sticky=SW, padx=5, 
-        pady=5)
+        style='Toolbutton').grid(row=len(computers)+1, column=0, sticky=SW, 
+            padx=5, pady=5)
 
     btnframe = Frame(leftframe, bg='gray90')
     btnframe.pack(anchor=W)
-    ttk.Button(btnframe, text='Save', style='Toolbutton', command=save_prefs).pack(side=LEFT, 
-        padx=0, pady=5)
+    ttk.Button(btnframe, text='Save', style='Toolbutton', 
+        command=save_prefs).pack(side=LEFT, padx=0, pady=5)
     ttk.Button(btnframe, text='Cancel', style='Toolbutton', 
         command=prefs_win.destroy).pack(side=LEFT, padx=5, pady=5)
     ttk.Button(btnframe, text='Restore Defaults', style='Toolbutton', 
@@ -2722,7 +2745,8 @@ def prefs():
     pathbox.pack()
     
     Label(pathbox, text='Blender OSX Path', bg='gray90').pack(anchor=W, padx=5)
-    bpath_mac_input = Entry(pathbox, width=50, highlightthickness=0, textvariable=tk_blenderpath_mac)
+    bpath_mac_input = Entry(pathbox, width=50, highlightthickness=0, 
+        textvariable=tk_blenderpath_mac)
     bpath_mac_input.pack(padx=5, pady=5)
     
     Label(pathbox, text='Blender Linux Path', bg='gray90').pack(anchor=W, padx=5)
@@ -2746,14 +2770,16 @@ def prefs():
         + 'For longer than 3 characters, enter only the last three '
         + 'characters.'), bg='gray90', wraplength=400, justify=LEFT).pack(padx=5, 
         pady=5, anchor=W)
-    aftinput = Entry(aftbox, width=50, highlightthickness=0, textvariable=tk_allowed_filetypes)
+    aftinput = Entry(aftbox, width=50, highlightthickness=0, 
+        textvariable=tk_allowed_filetypes)
     aftinput.pack(padx=5, pady=5)
 
     defpathbox = LabelFrame(midframe, text='Default File Path', bg='gray90')
     defpathbox.pack()
-    Label(defpathbox, text='Default file path in the New / Edit job window.', bg='gray90', 
-        justify=LEFT).pack(padx=5, pady=5, anchor=W)
-    defpathinput = Entry(defpathbox, width=50, highlightthickness=0, textvariable=tk_default_path)
+    Label(defpathbox, text='Default file path in the New / Edit job window.', 
+        bg='gray90', justify=LEFT).pack(padx=5, pady=5, anchor=W)
+    defpathinput = Entry(defpathbox, width=50, highlightthickness=0, 
+        textvariable=tk_default_path)
     defpathinput.pack(padx=5, pady=5)
     
     
@@ -2763,41 +2789,54 @@ def prefs():
     
     toframe = LabelFrame(rightframe, text='Global Timeout', bg='gray90')
     toframe.pack(anchor=W, fill=X)
-    toinput = Entry(toframe, width=7, highlightthickness=0, textvariable=tk_timeout)
+    toinput = Entry(toframe, width=7, highlightthickness=0, 
+        textvariable=tk_timeout)
     toinput.pack(side=LEFT, padx=5)
     Label(toframe, text='Sec.', bg='gray90').pack(side=LEFT, padx=0)
-    Label(toframe, text=('Maximum time controller will wait between updates before '
-        + 'marking a computer offline and retrying.'), wraplength=175, bg='gray90', 
-        justify=LEFT).pack(side=LEFT, padx=5, pady=5)
+    Label(toframe, text=('Maximum time controller will wait between updates '
+        + 'before marking a computer offline and retrying.'), 
+        wraplength=175, bg='gray90', justify=LEFT).pack(side=LEFT, padx=5, pady=5)
     
     mgframe = LabelFrame(rightframe, text='Max. Simul. Renders', bg='gray90')
     mgframe.pack(anchor=W, fill=X)
-    mginput = Entry(mgframe, width=5, highlightthickness=0, textvariable=tk_maxglobalrenders)
+    mginput = Entry(mgframe, width=5, highlightthickness=0, 
+        textvariable=tk_maxglobalrenders)
     mginput.pack(side=LEFT, padx=5)
-    Label(mgframe, text=('Max number of simultaneous renders that can be initiated '
-        + 'by the autostart function.'), wraplength=225, bg='gray90', 
+    Label(mgframe, text=('Max number of simultaneous renders that can be '
+        + 'initiated by the autostart function.'), wraplength=225, bg='gray90', 
         justify=LEFT).pack(side=LEFT, padx=5, pady=5)
     
     subframe = LabelFrame(rightframe, text='Default Button States', bg='gray90')
     subframe.pack(anchor=W, fill=X)
-    Label(subframe, text='This sets the defult button state at startup. Changes do not affect the '
-        + 'current settings in the main window.', bg='gray90', wraplength='300', justify=LEFT).pack()
+    Label(subframe, text='This sets the defult button state at startup. Changes '
+        + 'do not affect the current settings in the main window.', bg='gray90', 
+        wraplength='300', justify=LEFT).pack()
     Checkbutton(subframe, text='Autostart enabled', bg='gray90',
         variable=tk_startnext).pack(anchor=W, padx=5, pady=5)
-    Checkbutton(subframe, text='Verbose enabled', bg='gray90', variable=tk_verbose).pack(anchor=W, 
-        padx=5, pady=5)
+    Checkbutton(subframe, text='Verbose enabled', bg='gray90', 
+        variable=tk_verbose).pack(anchor=W, padx=5, pady=5)
 
-    defframe_frame = LabelFrame(rightframe, text='Default Frame Numbers', bg='gray90')
+    defframe_frame = LabelFrame(rightframe, text='Default Frame Numbers', 
+        bg='gray90')
     defframe_frame.pack(anchor=W, fill=X)
-    Label(defframe_frame, text='Default start and end frame numbers for New / Edit job window.',
-        wraplength='300', justify=LEFT, bg='gray90').grid(row=0, column=0, columnspan=4)
+    Label(defframe_frame, text='Default start and end frame numbers for New / '
+        + 'Edit job window.', wraplength='300', justify=LEFT, 
+        bg='gray90').grid(row=0, column=0, columnspan=4)
     Label(defframe_frame, text='Start:', bg='gray90').grid(row=1, column=0)
     defstart_entry = Entry(defframe_frame, width=6, textvariable=tk_default_start, 
         highlightthickness=0)
     defstart_entry.grid(row=1, column=1, pady=5)
     Label(defframe_frame, text='End:', bg='gray90').grid(row=1, column=2)
-    defend_entry = Entry(defframe_frame, width=6, textvariable=tk_default_end, highlightthickness=0)
+    defend_entry = Entry(defframe_frame, width=6, textvariable=tk_default_end, 
+        highlightthickness=0)
     defend_entry.grid(row=1, column=3, pady=5)
+
+    defreframe = LabelFrame(rightframe, text='Default Render Engine', bg='gray90')
+    defreframe.pack(anchor=W, fill=X)
+    Radiobutton(defreframe, text='Blender', variable=tk_default_renderer, 
+        value='blender', bg='gray90').pack(side=LEFT, padx=5, pady=5)
+    Radiobutton(defreframe, text='Terragen', variable=tk_default_renderer, 
+        value='terragen', bg='gray90').pack(side=LEFT, padx=5, pady=5)
 
     populate_prefs_fields(cfgsettings)
 
@@ -3200,7 +3239,8 @@ def check_frames_window():
                 filesok = False
 
         if filesok == False:
-            Dialog('No suitable files found in directory. Check path and try again.').warn()
+            Dialog('No suitable files found in directory. Check path and try '
+                    + 'again.').warn()
             return
     
         #reverse filename and check backwards from end until a non-digit is 
@@ -3425,7 +3465,8 @@ def check_frames_window():
     dirconts.frame.config(border=2, relief=GROOVE)
     dirconts.grid(row=1, column=0, padx=5, sticky=W)
 
-    Label(resultframe, text='Found:', bg='gray90').grid(row=0, column=1, padx=5, sticky=W)
+    Label(resultframe, text='Found:', bg='gray90').grid(row=0, column=1, padx=5, 
+        sticky=W)
     #found frame numbers after parsing
     foundfrms = st.ScrolledText(resultframe, width=10, height=10, 
         highlightthickness=0, bd=4) 
@@ -3471,7 +3512,8 @@ autobtn = ttk.Checkbutton(topbar, text='Autostart New Renders', variable=stnext,
     command=set_startnext, style='Toolbutton')
 autobtn.grid(row=0, column=1, padx=5, sticky=W)
 
-prefsbutton = ttk.Button(topbar, text='Preferences', command=prefs, style='Toolbutton')
+prefsbutton = ttk.Button(topbar, text='Preferences', command=prefs, 
+    style='Toolbutton')
 prefsbutton.grid(row=0, column=2, padx=5, sticky=W)
 
 chkfrmbtn = ttk.Button(topbar, text='Check Missing Frames', 

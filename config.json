@@ -30,14 +30,14 @@
   "tabeguache"
  ], 
  [
-  "sherman", 
   "conundrum", 
-  "paradox"
+  "paradox", 
+  "sherman"
  ], 
  [
-  "sherman", 
   "conundrum", 
-  "paradox"
+  "paradox", 
+  "sherman"
  ], 
  "/Applications/blender.app/Contents/MacOS/blender", 
  "/usr/local/bin/blender", 
@@ -59,7 +59,7 @@
   "IFF", 
   "EXR"
  ], 
- 1000.0, 
+ 1000, 
  1, 
  1, 
  0, 

@@ -11,3 +11,7 @@
 #ignore vim temp files
 *.swp
 .DS_Store
+
+#ignore config files and bytecode
+cfgfile.pyc
+config.json

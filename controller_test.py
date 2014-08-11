@@ -2131,7 +2131,6 @@ else:
         print('Config file length mismatch. Overwriting with default values...')
         cfgsettings = cfgfile.write(defaults)
 
-
 #now define variables in main based on cfgsettings
 define_global_config_vars(cfgsettings)
 

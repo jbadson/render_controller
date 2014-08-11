@@ -2118,7 +2118,19 @@ if not cfgfile.check():
     cfgsettings = cfgfile.write(set_defaults())
 else:
     print('Config file found. Reading...')
-    cfgsettings = cfgfile.read()
+    try:
+        cfgsettings = cfgfile.read()
+    except:
+        print('Config file corrupt or damaged. Creating new...')
+        cfgsettings = cfgfile.write(set_defaults())
+
+    #verify that config file contains appropriate number of entries
+    #avoids error if config file is out of date with script version
+    defaults = set_defaults()
+    if not len(defaults) == len(cfgsettings):
+        print('Config file length mismatch. Overwriting with default values...')
+        cfgsettings = cfgfile.write(defaults)
+
 
 #now define variables in main based on cfgsettings
 define_global_config_vars(cfgsettings)

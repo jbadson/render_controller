@@ -10,7 +10,7 @@ import tkMessageBox
 import tkFileDialog
 import tkFont
 import ttk
-from os import path, _exit
+import os
 import ScrolledText as st
 import json
 import cfgfile
@@ -120,11 +120,10 @@ class Job(object):
                     + 'specified.').warn()
             return False
 
-
         self.render_engine = render_eng.get()
         
         self.path = pathInput.get()
-        if not path.exists(self.path): 
+        if not os.path.exists(self.path): 
             Dialog('File path invalid or inaccessible.').warn()
             return False
 
@@ -147,7 +146,6 @@ class Job(object):
         except:
             Dialog('Frame numbers must be integers.').warn()
             return False
-
 
         if not self.endframe >= self.startframe:
             Dialog('End frame must be greater than or equal to start '
@@ -1956,7 +1954,7 @@ def set_startnext():
 
 def quit(): 
     '''forces immediate exit without waiting for loops to terminate'''
-    _exit(1) 
+    os._exit(1) 
 
 
 #leaving export_json() alone b/c Ludvig is working on it
@@ -2006,7 +2004,8 @@ def export_json(): #exports a formatted JSON file with current status for websit
 
 #----------CONFIG FILE----------
 def set_defaults():
-    '''Restores all config settings to default values.'''
+    '''Restores all config settings to default values. Used for creating
+            initial config file'''
 
     #create list of all computers available for rendering
     computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
@@ -3289,15 +3288,20 @@ def check_frames_window():
         checkin.delete(0, END)
         startent.delete(0, END)
         endent.delete(0, END)
-    
         index = checkjob.get()
+
+        #if this is an existing job, try to get path to render folder
         if not index == 0: 
-            chkpath = renderJobs[index][0]
-            if Dialog('Browse to render directory now?').confirm():
-                chkpath = tkFileDialog.askdirectory(initialdir=chkpath)
-            check_path.set(chkpath)
-            check_start.set(renderJobs[index][1])
-            check_end.set(renderJobs[index][2])
+            #get path to directory containing blender/tgn file
+            basepath = os.path.dirname(Job(index).path)
+            #look for 'render' folder in next directory up
+            if os.path.exists(os.path.split(basepath)[0] + '/render/'):
+                renderpath = os.path.split(basepath)[0] + '/render/'
+            else:
+                renderpath = basepath
+            check_path.set(renderpath)
+            check_start.set(Job(index).startframe)
+            check_end.set(Job(index).endframe)
 
     
     def get_slider():
@@ -3319,7 +3323,10 @@ def check_frames_window():
     
     def get_framecheck_path(): 
         '''handles the browse button'''
-        filepath = tkFileDialog.askdirectory() 
+        filepath = tkFileDialog.askdirectory(initialdir=check_path.get()) 
+        #put original contents back in text field if user cancels dialog
+        if not filepath:
+            filepath = check_path.get()
         check_path.set(filepath)
     
     def getlist():
@@ -3406,6 +3413,7 @@ def check_frames_window():
         ttk.Radiobutton(bbox, text=str(i), variable=checkjob, value=i, 
             command=put_text, state=btnstate, style='Toolbutton').grid(row=0, 
             column=i+1, sticky=W)
+    print('checkjob', checkjob.get())#debugging
     
     Label(cfframe, text='Directory to check:', bg='gray90').grid(row=1, 
         column=0, padx=5, pady=5, sticky=E)

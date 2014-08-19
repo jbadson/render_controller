@@ -3413,7 +3413,6 @@ def check_frames_window():
         ttk.Radiobutton(bbox, text=str(i), variable=checkjob, value=i, 
             command=put_text, state=btnstate, style='Toolbutton').grid(row=0, 
             column=i+1, sticky=W)
-    print('checkjob', checkjob.get())#debugging
     
     Label(cfframe, text='Directory to check:', bg='gray90').grid(row=1, 
         column=0, padx=5, pady=5, sticky=E)

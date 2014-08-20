@@ -5,6 +5,7 @@ import time
 import cfgfile
 import subprocess
 import os
+import socket
 
 class Job(object):
     '''Represents a render job.'''
@@ -25,9 +26,23 @@ class Job(object):
         except:
             return False
 
-    def getstatus(self):
+    def get_status(self):
         '''Retuns the status of a job.'''
         return self.status
+
+    def get_progress(self):
+        '''Returns the percent complete for the job.'''
+        if self.status == 'Rendering' or self.status == 'Stopped':
+            n = 0
+            for i in self.totalframes:
+                if i != 0:
+                    n += 1
+            self.progress = float(n) / len(self.totalframes) * 100
+        elif self.status == 'Done':
+            self.progress = 100.0
+        else:
+            self.progress = 0.0
+        return self.progress
 
 
     def enqueue(self, path, startframe, endframe, render_engine, complist, 
@@ -41,7 +56,7 @@ class Job(object):
         self.render_engine = render_engine
         self.complist = complist
 
-        print('enqueued', locals())
+        print('enqueued')
         #Fill list of total frames with zeros
         #used for tracking percent complete
         self.totalframes = []
@@ -73,7 +88,7 @@ class Job(object):
 
     def render(self):
         '''Starts a render for a given job.'''
-        print('entered render()', locals())
+        print('entered render()')
         if self.status != 'Waiting':
             print('Job status is not "Waiting". Aborting render.')
             return False
@@ -102,9 +117,9 @@ class Job(object):
     def masterthread(self):
         '''Master thread to control render threads.'''
 
-        print('entered masterthread', locals())
+        print('entered masterthread')
         while True:
-            #print(self.totalframes, self.thread_ids) #debug
+            print(self.totalframes, self.thread_ids) #debug
             if self.killflag == True:
                 print('Kill flag detected, breaking render loop.')
                 break
@@ -148,6 +163,7 @@ class Job(object):
                         with threadlock:
                             del self.currentframe[computer]
                         self.compready[computer] = True
+            time.sleep(0.01)
 
         #stop timer
         #write status to log
@@ -159,7 +175,7 @@ class Job(object):
         #not using self. variables b/c these need to have scope only inside this 
         #method
 
-        print('entered renderthread', locals())
+        print('entered renderthread')
 
         thread_id = threading.get_ident()
         with threadlock:
@@ -189,7 +205,7 @@ class Job(object):
                 self.threadtimer[computer] = time.time()
 
             if line.find('Fra:') >= 0 and line.find('Tile') > 0:
-                progress = self.parseline(line, frame, computer)
+                progress = self._parseline(line, frame, computer)
                 with threadlock:
                     self.comp_progress[computer] = progress
 
@@ -240,7 +256,7 @@ class Job(object):
             #        self.queue.put(frame)
                 #log error
 
-    def parseline(self, line, frame, computer):
+    def _parseline(self, line, frame, computer):
         '''Parses render progress and returns it in a compact form.'''
         tiles, total = line.split('|')[-1].split(' ')[-1].split('/')
         tiles = float(tiles)
@@ -258,6 +274,9 @@ class Job(object):
 
 #---------GLOBAL VARIABLES----------
 threadlock = threading.RLock()
+
+#list to contain all instances of Job()
+renderjobs = []
 
 #----------DEFAULTS / CONFIG FILE----------
 def set_defaults():
@@ -407,20 +426,22 @@ def quit():
 
 #----------Let's have a basic command line interface----------
 def cmdline_render(args):
-    path = args['p']
-    startframe = args['s']
-    endframe = args['e']
-    complist = args['c'].split(',')
+    path = args['path']
+    startframe = int(args['start'])
+    endframe = int(args['end'])
+    complist = args['computers'].split(',')
 
-    print(path, startframe, endframe, complist)
+    #print(path, startframe, endframe, complist)
     jobcmd = Job()
+    renderjobs.append(jobcmd)
     jobcmd.enqueue(path, startframe, endframe, 'blender', complist)
     jobcmd.render()
-    while not jobcmd.getstatus() == 'Finished':
+    print('renderjobs', renderjobs)
+    while not jobcmd.get_status() == 'Finished':
         time.sleep(0.1)
-    print('Render finished.')
-    quit()
 
+
+'''
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='IGP Render Controller command ' +
@@ -436,155 +457,214 @@ if __name__ == '__main__':
     #if args are present, start a command line render
     if args['p'] and args['s'] and args['e'] and args['c']:
         cmdline_render(args)
+'''
 
-#----------TKINTER GUI----------
-
-
-import tkinter as tk
-import tkinter.ttk as ttk
-import tkinter.font as tkfont
-import tkinter.filedialog as tkFileDialog
-import tkinter.scrolledtext as st
-import tkinter.messagebox as tk_msgbox
-
-#----GUI CLASSES----
-
-class ClickFrame(tk.Frame):
-    '''version of tkinter Frame that functions as a button when clicked
-
-    creates a new argument - index - that identifies which box was clicked''' 
-
-    def __init__(self, master, index, **kw):
-        tk.Frame.__init__(self, master, **kw)
-        self.index = index
-        self.bind('<Button-1>', lambda x: set_job(self.index))
+def statusthread():
+    print('starting status thread')
+    while True:
+        global renderjobs
+        if len(renderjobs) > 0:
+            for job in renderjobs:
+                if job.get_status() == 'Rendering':
+                    percent = job.get_progress()
+                    print('Rendering, ' + str(percent) + '% complete.')
+        time.sleep(0.5)
 
 
-class ClickLabel(tk.Label):
-    '''version of tkinter Label that functions as a button when clicked'''
+class ClientThread(threading.Thread):
+    def __init__(self, clientsocket):
+        self.clientsocket = clientsocket
+        threading.Thread.__init__(self, target=self._clientthread)
 
-    def __init__(self, master, index, **kw):
-        tk.Label.__init__(self, master, **kw)
-        self.index = index
-        self.bind('<Button-1>', lambda x: set_job(self.index))
-
-
-class FramesHoverLabel(ClickLabel):
-    '''version of ClickLabelthat also has a hover binding'''
-
-    def __init__(self, master, index, **kw):
-        ClickLabel.__init__(self, master, index, **kw)
-        self.bind('<Enter>', lambda x: extraballoon(x, index))
-
-
-class NameHoverLabel(ClickLabel):
-    '''version of clicklabel that also has a hover binding'''
-
-    def __init__(self, master, index, **kw):
-        ClickLabel.__init__(self, master, index, **kw)
-        self.bind('<Enter>', lambda x: nameballoon(x, index))
+    def _clientthread(self):
+        print('Started client thread')
+        starttime = time.time()
+        while True:
+            exec(self.clientsocket.recv(1024))
+            return
+            #still working on making it work for below
+            data = self.clientsocket.recv(1024)
+            if not data:
+                break
+            time.sleep(0.001)
+            if time.time() - starttime > 100: #timeout in s
+                print('Client thread timed out.')
+                return
+        print('executing thread data')
+        exec(data)
 
 
-class ClickCanvas(tk.Canvas):
-    '''version of tkinter Canvas that functions like a button when clicked'''
+#start the status reporter thread
+statthread = threading.Thread(target=statusthread)
+statthread.start()
 
-    def __init__(self, master, index, **kw):
-        tk.Canvas.__init__(self, master, **kw)
-        self.index = index
-        self.bind('<Button-1>', lambda x: set_job(self.index))
+#start a server
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+host = socket.gethostname()
+port = 2020
+s.bind((host, port))
+s.listen(5)
+print('Server now running on port ' + str(port))
+while True:
+    clientsocket, address = s.accept()
+    print('Got connection from', address)
+    client_thread = ClientThread(clientsocket)
+    client_thread.start()
+    time.sleep(0.001)
 
-
-class ClickProg(ttk.Progressbar):
-    '''version of ttk progress bar that does stuff when clicked'''
-
-    def __init__(self, master, index, **kw):
-        ttk.Progressbar.__init__(self, master, **kw)
-        self.bind('<Button-1>', lambda x: set_job(index))
-
-
-class JobBox(object):
-    '''GUI element representing a single job in the queue frame.'''
-
-    def __init__(self, master, index):
-        container = ClickFrame(master, index=index, bd=2, relief=tk.GROOVE)
-        container.pack(padx=5, pady=5)
-        ClickCanvas(container, width=121, height=21, highlightthickness=0, 
-            index=index).grid(row=0, column=0)
-        NameHoverLabel(container, text='Filename', wraplength=130, anchor=tk.W, 
-            index=index).grid(row=0, column=1)
-        ClickLabel(container, text='Startframe', index=index).grid(row=0, column=2)
-        ClickLabel(container, text='Endframe', index=index).grid(row=0, column=3)
-        FramesHoverLabel(container, text='Extraframes', index=index).grid(row=0, 
-            column=4)
-        
-        timecanv = ClickCanvas(container, name='timecanv_'+str(i), width=615, 
-            height=20, highlightthickness=0, index=index)
-        timecanv.grid(row=1, column=0, columnspan=8, sticky=tk.W)
-        timecanv.create_text(35, 10, text='Total time:')
-        timecanv.create_text(240, 10, text='Avg/frame:')
-        timecanv.create_text(448, 10, text='Remaining:')
-
-        ClickProg(container, length=500, index=index).grid(row=2, column=0, 
-            columnspan=8, sticky=tk.W)
-        perdone = ClickCanvas(container, width=110, height=20, index=i, 
-            highlightthickness=0)
-        perdone.grid(row=2, column=7, sticky=tk.E, padx=3) 
-        perdone.create_text(55, 9, text='0% Complete')
-
-        buttonframe = ClickFrame(container, index=index, bd=0)
-        buttonframe.grid(row=3, column=0, columnspan=8, sticky=tk.W)
-        tk.Button(buttonframe, text='New / Edit').pack(side=tk.LEFT)
-        tk.Button(buttonframe, text='Start').pack(side=tk.LEFT)
-        tk.Button(buttonframe, text='Stop').pack(side=tk.LEFT)
-        tk.Button(buttonframe, text='Resume').pack(side=tk.LEFT)
-        tk.Button(buttonframe, text='Remove Job').pack(side=tk.RIGHT)
-        
+s.close()
 
 
 
-#----GUI FUNCTIONS----
-
-
-def update_gui():
-    '''Refreshes GUI'''
-    root.update_idletasks()
-    root.after(80, update)
-
-def set_job(index):
-    print('This is setjob', index)
-
-root = tk.Tk()
-root.title('IGP Render Controller Mk. V')
-root.config(bg='gray90')
-root.minsize(1145, 400)
-root.geometry('1145x525')
-#use internal quit function instead of OSX
-root.bind('<Command-q>', lambda x: quit()) 
-root.bind('<Control-q>', lambda x: quit())
-#ttk.Style().theme_use('clam') #use clam theme for widgets in Linux
-
-smallfont = tkfont.Font(family='System', size='10')
-
-#test font width & adjust font size to make sure everything fits with 
-#different system fonts
-fontwidth = smallfont.measure('abc ijk 123.456')
-newsize = 10
-if fontwidth > 76:
-    while fontwidth > 76:
-        newsize -= 1
-        smallfont = tkfont.Font(family='System', size=newsize)
-        fontwidth = smallfont.measure('abc ijk 123.456')
-
-
-topbar = tk.Frame(root)
-topbar.pack(padx=10, pady=10, anchor=tk.W)
-tk.Label(topbar, text='This is topbar').pack()
-
-main_container = tk.LabelFrame(root)
-main_container.pack(padx=10, pady=10, anchor=tk.W)
-
-
-for i in range(1, 5 + 1):
-    jobbox = JobBox(main_container, i)
-
-root.mainloop()
+#
+##----------TKINTER GUI----------
+#
+#
+#import tkinter as tk
+#import tkinter.ttk as ttk
+#import tkinter.font as tkfont
+#import tkinter.filedialog as tkFileDialog
+#import tkinter.scrolledtext as st
+#import tkinter.messagebox as tk_msgbox
+#
+##----GUI CLASSES----
+#
+#class ClickFrame(tk.Frame):
+#    '''version of tkinter Frame that functions as a button when clicked
+#
+#    creates a new argument - index - that identifies which box was clicked''' 
+#
+#    def __init__(self, master, index, **kw):
+#        tk.Frame.__init__(self, master, **kw)
+#        self.index = index
+#        self.bind('<Button-1>', lambda x: set_job(self.index))
+#
+#
+#class ClickLabel(tk.Label):
+#    '''version of tkinter Label that functions as a button when clicked'''
+#
+#    def __init__(self, master, index, **kw):
+#        tk.Label.__init__(self, master, **kw)
+#        self.index = index
+#        self.bind('<Button-1>', lambda x: set_job(self.index))
+#
+#
+#class FramesHoverLabel(ClickLabel):
+#    '''version of ClickLabelthat also has a hover binding'''
+#
+#    def __init__(self, master, index, **kw):
+#        ClickLabel.__init__(self, master, index, **kw)
+#        self.bind('<Enter>', lambda x: extraballoon(x, index))
+#
+#
+#class NameHoverLabel(ClickLabel):
+#    '''version of clicklabel that also has a hover binding'''
+#
+#    def __init__(self, master, index, **kw):
+#        ClickLabel.__init__(self, master, index, **kw)
+#        self.bind('<Enter>', lambda x: nameballoon(x, index))
+#
+#
+#class ClickCanvas(tk.Canvas):
+#    '''version of tkinter Canvas that functions like a button when clicked'''
+#
+#    def __init__(self, master, index, **kw):
+#        tk.Canvas.__init__(self, master, **kw)
+#        self.index = index
+#        self.bind('<Button-1>', lambda x: set_job(self.index))
+#
+#
+#class ClickProg(ttk.Progressbar):
+#    '''version of ttk progress bar that does stuff when clicked'''
+#
+#    def __init__(self, master, index, **kw):
+#        ttk.Progressbar.__init__(self, master, **kw)
+#        self.bind('<Button-1>', lambda x: set_job(index))
+##
+#
+#class JobBox(object):
+#    '''GUI element representing a single job in the queue frame.'''
+#
+#    def __init__(self, master, index):
+#        container = ClickFrame(master, index=index, bd=2, relief=tk.GROOVE)
+#        container.pack(padx=5, pady=5)
+#        ClickCanvas(container, width=121, height=21, highlightthickness=0, 
+#            index=index).grid(row=0, column=0)
+#        NameHoverLabel(container, text='Filename', wraplength=130, anchor=tk.W, 
+#            index=index).grid(row=0, column=1)
+#        ClickLabel(container, text='Startframe', index=index).grid(row=0, column=2)
+#        ClickLabel(container, text='Endframe', index=index).grid(row=0, column=3)
+#        FramesHoverLabel(container, text='Extraframes', index=index).grid(row=0, 
+#            column=4)
+#        
+#        timecanv = ClickCanvas(container, name='timecanv_'+str(i), width=615, 
+#            height=20, highlightthickness=0, index=index)
+#        timecanv.grid(row=1, column=0, columnspan=8, sticky=tk.W)
+#        timecanv.create_text(35, 10, text='Total time:')
+#        timecanv.create_text(240, 10, text='Avg/frame:')
+#        timecanv.create_text(448, 10, text='Remaining:')
+#
+#        ClickProg(container, length=500, index=index).grid(row=2, column=0, 
+#            columnspan=8, sticky=tk.W)
+#        perdone = ClickCanvas(container, width=110, height=20, index=i, 
+#            highlightthickness=0)
+#        perdone.grid(row=2, column=7, sticky=tk.E, padx=3) 
+#        perdone.create_text(55, 9, text='0% Complete')
+#
+#        buttonframe = ClickFrame(container, index=index, bd=0)
+#        buttonframe.grid(row=3, column=0, columnspan=8, sticky=tk.W)
+#        tk.Button(buttonframe, text='New / Edit').pack(side=tk.LEFT)
+#        tk.Button(buttonframe, text='Start').pack(side=tk.LEFT)
+#        tk.Button(buttonframe, text='Stop').pack(side=tk.LEFT)
+#        tk.Button(buttonframe, text='Resume').pack(side=tk.LEFT)
+#        tk.Button(buttonframe, text='Remove Job').pack(side=tk.RIGHT)
+#        
+#
+#
+#
+##----GUI FUNCTIONS----
+#
+#
+#def update_gui():
+#    '''Refreshes GUI'''
+#    root.update_idletasks()
+#    root.after(80, update)
+#
+#def set_job(index):
+#    print('This is setjob', index)
+#
+#root = tk.Tk()
+#root.title('IGP Render Controller Mk. V')
+#root.config(bg='gray90')
+#root.minsize(1145, 400)
+#root.geometry('1145x525')
+##use internal quit function instead of OSX
+#root.bind('<Command-q>', lambda x: quit()) 
+#root.bind('<Control-q>', lambda x: quit())
+##ttk.Style().theme_use('clam') #use clam theme for widgets in Linux
+#
+#smallfont = tkfont.Font(family='System', size='10')
+#
+##test font width & adjust font size to make sure everything fits with 
+##different system fonts
+#fontwidth = smallfont.measure('abc ijk 123.456')
+#newsize = 10
+#if fontwidth > 76:
+#    while fontwidth > 76:
+#        newsize -= 1
+#        smallfont = tkfont.Font(family='System', size=newsize)
+#        fontwidth = smallfont.measure('abc ijk 123.456')
+#
+#
+#topbar = tk.Frame(root)
+#topbar.pack(padx=10, pady=10, anchor=tk.W)
+#tk.Label(topbar, text='This is topbar').pack()
+#
+#main_container = tk.LabelFrame(root)
+#main_container.pack(padx=10, pady=10, anchor=tk.W)
+#
+#
+#for i in range(1, 5 + 1):
+#    jobbox = JobBox(main_container, i)
+#
+#root.mainloop()

@@ -1,4 +1,5 @@
 #Fifth major revison of IGP render controller
+#must run in python 3
 import queue
 import threading
 import time
@@ -92,7 +93,7 @@ class Job(object):
         if self.status != 'Waiting':
             print('Job status is not "Waiting". Aborting render.')
             return False
-        self.status == 'Rendering'
+        self.status = 'Rendering'
         #start render timer
         #create log entry
 
@@ -119,7 +120,7 @@ class Job(object):
 
         print('entered masterthread')
         while True:
-            print(self.totalframes, self.thread_ids) #debug
+            #print(self.totalframes, self.thread_ids) #debug
             if self.killflag == True:
                 print('Kill flag detected, breaking render loop.')
                 break
@@ -147,7 +148,7 @@ class Job(object):
                             self.threadtimer[computer] = time.time()
                         print('creating renderthread')
                         renderthread = threading.Thread(target=self.renderthread, 
-                                args=(frame, computer))
+                                args=(frame, computer, self.queue))
                         renderthread.start()
                 #if thread was active on computer or computer was skipped
                 else:
@@ -167,10 +168,11 @@ class Job(object):
 
         #stop timer
         #write status to log
+        print('materthread() terminating')
         self.status = 'Finished'
 
 
-    def renderthread(self, frame, computer):
+    def renderthread(self, frame, computer, q):
         '''Thread to render a single frame on a given computer.'''
         #not using self. variables b/c these need to have scope only inside this 
         #method
@@ -203,6 +205,8 @@ class Job(object):
             line = line.decode('UTF-8')
             if line:
                 self.threadtimer[computer] = time.time()
+                if verbose:
+                    print(line)
 
             if line.find('Fra:') >= 0 and line.find('Tile') > 0:
                 progress = self._parseline(line, frame, computer)
@@ -232,18 +236,18 @@ class Job(object):
                     self.compready[computer] = True
                     self.comp_progress[computer] = 100
                     del self.currentframe[computer]
-                    self.queue.task_done()
+                    q.task_done()
+                    self.totalframes.append(frame)
                     #remove a placeholder
                     if 0 in self.totalframes:
                         self.totalframes.remove(0)
                     del self.thread_ids[thread_id]
+                break
 
             else:
                 output = output + line
 
-            if verbose:
-                if line:
-                    print(line)
+
 
         #NOTE omitting stderr checking for now
                             
@@ -253,8 +257,10 @@ class Job(object):
             #    with threadlock:
             #        self.compready[computer] = True
             #        self.skiplist.append(computer)
-            #        self.queue.put(frame)
+            #        q.put(frame)
                 #log error
+
+        print('renderthread() terminating')
 
     def _parseline(self, line, frame, computer):
         '''Parses render progress and returns it in a compact form.'''
@@ -424,14 +430,14 @@ def quit():
 
 
 
-#----------Let's have a basic command line interface----------
+#----------SERVER INTERFACE----------
 def cmdline_render(args):
+    '''Handles command line render requests.'''
     path = args['path']
     startframe = int(args['start'])
     endframe = int(args['end'])
     complist = args['computers'].split(',')
 
-    #print(path, startframe, endframe, complist)
     jobcmd = Job()
     renderjobs.append(jobcmd)
     jobcmd.enqueue(path, startframe, endframe, 'blender', complist)
@@ -441,26 +447,9 @@ def cmdline_render(args):
         time.sleep(0.1)
 
 
-'''
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(description='IGP Render Controller command ' +
-        'line interface.')
-    parser.add_argument('-p', type=str, help='Path to blendfile')
-    parser.add_argument('-s', type=int, help='Start frame')
-    parser.add_argument('-e', type=int, help='End frame')
-    parser.add_argument('-c', type=str, help='List of computers to render on. ' +
-        'Comma-separated, no spaces.')
-    args = vars(parser.parse_args())
-    print(args)
-
-    #if args are present, start a command line render
-    if args['p'] and args['s'] and args['e'] and args['c']:
-        cmdline_render(args)
-'''
-
 def statusthread():
-    print('starting status thread')
+    '''simple thread to print the progress % of each job to the terminal'''
+    print('starting status thread') #debug
     while True:
         global renderjobs
         if len(renderjobs) > 0:
@@ -472,49 +461,46 @@ def statusthread():
 
 
 class ClientThread(threading.Thread):
+    '''Subclass of threading.Thread to encapsulate client connections'''
     def __init__(self, clientsocket):
         self.clientsocket = clientsocket
         threading.Thread.__init__(self, target=self._clientthread)
 
     def _clientthread(self):
-        print('Started client thread')
-        starttime = time.time()
+        print('Started client thread') #debug
         while True:
-            exec(self.clientsocket.recv(1024))
-            return
-            #still working on making it work for below
-            data = self.clientsocket.recv(1024)
+            data = self.clientsocket.recv(4096)
             if not data:
                 break
-            time.sleep(0.001)
-            if time.time() - starttime > 100: #timeout in s
-                print('Client thread timed out.')
-                return
-        print('executing thread data')
-        exec(data)
+            print('Data', data) #debug
+            self.clientsocket.sendall(bytes('Message Received', 'UTF-8'))
+            exec(data)
+            break
+
+        self.clientsocket.close()
+        print('Client thread done')#debug
 
 
-#start the status reporter thread
-statthread = threading.Thread(target=statusthread)
-statthread.start()
-
-#start a server
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-host = socket.gethostname()
-port = 2020
-s.bind((host, port))
-s.listen(5)
-print('Server now running on port ' + str(port))
-while True:
-    clientsocket, address = s.accept()
-    print('Got connection from', address)
-    client_thread = ClientThread(clientsocket)
-    client_thread.start()
-    time.sleep(0.001)
-
-s.close()
+if __name__ == '__main__':
+    #start the status reporter thread
+    statthread = threading.Thread(target=statusthread)
+    statthread.start()
 
 
+    #socket server to handle interface interactions
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    host = socket.gethostname()
+    port = 2020
+    s.bind((host, port))
+    s.listen(5)
+    print('Server now running on ' + host + ' port ' + str(port))
+    while True:
+        clientsocket, address = s.accept()
+        print('Client connected from ', address)
+        client_thread = ClientThread(clientsocket)
+        client_thread.start()
+
+    s.close()
 
 #
 ##----------TKINTER GUI----------

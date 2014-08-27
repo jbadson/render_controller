@@ -14,6 +14,7 @@ class Job(object):
     def __init__(self):
         '''Attributes: index = int job identifier.'''
         self.status = 'Empty'
+        self.complist = []
         #generate dict of computer statuses
         self.compstatus = dict()
         for computer in computers:
@@ -22,8 +23,12 @@ class Job(object):
 
     def _reset_compstatus(self, computer):
         '''Returns a compstatus dict containing default values'''
+        if computer in self.complist:
+            pool = True
+        else:
+            pool = False
         return { 'active':False, 'frame':None, 'pid':None, 'timer':None, 
-                 'progress':0.0, 'error':None }
+                 'progress':0.0, 'error':None, 'pool':pool}
     
 
     def exists(self):
@@ -50,7 +55,7 @@ class Job(object):
                 if i != 0:
                     n += 1
             self.progress = float(n) / len(self.totalframes) * 100
-        elif self.status == 'Done':
+        elif self.status == 'Finished':
             self.progress = 100.0
         else:
             self.progress = 0.0
@@ -72,6 +77,8 @@ class Job(object):
         self.extraframes = extraframes
         self.render_engine = render_engine
         self.complist = complist
+        for computer in complist:
+            self.compstatus[computer]['pool'] = True
 
         print('enqueued')
         #Fill list of total frames with zeros
@@ -143,7 +150,11 @@ class Job(object):
                 #write status to log
                 break
     
-            for computer in self.complist:
+            #for computer in self.complist:
+            #trying something different
+            for computer in computers:
+                if self.compstatus[computer]['pool'] == False:
+                    continue
                 if not self.compstatus[computer]['active'] and \
                 not computer in self.skiplist:
                     #break loop if queue becomes empty after new computer is added
@@ -267,8 +278,11 @@ class Job(object):
 #---------GLOBAL VARIABLES----------
 threadlock = threading.RLock()
 
-#list to contain all instances of Job()
-renderjobs = []
+#list to contain all render Job instances
+#fixed queue of 5 for simplicity's sake for now
+renderjobs = {}
+for i in range(1, 6):
+    renderjobs[i] = None
 
 #----------DEFAULTS / CONFIG FILE----------
 def set_defaults():
@@ -309,7 +323,7 @@ def set_defaults():
         'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
     
     #timeout for failed machine in seconds
-    timeout = 1000 
+    timeout = 30
     
     #start next job when current one finishes. 1=yes, 0=no, on by default
     startnext = 1 
@@ -419,9 +433,11 @@ def quit():
 #----------SERVER INTERFACE----------
 
 #list of allowed commands for the server to receive
-allowed_commands= ['cmdline_render']
+allowed_commands= ['cmd_render', 'get_status']
+#queue to hold replies
+replyqueue = queue.Queue()
 
-def cmdline_render(kwargs={}):
+def cmd_render(kwargs={}):
     '''Handles command line render requests.
     Simplified version that combines enqueue() and render() in one step'''
     path = kwargs['path']
@@ -429,33 +445,58 @@ def cmdline_render(kwargs={}):
     endframe = int(kwargs['end'])
     complist = kwargs['computers'].split(',')
 
-    jobcmd = Job()
-    renderjobs.append(jobcmd)
-    jobcmd.enqueue(path, startframe, endframe, 'blender', complist)
-    jobcmd.render()
+    job = Job()
+    #renderjobs[id(job)] = job
+    #look for an empty queue slot, put the job there
+    #XXX This will have to be done differently later to accomodate more renders
+    for i in renderjobs:
+        if not renderjobs[i]:
+            renderjobs[i] = job
+            print('Enqueued at slot ' + str(i))
+            break
+
+    job.enqueue(path, startframe, endframe, 'blender', complist)
+    job.render()
     print('renderjobs', renderjobs)
-    while not jobcmd.get_job_status() == 'Finished':
-        reply = jobcmd.get_job_progress()
-        time.sleep(0.1)
-    return reply
 
 
-def statusthread():
-    '''simple thread to print the progress % of each job to the terminal'''
-    print('starting status thread') #debug
-    while True:
-        #global renderjobs
-        if len(renderjobs) > 0:
-            for job in renderjobs:
-                if job.get_job_status() == 'Rendering':
-                    percent = job.get_job_progress()
-                    print('Rendering, ' + str(percent) + '% complete.')
-                    for computer in computers:
-                        compstat = job.get_comp_status(computer)
-                        if compstat['active']:
-                            print('Frame ' + str(compstat['frame']) + ':' + str(compstat['progress']) + '%')
-                        
-        time.sleep(2)
+def get_status(kwargs={}):
+    '''Testing way to return current job status over socket.'''
+    statdict = {}
+    for job in renderjobs:
+        if not renderjobs[job]:
+            continue
+        statdict[job] = { 'status':renderjobs[job].get_job_status(), 
+                        'path':renderjobs[job].path, 
+                        'startframe':renderjobs[job].startframe, 
+                        'endframe':renderjobs[job].endframe,
+                        'extraframes':renderjobs[job].extraframes, 
+                        'complist':renderjobs[job].complist,
+                        'render_engine':renderjobs[job].render_engine, 
+                        'progress':renderjobs[job].get_job_progress(),
+                        'compstatus':renderjobs[job].compstatus }
+
+    statstr = str(statdict)
+    print('putting statstr in queue')
+    replyqueue.put(str(statstr))
+    return statstr
+
+#def statusthread():
+#    '''simple thread to print the progress % of each job to the terminal'''
+#    print('starting status thread') #debug
+#    while True:
+#        if len(renderjobs) > 0:
+#            for job in renderjobs:
+#                if renderjobs[job].get_job_status() == 'Rendering':
+#                    percent = renderjobs[job].get_job_progress()
+#                    print('Rendering, ' + str(percent) + '% complete.')
+#                    for computer in computers:
+#                        compstat = renderjobs[job].get_comp_status(computer)
+#                        if compstat['active']:
+#                            print('Frame ' + str(compstat['frame']) + ':' 
+#                                    + str(compstat['progress']) + '%')
+#                        
+#        time.sleep(2)
 
 
 class ClientThread(threading.Thread):
@@ -470,22 +511,32 @@ class ClientThread(threading.Thread):
             data = self.clientsocket.recv(4096)
             if not data:
                 break
-            print('Data', data) #debug
-            data = eval(data.decode('UTF-8'))
+
+            data = data.decode('UTF-8')
             print(data)
-            print(type(data))
-            self.clientsocket.sendall(bytes('Message Received', 'UTF-8'))
-            command = data['command']
-            #delete command key, leaving args
-            del data['command']
-            print('kwargs:', data)
+            #first 10 characters are the command string
+            #can be 'get_status', 'cmd_render'
+            command = data[0:10]
             if not command in allowed_commands:
                 #refuse commands that aren't in approved list
-                self.clientsocket.sendall(bytes('Invalid command, terminating.', 'UTF-8'))
+                print('Invalid command received', command)
+                print('#'*50)
+                print(data)
+                self.clientsocket.sendall(bytes('Invalid command, terminating.',                                                    'UTF-8'))
                 break
             else:
-                #call function(kwargs) as command(data)
-                eval(command)(kwargs=data)
+                if len(data) > 10:
+                    kwargs = eval(data[10:])
+                else:
+                    kwargs = None
+                print('kwargs:', kwargs)
+                #call function as command(kwargs)
+                eval(command)(kwargs=kwargs)
+
+            if not replyqueue.empty():
+                reply = replyqueue.get()
+                self.clientsocket.sendall(bytes(reply, 'UTF-8'))
+                print('sending reply', reply)
             break
 
         self.clientsocket.close()
@@ -494,173 +545,29 @@ class ClientThread(threading.Thread):
 
 if __name__ == '__main__':
     #start the status reporter thread
-    statthread = threading.Thread(target=statusthread)
-    statthread.start()
+    #statthread = threading.Thread(target=statusthread)
+    #statthread.start()
 
     #socket server to handle interface interactions
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     host = socket.gethostname()
     port = 2020
     s.bind((host, port))
     s.listen(5)
     print('Server now running on ' + host + ' port ' + str(port))
+    print('Press Crtl + C to stop...')
     while True:
-        clientsocket, address = s.accept()
-        print('Client connected from ', address)
-        client_thread = ClientThread(clientsocket)
-        client_thread.start()
-
+        try:
+            clientsocket, address = s.accept()
+            print('Client connected from ', address)
+            client_thread = ClientThread(clientsocket)
+            client_thread.start()
+        except KeyboardInterrupt:
+            print('Shutting down server')
+            #close the server socket cleanly if user interrupts the loop
+            s.close()
+            quit()
     s.close()
 
-#
-##----------TKINTER GUI----------
-#
-#
-#import tkinter as tk
-#import tkinter.ttk as ttk
-#import tkinter.font as tkfont
-#import tkinter.filedialog as tkFileDialog
-#import tkinter.scrolledtext as st
-#import tkinter.messagebox as tk_msgbox
-#
-##----GUI CLASSES----
-#
-#class ClickFrame(tk.Frame):
-#    '''version of tkinter Frame that functions as a button when clicked
-#
-#    creates a new argument - index - that identifies which box was clicked''' 
-#
-#    def __init__(self, master, index, **kw):
-#        tk.Frame.__init__(self, master, **kw)
-#        self.index = index
-#        self.bind('<Button-1>', lambda x: set_job(self.index))
-#
-#
-#class ClickLabel(tk.Label):
-#    '''version of tkinter Label that functions as a button when clicked'''
-#
-#    def __init__(self, master, index, **kw):
-#        tk.Label.__init__(self, master, **kw)
-#        self.index = index
-#        self.bind('<Button-1>', lambda x: set_job(self.index))
-#
-#
-#class FramesHoverLabel(ClickLabel):
-#    '''version of ClickLabelthat also has a hover binding'''
-#
-#    def __init__(self, master, index, **kw):
-#        ClickLabel.__init__(self, master, index, **kw)
-#        self.bind('<Enter>', lambda x: extraballoon(x, index))
-#
-#
-#class NameHoverLabel(ClickLabel):
-#    '''version of clicklabel that also has a hover binding'''
-#
-#    def __init__(self, master, index, **kw):
-#        ClickLabel.__init__(self, master, index, **kw)
-#        self.bind('<Enter>', lambda x: nameballoon(x, index))
-#
-#
-#class ClickCanvas(tk.Canvas):
-#    '''version of tkinter Canvas that functions like a button when clicked'''
-#
-#    def __init__(self, master, index, **kw):
-#        tk.Canvas.__init__(self, master, **kw)
-#        self.index = index
-#        self.bind('<Button-1>', lambda x: set_job(self.index))
-#
-#
-#class ClickProg(ttk.Progressbar):
-#    '''version of ttk progress bar that does stuff when clicked'''
-#
-#    def __init__(self, master, index, **kw):
-#        ttk.Progressbar.__init__(self, master, **kw)
-#        self.bind('<Button-1>', lambda x: set_job(index))
-##
-#
-#class JobBox(object):
-#    '''GUI element representing a single job in the queue frame.'''
-#
-#    def __init__(self, master, index):
-#        container = ClickFrame(master, index=index, bd=2, relief=tk.GROOVE)
-#        container.pack(padx=5, pady=5)
-#        ClickCanvas(container, width=121, height=21, highlightthickness=0, 
-#            index=index).grid(row=0, column=0)
-#        NameHoverLabel(container, text='Filename', wraplength=130, anchor=tk.W, 
-#            index=index).grid(row=0, column=1)
-#        ClickLabel(container, text='Startframe', index=index).grid(row=0, column=2)
-#        ClickLabel(container, text='Endframe', index=index).grid(row=0, column=3)
-#        FramesHoverLabel(container, text='Extraframes', index=index).grid(row=0, 
-#            column=4)
-#        
-#        timecanv = ClickCanvas(container, name='timecanv_'+str(i), width=615, 
-#            height=20, highlightthickness=0, index=index)
-#        timecanv.grid(row=1, column=0, columnspan=8, sticky=tk.W)
-#        timecanv.create_text(35, 10, text='Total time:')
-#        timecanv.create_text(240, 10, text='Avg/frame:')
-#        timecanv.create_text(448, 10, text='Remaining:')
-#
-#        ClickProg(container, length=500, index=index).grid(row=2, column=0, 
-#            columnspan=8, sticky=tk.W)
-#        perdone = ClickCanvas(container, width=110, height=20, index=i, 
-#            highlightthickness=0)
-#        perdone.grid(row=2, column=7, sticky=tk.E, padx=3) 
-#        perdone.create_text(55, 9, text='0% Complete')
-#
-#        buttonframe = ClickFrame(container, index=index, bd=0)
-#        buttonframe.grid(row=3, column=0, columnspan=8, sticky=tk.W)
-#        tk.Button(buttonframe, text='New / Edit').pack(side=tk.LEFT)
-#        tk.Button(buttonframe, text='Start').pack(side=tk.LEFT)
-#        tk.Button(buttonframe, text='Stop').pack(side=tk.LEFT)
-#        tk.Button(buttonframe, text='Resume').pack(side=tk.LEFT)
-#        tk.Button(buttonframe, text='Remove Job').pack(side=tk.RIGHT)
-#        
-#
-#
-#
-##----GUI FUNCTIONS----
-#
-#
-#def update_gui():
-#    '''Refreshes GUI'''
-#    root.update_idletasks()
-#    root.after(80, update)
-#
-#def set_job(index):
-#    print('This is setjob', index)
-#
-#root = tk.Tk()
-#root.title('IGP Render Controller Mk. V')
-#root.config(bg='gray90')
-#root.minsize(1145, 400)
-#root.geometry('1145x525')
-##use internal quit function instead of OSX
-#root.bind('<Command-q>', lambda x: quit()) 
-#root.bind('<Control-q>', lambda x: quit())
-##ttk.Style().theme_use('clam') #use clam theme for widgets in Linux
-#
-#smallfont = tkfont.Font(family='System', size='10')
-#
-##test font width & adjust font size to make sure everything fits with 
-##different system fonts
-#fontwidth = smallfont.measure('abc ijk 123.456')
-#newsize = 10
-#if fontwidth > 76:
-#    while fontwidth > 76:
-#        newsize -= 1
-#        smallfont = tkfont.Font(family='System', size=newsize)
-#        fontwidth = smallfont.measure('abc ijk 123.456')
-#
-#
-#topbar = tk.Frame(root)
-#topbar.pack(padx=10, pady=10, anchor=tk.W)
-#tk.Label(topbar, text='This is topbar').pack()
-#
-#main_container = tk.LabelFrame(root)
-#main_container.pack(padx=10, pady=10, anchor=tk.W)
-#
-#
-#for i in range(1, 5 + 1):
-#    jobbox = JobBox(main_container, i)
-#
-#root.mainloop()
+

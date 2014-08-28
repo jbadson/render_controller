@@ -77,7 +77,7 @@ class Job(object):
         self.extraframes = extraframes
         self.render_engine = render_engine
         self.complist = complist
-        for computer in complist:
+        for computer in self.complist:
             self.compstatus[computer]['pool'] = True
 
         print('enqueued')
@@ -278,11 +278,7 @@ class Job(object):
 #---------GLOBAL VARIABLES----------
 threadlock = threading.RLock()
 
-#list to contain all render Job instances
-#fixed queue of 5 for simplicity's sake for now
-renderjobs = {}
-for i in range(1, 6):
-    renderjobs[i] = None
+
 
 #----------DEFAULTS / CONFIG FILE----------
 def set_defaults():
@@ -433,7 +429,8 @@ def quit():
 #----------SERVER INTERFACE----------
 
 #list of allowed commands for the server to receive
-allowed_commands= ['cmd_render', 'get_status']
+#must be exactly 10 characters long
+allowed_commands= ['cmd_render', 'get_status', 'enqueuejob', 'rendrstart']
 #queue to hold replies
 replyqueue = queue.Queue()
 
@@ -464,7 +461,7 @@ def get_status(kwargs={}):
     '''Testing way to return current job status over socket.'''
     statdict = {}
     for job in renderjobs:
-        if not renderjobs[job]:
+        if not renderjobs[job].exists():
             continue
         statdict[job] = { 'status':renderjobs[job].get_job_status(), 
                         'path':renderjobs[job].path, 
@@ -480,6 +477,29 @@ def get_status(kwargs={}):
     print('putting statstr in queue')
     replyqueue.put(str(statstr))
     return statstr
+
+def enqueuejob(kwargs={}):
+    '''Place a new job in queue.'''
+    index = kwargs['index']
+    path = kwargs['path']
+    start = int(kwargs['startframe'])
+    end = int(kwargs['endframe'])
+    extras = kwargs['extraframes']
+    if extras != '':
+        extras = extras.split(',')
+    else:
+        extras = []
+    render_engine = kwargs['render_engine']
+    complist = kwargs['complist'].split(',')
+
+    #XXX Need check here to make sure we're not overwriting queue
+    renderjobs[index].enqueue(path, start, end, render_engine, complist, extras)
+    print('Enqueued new job at slot ' + str(index))
+
+def rendrstart(kwargs={}):
+    index = kwargs['index']
+    renderjobs[index].render()
+    print('Starting render for job ' + str(index))
 
 #def statusthread():
 #    '''simple thread to print the progress % of each job to the terminal'''
@@ -506,7 +526,7 @@ class ClientThread(threading.Thread):
         threading.Thread.__init__(self, target=self._clientthread)
 
     def _clientthread(self):
-        print('_clientthread() started') #debug
+        #print('_clientthread() started') #debug
         while True:
             data = self.clientsocket.recv(4096)
             if not data:
@@ -540,13 +560,20 @@ class ClientThread(threading.Thread):
             break
 
         self.clientsocket.close()
-        print('_clientthread() terminated')#debug
+        #print('_clientthread() terminated')#debug
 
 
 if __name__ == '__main__':
     #start the status reporter thread
     #statthread = threading.Thread(target=statusthread)
     #statthread.start()
+
+    #list to contain all render Job instances
+    #fixed queue of 5 for simplicity's sake for now
+    maxqueuelength = 6
+    renderjobs = {}
+    for i in range(1, maxqueuelength):
+        renderjobs[i] = Job()
 
     #socket server to handle interface interactions
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -560,7 +587,7 @@ if __name__ == '__main__':
     while True:
         try:
             clientsocket, address = s.accept()
-            print('Client connected from ', address)
+            #print('Client connected from ', address)
             client_thread = ClientThread(clientsocket)
             client_thread.start()
         except KeyboardInterrupt:

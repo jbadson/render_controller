@@ -7,18 +7,28 @@ import cfgfile
 import subprocess
 import os
 import socket
+import ast
 
 class Job(object):
     '''Represents a render job.'''
 
     def __init__(self):
-        '''Attributes: index = int job identifier.'''
+        #initialize all attrs for client updates
         self.status = 'Empty'
+        self.starttime = None #time render() called
+        self.stoptime = None #time masterthread stopped
         self.complist = []
         #generate dict of computer statuses
         self.compstatus = dict()
         for computer in computers:
             self.compstatus[computer] = self._reset_compstatus(computer)
+        self.path = None
+        self.startframe = None
+        self.endframe = None
+        self.extraframes = []
+        self.render_engine = None
+        self.totalframes = []
+        self.progress = None
 
 
     def _reset_compstatus(self, computer):
@@ -33,12 +43,9 @@ class Job(object):
 
     def exists(self):
         '''Returns true if specified job exists.'''
-        try:
-            if self.path:
-                return True
-            else:
-                return False
-        except:
+        if self.path:
+            return True
+        else:
             return False
 
 
@@ -69,8 +76,7 @@ class Job(object):
 
     def enqueue(self, path, startframe, endframe, render_engine, complist, 
                 extraframes=[]):
-        '''Create a new job and place it in queue.
-        Returns true if successful.'''
+        '''Create a new job and place it in queue.'''
         self.path = path
         self.startframe = startframe
         self.endframe = endframe
@@ -115,9 +121,9 @@ class Job(object):
         print('entered render()') #debug
         if self.status != 'Waiting':
             print('Job status is not "Waiting". Aborting render.')
-            return False
+            return 'Job status is not "Waiting". Aborting render.'
         self.status = 'Rendering'
-        #start render timer
+        self.starttime = self._start_timer()
         #create log entry
 
         self.skiplist = []
@@ -125,6 +131,7 @@ class Job(object):
 
         master = threading.Thread(target=self._masterthread, args=())
         master.start()
+        return 'success'
 
 
     def _masterthread(self):
@@ -146,7 +153,7 @@ class Job(object):
             if self.queue.empty() and not self._threadsactive():
                 print('Render done at detector.') #debug
                 self.status = 'Finished'
-                #stop render timer
+                self.stoptime = time.time()
                 #write status to log
                 break
     
@@ -264,6 +271,53 @@ class Job(object):
         percent = tiles / total * 100
         return percent
 
+    def _start_timer(self):
+        '''Returns start time for a render job.'''
+        if self.status == 'Stopped':
+            #account for time elapsed since render was stopped
+            starttime = time.time() - (self.stoptime - self.starttime)
+        else:
+            starttime = time.time()
+        return starttime
+
+    def get_times(self):
+        '''Returns elapsed time, avg time per frame, and estimated time remaining.
+        Units are float seconds.'''
+        if not self.starttime:
+            return (0, 0, 0)
+        if self.status == 'Rendering':
+            elapsed_time = time.time() - self.starttime
+            frames_completed = 0
+            for i in range(len(self.totalframes)):
+                if i != 0:
+                    frames_completed += 1
+            avg_time = elapsed_time / frames_completed
+            rem_time = avg_time * (len(self.totalframes) - frames_completed)
+        else:
+            elapsed_time = self.stoptime - self.starttime
+            avg_time = elapsed_time / len(self.totalframes)
+            rem_time = 0
+        return (elapsed_time, avg_time, rem_time)
+
+    def get_attrs(self):
+        '''Returns dict containing all status-related attributes and times to
+        update analogous Job() objects on clients.'''
+        self.times = self.get_times()
+        attrdict = {'status':self.status,
+                    'starttime':self.starttime,
+                    'stoptime':self.stoptime,
+                    'complist':self.complist,
+                    'compstatus':self.compstatus,
+                    'path':self.path,
+                    'startframe':self.startframe,
+                    'endframe':self.endframe,
+                    'extraframes':self.extraframes,
+                    'render_engine':self.render_engine,
+                    'totalframes':self.totalframes,
+                    'progress':self.progress,
+                    'times':self.times }
+        return attrdict
+        
 
 
 
@@ -428,148 +482,165 @@ def quit():
 
 #----------SERVER INTERFACE----------
 
-#list of allowed commands for the server to receive
-#must be exactly 10 characters long
-allowed_commands= ['cmd_render', 'get_status', 'enqueuejob', 'rendrstart']
-#queue to hold replies
-replyqueue = queue.Queue()
+'''
+Client-server command-response protocol:
 
-def cmd_render(kwargs={}):
-    '''Handles command line render requests.
-    Simplified version that combines enqueue() and render() in one step'''
-    path = kwargs['path']
-    startframe = int(kwargs['start'])
-    endframe = int(kwargs['end'])
-    complist = kwargs['computers'].split(',')
+### Client ###      ### Server ###
+send command   -->  receive command
+                        |
+                    validate command
+                        |
+receive report <--  report validation
+    |
+    |
+send cmd args  -->  execute command w/args
+                        |
+                        |
+receive result <--  report return string/result
 
-    job = Job()
-    #renderjobs[id(job)] = job
-    #look for an empty queue slot, put the job there
-    #XXX This will have to be done differently later to accomodate more renders
-    for i in renderjobs:
-        if not renderjobs[i]:
-            renderjobs[i] = job
-            print('Enqueued at slot ' + str(i))
-            break
+Each connection from a client receives its own instance of ClientThread. This
+thread checks the command against a list of valid commands, reports success or
+failure of validation to the client, then executes the command with arguments 
+supplied in a dict (kwargs). It then reports the string returned from the function
+to the client. This can be a simple success/fail indicator, or it can be whatever
+data the client has requested.
 
-    job.enqueue(path, startframe, endframe, 'blender', complist)
-    job.render()
-    print('renderjobs', renderjobs)
+For this reason, there are some rules for functions that directly carry out 
+requests from client threads:
 
+    1. The name of the function must be in the allowed_commands list.
 
-def get_status(kwargs={}):
-    '''Testing way to return current job status over socket.'''
-    statdict = {}
-    for job in renderjobs:
-        if not renderjobs[job].exists():
-            continue
-        statdict[job] = { 'status':renderjobs[job].get_job_status(), 
-                        'path':renderjobs[job].path, 
-                        'startframe':renderjobs[job].startframe, 
-                        'endframe':renderjobs[job].endframe,
-                        'extraframes':renderjobs[job].extraframes, 
-                        'complist':renderjobs[job].complist,
-                        'render_engine':renderjobs[job].render_engine, 
-                        'progress':renderjobs[job].get_job_progress(),
-                        'compstatus':renderjobs[job].compstatus }
+    2. The function must accept the kwargs argument, even if it isn't used.
 
-    statstr = str(statdict)
-    print('putting statstr in queue')
-    replyqueue.put(str(statstr))
-    return statstr
-
-def enqueuejob(kwargs={}):
-    '''Place a new job in queue.'''
-    index = kwargs['index']
-    path = kwargs['path']
-    start = int(kwargs['startframe'])
-    end = int(kwargs['endframe'])
-    extras = kwargs['extraframes']
-    if extras != '':
-        extras = extras.split(',')
-    else:
-        extras = []
-    render_engine = kwargs['render_engine']
-    complist = kwargs['complist'].split(',')
-
-    #XXX Need check here to make sure we're not overwriting queue
-    renderjobs[index].enqueue(path, start, end, render_engine, complist, extras)
-    print('Enqueued new job at slot ' + str(index))
-
-def rendrstart(kwargs={}):
-    index = kwargs['index']
-    renderjobs[index].render()
-    print('Starting render for job ' + str(index))
-
-#def statusthread():
-#    '''simple thread to print the progress % of each job to the terminal'''
-#    print('starting status thread') #debug
-#    while True:
-#        if len(renderjobs) > 0:
-#            for job in renderjobs:
-#                if renderjobs[job].get_job_status() == 'Rendering':
-#                    percent = renderjobs[job].get_job_progress()
-#                    print('Rendering, ' + str(percent) + '% complete.')
-#                    for computer in computers:
-#                        compstat = renderjobs[job].get_comp_status(computer)
-#                        if compstat['active']:
-#                            print('Frame ' + str(compstat['frame']) + ':' 
-#                                    + str(compstat['progress']) + '%')
-#                        
-#        time.sleep(2)
+    3. The function must return a string on completeion.
+'''
 
 
 class ClientThread(threading.Thread):
     '''Subclass of threading.Thread to encapsulate client connections'''
+
     def __init__(self, clientsocket):
         self.clientsocket = clientsocket
         threading.Thread.__init__(self, target=self._clientthread)
 
+    def _sendmsg(self, message):
+        '''Wrapper for socket.sendall() that formats message for client.    
+        Message must be a UTF-8 string.'''
+        msg = bytes(message, 'UTF-8')
+        msglen = str(len(msg))
+        #first 8 bytes contains message length 
+        while len(msglen) < 8:
+            msglen = '0' + msglen
+        msglen = bytes(msglen, 'UTF-8')
+        self.clientsocket.sendall(msglen)
+        self.clientsocket.sendall(msg)
+
+    def _recvall(self):
+        '''Receives a message of a specified length, returns it as a string.'''
+        #first 8 bytes contain msg length
+        msglen = int(self.clientsocket.recv(8).decode('UTF-8'))
+        print('msglen', msglen)
+        bytes_recvd = 0
+        chunks = []
+        while bytes_recvd < msglen:
+            chunk = self.clientsocket.recv(2048)
+            if not chunk:
+                break
+            print('chunk', chunk)
+            chunks.append(chunk.decode('UTF-8'))
+            bytes_recvd += len(chunk)
+            print('bytes_recvd', bytes_recvd)
+        data = ''.join(chunks)
+        print('data', data)
+        return data
+
     def _clientthread(self):
-        #print('_clientthread() started') #debug
-        while True:
-            data = self.clientsocket.recv(4096)
-            if not data:
-                break
-
-            data = data.decode('UTF-8')
-            print(data)
-            #first 10 characters are the command string
-            #can be 'get_status', 'cmd_render'
-            command = data[0:10]
-            if not command in allowed_commands:
-                #refuse commands that aren't in approved list
-                print('Invalid command received', command)
-                print('#'*50)
-                print(data)
-                self.clientsocket.sendall(bytes('Invalid command, terminating.',                                                    'UTF-8'))
-                break
-            else:
-                if len(data) > 10:
-                    kwargs = eval(data[10:])
-                else:
-                    kwargs = None
-                print('kwargs:', kwargs)
-                #call function as command(kwargs)
-                eval(command)(kwargs=kwargs)
-
-            if not replyqueue.empty():
-                reply = replyqueue.get()
-                self.clientsocket.sendall(bytes(reply, 'UTF-8'))
-                print('sending reply', reply)
-            break
-
+        print('started _clientthread')
+        command = self._recvall()
+        print('received command', command)
+        #validate command first
+        if not command in allowed_commands:
+            self._sendmsg('False')
+            print('command invalid')
+            return
+        else:
+            self._sendmsg('True')
+            print('comamnd valid')
+        #now get the args
+        kwargs = self._recvall()
+        print('received kwargs', kwargs)
+        if kwargs:
+            kwargs = ast.literal_eval(kwargs)
+        else:
+            kwargs = {}
+        return_str = eval(command)(kwargs)
+        print('sending return_str', return_str)
+        #send the return string (T/F for success or fail, or other requested data)
+        self._sendmsg(return_str)
         self.clientsocket.close()
-        #print('_clientthread() terminated')#debug
+
+
+
+
+
+
+#---Functions to carry out command requests from clients---
+
+#list of permitted commands
+#must match function names exactly
+allowed_commands= ['cmdtest', 'get_all_attrs', 'check_slot_open', 'enqueue']
+
+def cmdtest(kwargs):
+    '''a basic test of client-server command-response protocol'''
+    print('cmdtest() called')
+    for arg in kwargs:
+        print('arg:', arg, kwargs[arg])
+    return 'cmdtest() success'
+
+def get_all_attrs(kwargs):
+    '''Returns dict of attributes for all Job instances.'''
+    attrdict = {}
+    for i in renderjobs:
+        attrdict[i] = renderjobs[i].get_attrs()
+    return str(attrdict)
+
+def check_slot_open(kwargs):
+    '''Returns True if queue slot is open.'''
+    index = kwargs['index']
+    for job in renderjobs:
+        print(job, renderjobs[job].exists())
+    if renderjobs[index].exists() == False:
+        return 'True'
+    else:
+        return 'False'
+
+def enqueue(kwargs):
+    '''Enqueue a job from client.'''
+    index = kwargs['index']
+    path = kwargs['path']
+    startframe = kwargs['startframe']
+    endframe = kwargs['endframe']
+    extras = kwargs['extraframes']
+    render_engine = kwargs['render_engine']
+    complist = kwargs['complist']
+
+    for i in kwargs:
+        print(i, type(kwargs[i]))
+
+    reply = renderjobs[index].enqueue(path, startframe, endframe, 
+                                render_engine, complist, extraframes=extras)
+    if reply:
+        return ('Job enqueued at position ' + str(index))
+    else:
+        return 'Enqueue failed'
+
+
+
+
+
 
 
 if __name__ == '__main__':
-    #start the status reporter thread
-    #statthread = threading.Thread(target=statusthread)
-    #statthread.start()
-
-    #list to contain all render Job instances
-    #fixed queue of 5 for simplicity's sake for now
     maxqueuelength = 6
     renderjobs = {}
     for i in range(1, maxqueuelength):
@@ -587,7 +658,7 @@ if __name__ == '__main__':
     while True:
         try:
             clientsocket, address = s.accept()
-            #print('Client connected from ', address)
+            print('Client connected from ', address)
             client_thread = ClientThread(clientsocket)
             client_thread.start()
         except KeyboardInterrupt:

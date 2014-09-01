@@ -157,12 +157,11 @@ class Job(object):
                 #write status to log
                 break
     
-            #for computer in self.complist:
-            #trying something different
             for computer in computers:
+                time.sleep(0.01)
                 if self.compstatus[computer]['pool'] == False:
                     continue
-                if not self.compstatus[computer]['active'] and \
+                if not self.compstatus[computer]['active'] == True and \
                 not computer in self.skiplist:
                     #break loop if queue becomes empty after new computer is added
                     if self.queue.empty():
@@ -179,20 +178,22 @@ class Job(object):
                                     args=(frame, computer, self.queue))
                         rthread.start()
     
-                #if computer was busy or in skiplist, check it's timeout
+                #ignore computers in skiplist
+                elif computer in self.skiplist:
+                    continue
+                #if computer is active, check its timeout status
                 elif time.time() - self.compstatus[computer]['timer'] > timeout:
                     frame = self.compstatus[computer]['frame']
                     print('Frame ' + str(frame) + ' on ' + computer + 
-                          ' timed out in render loop. Retrying')
+                          ' timed out in render loop. Adding to skiplist')
                     #write to error log
                     self.skiplist.append(computer)
-                    self.queue.put(self.compstatus[computer]['frame'])
-                    #send kill process command
+                    print('skiplist:', self.skiplist)#debug
+                    self.kill_thread(computer)
                     with threadlock:
                         self.compstatus[computer]['active'] = False
                         self.compstatus[computer]['error'] = 'timeout'
 
-            time.sleep(0.01)
         print('_masterthread() terminating') #debug
 
 
@@ -214,7 +215,7 @@ class Job(object):
             renderpath = blenderpath_linux
     
         command = subprocess.Popen( 'ssh igp@' + computer + ' "' + renderpath +
-                ' -b ' + self.path + ' -f ' + str(frame) + '"', 
+                ' -b ' + self.path + ' -f ' + str(frame) + ' & pgrep -n blender"', 
                 stdout=subprocess.PIPE, shell=True )
     
         for line in iter(command.stdout.readline, ''):
@@ -233,17 +234,22 @@ class Job(object):
             #detect PID at first line
             elif line.strip().isdigit():
                 pid = line
+                print('PID detected: ', pid)#debug
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
                 if computer in renice_list:
                     subprocess.call('ssh igp@' + computer + ' "renice 20 -p ' + 
                                      str(pid) + '"', shell=True)
                 with threadlock:
-                    if len(skiplist) > 0:
-                        skipcomp = skiplist.pop(0)
+                    if len(self.skiplist) > 0:
+                        skipcomp = self.skiplist.pop(0)
                         with threadlock:
                             self.compstatus[skipcomp] = \
                             self._reset_compstatus(skipcomp)
+
+            elif time.time() - self.compstatus[computer]['timer'] > timeout:
+                print('_renderthread timed out on ' + computer)
+                break
     
             #detect if frame has finished rendering
             elif line.find('Saved:') >= 0 and line.find('Time') >= 0:
@@ -288,10 +294,13 @@ class Job(object):
         if self.status == 'Rendering':
             elapsed_time = time.time() - self.starttime
             frames_completed = 0
-            for i in range(len(self.totalframes)):
+            for i in self.totalframes:
                 if i != 0:
                     frames_completed += 1
-            avg_time = elapsed_time / frames_completed
+            if frames_completed == 0:
+                avg_time = 0
+            else:
+                avg_time = elapsed_time / frames_completed
             rem_time = avg_time * (len(self.totalframes) - frames_completed)
         else:
             elapsed_time = self.stoptime - self.starttime
@@ -302,7 +311,6 @@ class Job(object):
     def get_attrs(self):
         '''Returns dict containing all status-related attributes and times to
         update analogous Job() objects on clients.'''
-        self.times = self.get_times()
         attrdict = {'status':self.status,
                     'starttime':self.starttime,
                     'stoptime':self.stoptime,
@@ -314,22 +322,77 @@ class Job(object):
                     'extraframes':self.extraframes,
                     'render_engine':self.render_engine,
                     'totalframes':self.totalframes,
-                    'progress':self.progress,
-                    'times':self.times }
+                    'progress':self.get_job_progress(),
+                    'times':self.get_times()}
         return attrdict
-        
+
+    def add_computer(self, computer):
+        if not self.exists():
+            return 'Add failed, job does not exist.'
+        elif self.compstatus[computer]['pool'] == True:
+            return 'Add failed, computer already in pool.'
+        else:
+            self.complist.append(computer)
+            self.compstatus[computer]['pool'] = True
+            return 'success'
+
+    def remove_computer(self, computer):
+        if not self.exists():
+            return 'Add failed, job does not exist.'
+        elif self.compstatus[computer]['pool'] == False:
+            return 'Add failed, computer is not in pool.'
+        else:
+            self.complist.remove(computer)
+            self.compstatus[computer]['pool'] = False
+            return 'success'
+
+    def kill_thread(self, computer):
+        '''Attempts to terminate active render thread on a specified computer.'''
+        if not self.status == 'Rendering':
+            return 'Failed, cannot kill frame unless render is in progress.'
+        if not self.compstatus[computer]['active'] == True:
+            return 'No thread assigned to computer'
+        try:
+            frame = self.compstatus[computer]['frame']
+            pid = self.compstatus[computer]['pid']
+        except:
+            return 'Failed, something wrong with pid or frame info.'
+        with threadlock:
+            self.queue.put(frame)
+        subprocess.call('ssh igp@'+computer+' "kill '
+            +str(pid)+'"', shell=True)
+        with threadlock:
+            self.compstatus[computer]['active'] = False
+            self.compstatus[computer]['error'] = 'killed'
+        return 'Sent kill command for pid ' + str(pid) + ' on ' + computer
+
+    def kill_now(self):
+        '''Kills job and all currently rendering frames'''
+        if not self.status == 'Rendering':
+            return 'Kill failed, job is not rendering.'
+        self.killflag = True
+        for computer in computers:
+            if self.compstatus[computer]['active'] == True:
+                self.kill_thread(computer)
+        self.status = 'Stopped'
+        self.stoptime = time.time()
+        return 'Killed job and all associated processes'
+
+    def kill_later(self):
+        '''Kills job but allows any currently rendering frames to finish.'''
+        if not self.status == 'Rendering':
+            return 'Kill failed, job is not rendering.'
+        self.killflag = True
+        self.status = 'Stopped'
+        self.stoptime = time.time()
+        return 'Killed job but all currently-rendering frames will continue.'
 
 
 
 
 
 
-
-
-
-
-
-#---------GLOBAL VARIABLES----------
+#----------GLOBAL VARIABLES----------
 threadlock = threading.RLock()
 
 
@@ -539,42 +602,38 @@ class ClientThread(threading.Thread):
         '''Receives a message of a specified length, returns it as a string.'''
         #first 8 bytes contain msg length
         msglen = int(self.clientsocket.recv(8).decode('UTF-8'))
-        print('msglen', msglen)
         bytes_recvd = 0
         chunks = []
         while bytes_recvd < msglen:
             chunk = self.clientsocket.recv(2048)
             if not chunk:
                 break
-            print('chunk', chunk)
             chunks.append(chunk.decode('UTF-8'))
             bytes_recvd += len(chunk)
-            print('bytes_recvd', bytes_recvd)
         data = ''.join(chunks)
-        print('data', data)
         return data
 
     def _clientthread(self):
-        print('started _clientthread')
         command = self._recvall()
-        print('received command', command)
+        #don't print anything if request is for status update
+        if not command == 'get_all_attrs': print('received command', command)
         #validate command first
         if not command in allowed_commands:
             self._sendmsg('False')
-            print('command invalid')
+            if not command == 'get_all_attrs': print('command invalid')
             return
         else:
             self._sendmsg('True')
-            print('comamnd valid')
+            if not command == 'get_all_attrs': print('comamnd valid')
         #now get the args
         kwargs = self._recvall()
-        print('received kwargs', kwargs)
+        if not command == 'get_all_attrs': print('received kwargs', kwargs)
         if kwargs:
             kwargs = ast.literal_eval(kwargs)
         else:
             kwargs = {}
         return_str = eval(command)(kwargs)
-        print('sending return_str', return_str)
+        if not command == 'get_all_attrs': print('sending return_str', return_str)
         #send the return string (T/F for success or fail, or other requested data)
         self._sendmsg(return_str)
         self.clientsocket.close()
@@ -588,7 +647,8 @@ class ClientThread(threading.Thread):
 
 #list of permitted commands
 #must match function names exactly
-allowed_commands= ['cmdtest', 'get_all_attrs', 'check_slot_open', 'enqueue']
+allowed_commands= ['cmdtest', 'get_all_attrs', 'check_slot_open', 'enqueue',
+    'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render']
 
 def cmdtest(kwargs):
     '''a basic test of client-server command-response protocol'''
@@ -634,6 +694,36 @@ def enqueue(kwargs):
     else:
         return 'Enqueue failed'
 
+def start_render(kwargs):
+    '''Start a render at the request of client.'''
+    index = kwargs['index']
+    reply = renderjobs[index].render()
+    return reply
+
+def toggle_comp(kwargs):
+    index = kwargs['index']
+    computer = kwargs['computer']
+    if renderjobs[index].get_comp_status(computer)['pool'] == True:
+        reply = renderjobs[index].remove_computer(computer)
+    else:
+        reply = renderjobs[index].add_computer(computer)
+    return reply
+
+def kill_single_thread(kwargs):
+    index = kwargs['index']
+    computer = kwargs['computer']
+    reply = renderjobs[index].kill_thread(computer)
+    return reply
+
+def kill_render(kwargs):
+    index = kwargs['index']
+    kill_now = kwargs['kill_now']
+    if kill_now == True:
+        reply = renderjobs[index].kill_now()
+    else:
+        reply = renderjobs[index].kill_later()
+    return reply
+
 
 
 
@@ -641,9 +731,9 @@ def enqueue(kwargs):
 
 
 if __name__ == '__main__':
-    maxqueuelength = 6
+    maxqueuelength = 5
     renderjobs = {}
-    for i in range(1, maxqueuelength):
+    for i in range(1, maxqueuelength + 1):
         renderjobs[i] = Job()
 
     #socket server to handle interface interactions
@@ -658,7 +748,7 @@ if __name__ == '__main__':
     while True:
         try:
             clientsocket, address = s.accept()
-            print('Client connected from ', address)
+            #print('Client connected from ', address)
             client_thread = ClientThread(clientsocket)
             client_thread.start()
         except KeyboardInterrupt:

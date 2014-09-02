@@ -95,6 +95,12 @@ def check_slot_open(index):
     else:
         return False
 
+def get_job_status(index):
+    '''Returns the status string for a given job.'''
+    kwargs = {'index':index}
+    status = ClientSocket().send_cmd('get_status', kwargs)
+    return status
+
 
 #def get_config():
 #    '''Get contents of config file from server.'''
@@ -147,8 +153,8 @@ class StatusThread(threading.Thread):
             attrdict = ast.literal_eval(attrdict)
             for job in attrdict:
                 stats = attrdict[job]
-                if stats['status'] == 'Empty':
-                    continue
+                #if stats['status'] == 'Empty':
+                #    continue
                 #update the small (left pane) job status box
                 job_stat_boxes[job].update(stats['status'], stats['startframe'], 
                         stats['endframe'], stats['path'], stats['progress'], 
@@ -211,11 +217,15 @@ class StatusTab(tk.LabelFrame):
         self.jobstat.draw_bigbox()
         buttonbar = ttk.Frame(self)
         buttonbar.pack(padx=5, pady=5, expand=True, fill=tk.X)
-        ttk.Button(buttonbar, text='New / Edit', command=self._input_win).pack( \
+        ttk.Button(buttonbar, text='New / Edit', command=self._input).pack( \
             side=tk.LEFT)
         ttk.Button(buttonbar, text='Start', command=self._start).pack(side=tk.LEFT)
         ttk.Button(buttonbar, text='Stop', command=self._kill_render).pack( \
             side=tk.LEFT)
+        ttk.Button(buttonbar, text='Resume', command=self._resume_render).pack( \
+            side=tk.LEFT)
+        ttk.Button(buttonbar, text='Remove', command=self._clear_job).pack( \
+            side=tk.RIGHT)
         #encapsulate computer boxes in canvas to make it scrollable
         canvframe = ttk.LabelFrame(self)
         canvframe.pack(expand=True, fill=tk.BOTH)
@@ -240,66 +250,14 @@ class StatusTab(tk.LabelFrame):
         self.canv.create_window(0, 0, window=self.compframe, anchor=tk.NW)
         self.canv.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
 
-    def _input_win(self):
-        self.tk_path = tk.StringVar()
-        self.tk_startframe = tk.StringVar()
-        self.tk_endframe = tk.StringVar()
-        self.tk_extraframes = tk.StringVar()
-        self.tk_render_engine = tk.StringVar()
-        self.tk_complist = tk.StringVar()
-        #set some temp defaults
-        self.tk_path.set('/mnt/data/test_render/test_render.blend')
-        self.tk_startframe.set('1')
-        self.tk_endframe.set('4')
-        self.tk_render_engine.set('blender')
-        self.tk_complist.set('massive')
-
-        self.inputwin = tk.Toplevel()
-        ttk.Label(self.inputwin, text='Path:').pack()
-        ttk.Entry(self.inputwin, textvariable=self.tk_path, width=40).pack(padx=10)
-        ttk.Label(self.inputwin, text='Start frame:').pack()
-        ttk.Entry(self.inputwin, textvariable=self.tk_startframe).pack()
-        ttk.Label(self.inputwin, text='End frame:').pack()
-        ttk.Entry(self.inputwin, textvariable=self.tk_endframe).pack()
-        ttk.Label(self.inputwin, text='Extra frames:').pack()
-        ttk.Entry(self.inputwin, textvariable=self.tk_extraframes).pack()
-        ttk.Radiobutton(self.inputwin, variable=self.tk_render_engine, 
-            text='Blender', value='blender').pack()
-        ttk.Radiobutton(self.inputwin, variable=self.tk_render_engine, 
-            text='Terragen', value='terragen').pack()
-        ttk.Label(self.inputwin, text='Computer list:').pack()
-        ttk.Entry(self.inputwin, textvariable=self.tk_complist).pack()
-
-        buttons = tk.Frame(self.inputwin)
-        buttons.pack()
-        ttk.Button(buttons, text='Enqueue', command=self._enqueue).pack()
-
-    def _enqueue(self):
-        '''Places a new job in queue.'''
-        if not check_slot_open(self.index):
-            print('Queue slot already occupied.')
-            return
-        path = self.tk_path.get()
-        startframe = int(self.tk_startframe.get())
-        endframe = int(self.tk_endframe.get())
-        extraframes = []
-        if self.tk_extraframes.get() != '':
-            extraframes = self.tk_extraframes.get().split(',')
-        render_engine = self.tk_render_engine.get()
-        complist = self.tk_complist.get().split(',')
-        self.inputwin.destroy()
-        render_args = { 'index':self.index,
-                        'path':path, 
-                        'startframe':startframe,
-                        'endframe':endframe, 
-                        'extraframes':extraframes, 
-                        'render_engine':render_engine,
-                        'complist':complist }
-        reply = ClientSocket().send_cmd('enqueue', render_args)
-        print(reply)
+    def _input(self):
+        self.inputwin = InputWindow(self.index)
 
     def _start(self):
         '''Starts the render.'''
+        if not get_job_status(self.index) == 'Waiting':
+            Dialog('Cannot start render unless status is "Waiting"').warn()
+            return
         kwargs = {'index':self.index}
         reply = ClientSocket().send_cmd('start_render', kwargs)
         print(reply)
@@ -336,6 +294,8 @@ class StatusTab(tk.LabelFrame):
 
     def _toggle_comp(self, computer):
         '''Adds or removes a computer from the pool.'''
+        if check_slot_open(self.index):
+            return
         kwargs = {'index':self.index, 'computer':computer}
         reply = ClientSocket().send_cmd('toggle_comp', kwargs)
         print(reply)
@@ -347,12 +307,39 @@ class StatusTab(tk.LabelFrame):
 
     def _kill_render(self):
         '''Kill the current render.'''
+        if get_job_status(self.index) != 'Rendering':
+            Dialog('Cannot stop a render unless its status is "Rendering"').warn()
+            return
         if Dialog('Allow currently rendering frames to finish?').yesno():
             kill_now = False
         else:
             kill_now = True
         kwargs = {'index':self.index, 'kill_now':kill_now}
         reply = ClientSocket().send_cmd('kill_render', kwargs)
+        print(reply)
+
+    def _resume_render(self):
+        if get_job_status(self.index) != 'Stopped':
+            Dialog('Cannot resume a render unless its status is "Stopped"').warn()
+            return
+        kwargs = {'index':self.index}
+        reply = ClientSocket().send_cmd('resume_render', kwargs)
+        print(reply)
+
+    def _clear_job(self):
+        '''Replaces the current Job instance and replaces it with a blank one.'''
+        status = get_job_status(self.index)
+        if status == 'Empty':
+            Dialog('Cannot remove an empty job.').warn()
+            return
+        if status == 'Rendering':
+            Dialog('Cannot remove a job while rendering. Stop the render then try' +
+                    ' again.').warn()
+        if not Dialog('Clear all job information and reset queue slot to ' +
+                        'defaults?').yesno():
+            return
+        kwargs = {'index':self.index}
+        reply = ClientSocket().send_cmd('clear_job', kwargs)
         print(reply)
 
     def update_status(self, computer, pool, frame, progress):
@@ -478,7 +465,10 @@ class JobStatusBox(ttk.LabelFrame):
         return timestr
 
     def update(self, status, startframe, endframe, path, progress, times):
-        filename = os.path.basename(path)
+        if path:
+            filename = os.path.basename(path)
+        else:
+            filename = ''
         self.statuslbl.config(text=status)
         self.startlabel.config(text=str(startframe) + '   ')
         self.endlabel.config(text=str(endframe))
@@ -496,6 +486,86 @@ class JobStatusBox(ttk.LabelFrame):
             self.avg_time_lbl.config(text=avg_time)
             self.rem_time_lbl.config(text=time_rem)
 
+
+class InputWindow(tk.Toplevel):
+    '''New window to handle input for new job or edit an existing one.'''
+    def __init__(self, index):
+        self.index = index
+        if get_job_status(self.index) == 'Rendering':
+            return
+        self.tk_path = tk.StringVar()
+        self.tk_startframe = tk.StringVar()
+        self.tk_endframe = tk.StringVar()
+        self.tk_extraframes = tk.StringVar()
+        self.tk_render_engine = tk.StringVar()
+        self.tk_complist = tk.StringVar()
+        #set some temp defaults
+        self.tk_path.set('/mnt/data/test_render/test_render.blend')
+        self.tk_startframe.set('1')
+        self.tk_endframe.set('4')
+        self.tk_render_engine.set('blender')
+        self.tk_complist.set('massive')
+        tk.Toplevel.__init__(self)
+        container = ttk.LabelFrame(self)
+        container.pack(padx=10, pady=10)
+        self._build(container)
+
+    def _build(self, master):
+        ttk.Label(master, text='Path:').pack()
+        ttk.Entry(master, textvariable=self.tk_path, width=40).pack(padx=10)
+        ttk.Label(master, text='Start frame:').pack()
+        ttk.Entry(master, textvariable=self.tk_startframe).pack()
+        ttk.Label(master, text='End frame:').pack()
+        ttk.Entry(master, textvariable=self.tk_endframe).pack()
+        ttk.Label(master, text='Extra frames:').pack()
+        ttk.Entry(master, textvariable=self.tk_extraframes).pack()
+        ttk.Radiobutton(master, variable=self.tk_render_engine, 
+            text='Blender', value='blender').pack()
+        ttk.Radiobutton(master, variable=self.tk_render_engine, 
+            text='Terragen', value='terragen').pack()
+        ttk.Label(master, text='Computer list:').pack()
+        ttk.Entry(master, textvariable=self.tk_complist).pack()
+
+        buttons = tk.Frame(self)
+        buttons.pack()
+        ttk.Button(buttons, text='Enqueue', command=self._enqueue).pack()
+        ttk.Button(buttons, text='Cancel', command=self.destroy).pack()
+
+    def _compgrid(self, master):
+        '''Generates grid of computer checkboxes.'''
+        #generate dict of buttons
+        self.compbuttons = {}
+        #place the buttons
+        row1 = tk.Frame(master)
+        row1.pack()
+        for 
+        
+
+
+    def _enqueue(self):
+        '''Places a new job in queue.'''
+        if not check_slot_open(self.index):
+            if not Dialog('Overwrite existing queue contents?').yesno():
+                self.destroy()
+                return
+        path = self.tk_path.get()
+        startframe = int(self.tk_startframe.get())
+        endframe = int(self.tk_endframe.get())
+        extraframes = []
+        if self.tk_extraframes.get() != '':
+            extraframes = self.tk_extraframes.get().split(',')
+        render_engine = self.tk_render_engine.get()
+        complist = self.tk_complist.get().split(',')
+        self.destroy()
+        render_args = { 'index':self.index,
+                        'path':path, 
+                        'startframe':startframe,
+                        'endframe':endframe, 
+                        'extraframes':extraframes, 
+                        'render_engine':render_engine,
+                        'complist':complist }
+        reply = ClientSocket().send_cmd('enqueue', render_args)
+        print(reply)
 
 
 def quit():

@@ -121,9 +121,9 @@ class Job(object):
         print('entered render()') #debug
         if self.status != 'Waiting':
             print('Job status is not "Waiting". Aborting render.')
-            return 'Job status is not "Waiting". Aborting render.'
+            return False
         self.status = 'Rendering'
-        self.starttime = self._start_timer()
+        self._start_timer()
         #create log entry
 
         self.skiplist = []
@@ -131,7 +131,7 @@ class Job(object):
 
         master = threading.Thread(target=self._masterthread, args=())
         master.start()
-        return 'success'
+        return True
 
 
     def _masterthread(self):
@@ -153,7 +153,7 @@ class Job(object):
             if self.queue.empty() and not self._threadsactive():
                 print('Render done at detector.') #debug
                 self.status = 'Finished'
-                self.stoptime = time.time()
+                self._stop_timer()
                 #write status to log
                 break
     
@@ -281,10 +281,12 @@ class Job(object):
         '''Returns start time for a render job.'''
         if self.status == 'Stopped':
             #account for time elapsed since render was stopped
-            starttime = time.time() - (self.stoptime - self.starttime)
+            self.starttime = time.time() - (self.stoptime - self.starttime)
         else:
-            starttime = time.time()
-        return starttime
+            self.starttime = time.time()
+
+    def _stop_timer(self):
+        self.stoptime = time.time()
 
     def get_times(self):
         '''Returns elapsed time, avg time per frame, and estimated time remaining.
@@ -328,64 +330,74 @@ class Job(object):
 
     def add_computer(self, computer):
         if not self.exists():
-            return 'Add failed, job does not exist.'
+            return False
         elif self.compstatus[computer]['pool'] == True:
-            return 'Add failed, computer already in pool.'
+            return False
         else:
             self.complist.append(computer)
             self.compstatus[computer]['pool'] = True
-            return 'success'
+            return True
 
     def remove_computer(self, computer):
         if not self.exists():
-            return 'Add failed, job does not exist.'
+            return False
         elif self.compstatus[computer]['pool'] == False:
-            return 'Add failed, computer is not in pool.'
+            return False
         else:
             self.complist.remove(computer)
             self.compstatus[computer]['pool'] = False
-            return 'success'
+            return True
 
     def kill_thread(self, computer):
         '''Attempts to terminate active render thread on a specified computer.'''
         if not self.status == 'Rendering':
-            return 'Failed, cannot kill frame unless render is in progress.'
+            return False
         if not self.compstatus[computer]['active'] == True:
-            return 'No thread assigned to computer'
+            return False
         try:
             frame = self.compstatus[computer]['frame']
             pid = self.compstatus[computer]['pid']
         except:
-            return 'Failed, something wrong with pid or frame info.'
+            return False
         with threadlock:
             self.queue.put(frame)
-        subprocess.call('ssh igp@'+computer+' "kill '
-            +str(pid)+'"', shell=True)
+        subprocess.call('ssh igp@'+computer+' "kill '+str(pid)+'"', shell=True)
         with threadlock:
             self.compstatus[computer]['active'] = False
             self.compstatus[computer]['error'] = 'killed'
-        return 'Sent kill command for pid ' + str(pid) + ' on ' + computer
+        return pid
 
     def kill_now(self):
         '''Kills job and all currently rendering frames'''
         if not self.status == 'Rendering':
-            return 'Kill failed, job is not rendering.'
+            return False
         self.killflag = True
         for computer in computers:
             if self.compstatus[computer]['active'] == True:
                 self.kill_thread(computer)
         self.status = 'Stopped'
-        self.stoptime = time.time()
-        return 'Killed job and all associated processes'
+        self._stop_timer()
+        return True
 
     def kill_later(self):
         '''Kills job but allows any currently rendering frames to finish.'''
         if not self.status == 'Rendering':
-            return 'Kill failed, job is not rendering.'
+            return False
         self.killflag = True
         self.status = 'Stopped'
-        self.stoptime = time.time()
-        return 'Killed job but all currently-rendering frames will continue.'
+        self._stop_timer()
+        return True
+
+    def resume(self):
+        '''Resumes a render that was previously stopped.'''
+        if not self.status == 'Stopped':
+            return False
+        self.killflag = False
+        for computer in computers:
+            self._reset_compstatus(computer)
+        self.status = 'Waiting'
+        self.render()
+        return True
 
 
 
@@ -576,6 +588,7 @@ requests from client threads:
     2. The function must accept the kwargs argument, even if it isn't used.
 
     3. The function must return a string on completeion.
+
 '''
 
 
@@ -648,7 +661,8 @@ class ClientThread(threading.Thread):
 #list of permitted commands
 #must match function names exactly
 allowed_commands= ['cmdtest', 'get_all_attrs', 'check_slot_open', 'enqueue',
-    'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render']
+    'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
+    'get_status', 'resume_render', 'clear_job']
 
 def cmdtest(kwargs):
     '''a basic test of client-server command-response protocol'''
@@ -667,8 +681,6 @@ def get_all_attrs(kwargs):
 def check_slot_open(kwargs):
     '''Returns True if queue slot is open.'''
     index = kwargs['index']
-    for job in renderjobs:
-        print(job, renderjobs[job].exists())
     if renderjobs[index].exists() == False:
         return 'True'
     else:
@@ -684,9 +696,6 @@ def enqueue(kwargs):
     render_engine = kwargs['render_engine']
     complist = kwargs['complist']
 
-    for i in kwargs:
-        print(i, type(kwargs[i]))
-
     reply = renderjobs[index].enqueue(path, startframe, endframe, 
                                 render_engine, complist, extraframes=extras)
     if reply:
@@ -698,31 +707,67 @@ def start_render(kwargs):
     '''Start a render at the request of client.'''
     index = kwargs['index']
     reply = renderjobs[index].render()
-    return reply
+    if reply:
+        return 'Render started for job no. ' + str(index)
+    else:
+        return 'Failed to start render.'
 
 def toggle_comp(kwargs):
     index = kwargs['index']
     computer = kwargs['computer']
     if renderjobs[index].get_comp_status(computer)['pool'] == True:
         reply = renderjobs[index].remove_computer(computer)
+        if reply: return computer+' added to render pool for job '+str(index)
     else:
         reply = renderjobs[index].add_computer(computer)
-    return reply
+        if reply: return computer+ 'removed from render pool for job '+str(index)
+    return 'Failed to toggle computer status.'
 
 def kill_single_thread(kwargs):
     index = kwargs['index']
     computer = kwargs['computer']
     reply = renderjobs[index].kill_thread(computer)
-    return reply
+    if reply:
+        pid = reply
+        return 'Sent kill signal for pid '+str(pid)+' on '+computer
+    else:
+        return 'Failed to kill thread.'
 
 def kill_render(kwargs):
     index = kwargs['index']
     kill_now = kwargs['kill_now']
     if kill_now == True:
         reply = renderjobs[index].kill_now()
+        if reply:
+            return 'Killed render and all associated processes for job '+str(index)
     else:
         reply = renderjobs[index].kill_later()
-    return reply
+        if reply:
+            return ('Killed render for job '+str(index)+' but all' +
+                    'currently-rendering processes will be allowed to finish.')
+    return 'Failed to kill render for job '+str(index)
+
+def resume_render(kwargs):
+    index = kwargs['index']
+    reply = renderjobs[index].resume()
+    if reply:
+        return 'Resumed render for job ' + str(index)
+    else:
+        return 'Failed to resume render for job ' + str(index)
+
+def get_status(kwargs):
+    '''Returns status string for a given job.'''
+    index = kwargs['index']
+    status = renderjobs[index].get_job_status()
+    return status
+
+def clear_job(kwargs):
+    '''Clears an existing job from a queue slot.'''
+    index = kwargs['index']
+    del renderjobs[index]
+    renderjobs[index] = Job()
+    print(renderjobs[index].get_job_status())
+    return 'Job '+str(index)+' cleared.'
 
 
 

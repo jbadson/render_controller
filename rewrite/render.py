@@ -38,7 +38,7 @@ class Job(object):
         else:
             pool = False
         return { 'active':False, 'frame':None, 'pid':None, 'timer':None, 
-                 'progress':0.0, 'error':None, 'pool':pool}
+                 'progress':0.0, 'error':None, 'pool':pool }
     
 
     def exists(self):
@@ -174,8 +174,12 @@ class Job(object):
                             self.compstatus[computer]['timer'] = time.time()
                             self.threads_active = True
                         print('creating renderthread') #debug
-                        rthread = threading.Thread(target=self._renderthread,
-                                    args=(frame, computer, self.queue))
+                        if self.render_engine == 'blender':
+                            tgt = self._renderthread
+                        elif self.render_engine == 'terragen':
+                            tgt = self._renderthread_tgn
+                        rthread = threading.Thread(target=tgt, args=(frame, 
+                            computer, self.queue))
                         rthread.start()
     
                 #ignore computers in skiplist
@@ -214,7 +218,7 @@ class Job(object):
         else:
             renderpath = blenderpath_linux
     
-        command = subprocess.Popen( 'ssh igp@' + computer + ' "' + renderpath +
+        command = subprocess.Popen('ssh igp@' + computer + ' "' + renderpath +
                 ' -b ' + self.path + ' -f ' + str(frame) + ' & pgrep -n blender"', 
                 stdout=subprocess.PIPE, shell=True )
     
@@ -222,9 +226,13 @@ class Job(object):
             #convert byte object to unicode string
             #necessary for Python 3.x compatibility
             line = line.decode('UTF-8')
-            if line and verbose:
+            if line:
+                #reset timer
                 with threadlock:
-                    print(line)
+                    self.compstatus[computer]['timer'] = time.time()
+                if verbose:
+                    with threadlock:
+                        print(line)
     
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
                 progress = self._parseline(line, frame, computer)
@@ -243,9 +251,7 @@ class Job(object):
                 with threadlock:
                     if len(self.skiplist) > 0:
                         skipcomp = self.skiplist.pop(0)
-                        with threadlock:
-                            self.compstatus[skipcomp] = \
-                            self._reset_compstatus(skipcomp)
+                        self.compstatus[skipcomp] = self._reset_compstatus(skipcomp)
 
             elif time.time() - self.compstatus[computer]['timer'] > timeout:
                 print('_renderthread timed out on ' + computer)
@@ -267,6 +273,103 @@ class Job(object):
     
         #NOTE omitting stderr checking for now
         print('_renderthread() terminated', frame, computer) #debug
+
+    def _renderthread_tgn(self, frame, computer, framequeue):
+        print('started _renderthread_tgn()') #debug
+        if computer in macs:
+            renderpath = terragenpath_mac
+        else:
+            renderpath = terragenpath_linux
+
+        command = subprocess.Popen('ssh igp@'+computer+' "'+renderpath+' -p '+self.path+' -hide -exit -r -f '+str(frame)+' & pgrep -n Terragen&wait"', stdout=subprocess.PIPE, shell=True)
+
+        for line in iter(command.stdout.readline, ''):
+            line = line.decode('UTF-8')
+            if line:
+                #reset timer
+                with threadlock:
+                    self.compstatus[computer]['timer'] = time.time()
+                if verbose:
+                    with threadlock:
+                        print(line)
+
+            #Terragen provides much less continuous status info, so parseline 
+            #replaced with a few specific conditionals
+
+            #starting overall render or one of the render passes
+            if line.strip().isdigit():
+                pid = int(line)
+                print('Possible PID detected: ', pid)
+                if pid != frame: 
+                    #necessary b/c terragen echoes frame # at start. 
+                    #Hopefully PID will never be same as frame #
+                    print('PID set to: '+str(pid)) #debugging
+                    with threadlock:
+                        self.compstatus[computer]['pid'] = pid
+                        #renice process to lowest priority on specified comps 
+                    if computer in renice_list: 
+                        subprocess.call('ssh igp@'+computer+' "renice 20 -p '
+                                        +str(pid)+'"', shell=True)
+                        print('reniced PID '+str(pid)+' to pri 20 on '+computer)
+                    with threadlock:
+                        if len(self.skiplist) > 0:
+                            skipcomp = self.skiplist.pop(0)
+                            self.compstatus[skipcomp] = self._reset_compstatus( \
+                                skipcomp)
+            elif line.find('Starting') >= 0:
+                ellipsis = line.find('...')
+                passname = line[9:ellipsis]
+                print('Fra:'+str(frame)+'|'+computer+'|Starting '+passname)
+
+            elif line.find('Rendered') >= 0:
+                #finished one of the render passes
+                mark = line.find('of ')
+                passname = line[mark+3:]
+                print('|Fra:'+str(frame)+'|'+computer+'|Finished '+passname)
+
+            elif line.find('Rendering') >= 0:
+                #pattern 'Rendering pre pass... 0:00:30s, 2% of pre pass'
+                #NOTE: terragen ALWAYS has at least 2 passes, so prog bars to 
+                #to 100% twice.  Need to note this somewhere or workaround.
+                #could scale percentages so that prepass accounts for no more 
+                #than 50% of progress bar
+
+                #get name of pass:
+                ellipsis = line.find('...')
+                passname = line[10:ellipsis]
+
+                #get percent complete for pass
+                for i in line.split():
+                    if '%' in i:
+                        pct_str = i
+                        percent = float(pct_str[:-1])
+                        break
+
+                print('Frame '+str(frame)+' on '+computer+' '+str(percent)+'%')
+                #pass info to progress bars (equiv of parseline())
+                with threadlock:
+                    self.compstatus[computer]['progress'] = percent
+
+            elif time.time() - self.compstatus[computer]['timer'] > timeout:
+                print('_renderthread timed out on ' + computer)
+                break
+
+            elif line.find('Finished') >= 0:
+                print('Finished line: '+line) #debugging
+
+                #XXX write to log
+                self.totalframes.append(frame)
+                if 0 in self.totalframes:
+                    self.totalframes.remove(0)
+                framequeue.task_done()
+                with threadlock:
+                    self.compstatus[computer] = self._reset_compstatus(computer)
+                rendertime = line.split()[2][:-1]
+                print('Frame ' + str(frame) + ' finished after ' + str(rendertime))
+                break
+            #NOTE: omitting stderr testing for now
+        print('_renderthread_tgn() terminated', frame, computer) #debug
+
 
 
     def _parseline(self, line, frame, computer):

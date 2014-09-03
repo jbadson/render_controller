@@ -696,6 +696,10 @@ def enqueue(kwargs):
     render_engine = kwargs['render_engine']
     complist = kwargs['complist']
 
+    if renderjobs[index].exists():
+        del renderjobs[index]
+        renderjobs[index] = Job()
+
     reply = renderjobs[index].enqueue(path, startframe, endframe, 
                                 render_engine, complist, extraframes=extras)
     if reply:
@@ -717,10 +721,10 @@ def toggle_comp(kwargs):
     computer = kwargs['computer']
     if renderjobs[index].get_comp_status(computer)['pool'] == True:
         reply = renderjobs[index].remove_computer(computer)
-        if reply: return computer+' added to render pool for job '+str(index)
+        if reply: return computer+' removed from render pool for job '+str(index)
     else:
         reply = renderjobs[index].add_computer(computer)
-        if reply: return computer+ 'removed from render pool for job '+str(index)
+        if reply: return computer+ ' added to render pool for job '+str(index)
     return 'Failed to toggle computer status.'
 
 def kill_single_thread(kwargs):
@@ -776,7 +780,7 @@ def clear_job(kwargs):
 
 
 if __name__ == '__main__':
-    maxqueuelength = 5
+    maxqueuelength = 8
     renderjobs = {}
     for i in range(1, maxqueuelength + 1):
         renderjobs[i] = Job()

@@ -116,8 +116,13 @@ def get_job_status(index):
 computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
         'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache', 
         'conundrum', 'paradox'] 
+#list of computers in the 'fast' group
+fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
+        'eldiente'] 
+#list of computers in the 'farm' group
+farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
 
-maxqueuelength = 5
+maxqueuelength = 8
 
 
 
@@ -506,42 +511,91 @@ class InputWindow(tk.Toplevel):
         self.tk_render_engine.set('blender')
         self.tk_complist.set('massive')
         tk.Toplevel.__init__(self)
+        self.config(bg='gray90')
         container = ttk.LabelFrame(self)
         container.pack(padx=10, pady=10)
         self._build(container)
 
     def _build(self, master):
-        ttk.Label(master, text='Path:').pack()
-        ttk.Entry(master, textvariable=self.tk_path, width=40).pack(padx=10)
-        ttk.Label(master, text='Start frame:').pack()
-        ttk.Entry(master, textvariable=self.tk_startframe).pack()
-        ttk.Label(master, text='End frame:').pack()
-        ttk.Entry(master, textvariable=self.tk_endframe).pack()
-        ttk.Label(master, text='Extra frames:').pack()
-        ttk.Entry(master, textvariable=self.tk_extraframes).pack()
-        ttk.Radiobutton(master, variable=self.tk_render_engine, 
-            text='Blender', value='blender').pack()
-        ttk.Radiobutton(master, variable=self.tk_render_engine, 
-            text='Terragen', value='terragen').pack()
-        ttk.Label(master, text='Computer list:').pack()
-        ttk.Entry(master, textvariable=self.tk_complist).pack()
+        pathrow = ttk.Frame(master)
+        pathrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        ttk.Label(pathrow, text='Path:').grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(pathrow, textvariable=self.tk_path, width=60).grid(row=1, 
+            column=0, sticky=tk.W)
+        ttk.Button(pathrow, text='Browse', command=self._get_path).grid(row=1, 
+            column=1, sticky=tk.W)
 
-        buttons = tk.Frame(self)
-        buttons.pack()
-        ttk.Button(buttons, text='Enqueue', command=self._enqueue).pack()
-        ttk.Button(buttons, text='Cancel', command=self.destroy).pack()
+        framesrow = ttk.Frame(master)
+        framesrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        ttk.Label(framesrow, text='Start frame:').grid(row=0, column=0, 
+            sticky=tk.W)
+        ttk.Label(framesrow, text='End frame:').grid(row=0, column=1, padx=5,
+            sticky=tk.W)
+        ttk.Label(framesrow, text='Extra frames:').grid(row=0, column=2, padx=5,
+            sticky=tk.W)
+        ttk.Entry(framesrow, textvariable=self.tk_startframe, width=12).grid(row=1, 
+            column=0, sticky=tk.W)
+        ttk.Entry(framesrow, textvariable=self.tk_endframe, width=12).grid(row=1, 
+            column=1, padx=5, sticky=tk.W)
+        ttk.Entry(framesrow, textvariable=self.tk_extraframes, width=40).grid(row=1,
+            column=2, padx=5, sticky=tk.W)
+
+        rengrow = ttk.LabelFrame(master, text='Render Engine')
+        rengrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        ttk.Radiobutton(rengrow, variable=self.tk_render_engine, 
+            text='Blender', value='blender').pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Radiobutton(rengrow, variable=self.tk_render_engine, 
+            text='Terragen', value='terragen').pack(side=tk.LEFT, padx=5, pady=5)
+
+        self.compboxes = ttk.LabelFrame(master, text='Computers')
+        self.compboxes.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        self._compgrid(self.compboxes)
+
+        buttons = ttk.Frame(master)
+        buttons.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        ttk.Button(buttons, text='OK', command=self._enqueue).pack(side=tk.LEFT)
+        ttk.Button(buttons, text='Cancel', command=self.destroy).pack(side=tk.LEFT, 
+            padx=5)
 
     def _compgrid(self, master):
         '''Generates grid of computer checkboxes.'''
-        #generate dict of buttons
-        self.compbuttons = {}
-        #place the buttons
-        row1 = tk.Frame(master)
-        row1.pack()
-        for 
+        #create variables for computer buttons
+        self.compvars = {}
+        for computer in computers:
+            self.compvars[computer] = tk.IntVar()
+            self.compvars[computer].set(0)
+        #First row is for select/deselect all buttons
+        ttk.Button(master, text='Select All', command=self._check_all).grid(row=0, 
+            column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Button(master, text='Deselect All', command=self._uncheck_all).grid( \
+            row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        #generate a grid with specified number of columns
+        cols = 5
+        rows = len(computers) // cols
+        i = 0
+        for row in range(1, rows + 2):
+            for col in range(0, cols):
+                ttk.Checkbutton(master, text=computers[i], 
+                    variable=self.compvars[computers[i]]).grid(row=row, column=col,
+                    padx=5, pady=5, sticky=tk.W)
+                i += 1
+                if i == len(computers): break
+
+    def _check_all(self):
+        '''Sets all computer buttons to the checked state.'''
+        self._uncheck_all()
+        for computer in computers:
+            self.compvars[computer].set(1)
+
+    def _uncheck_all(self):
+        '''Sets all computer buttons to the unchecked state.'''
+        for computer in computers:
+            self.compvars[computer].set(0)
+
+    def _get_path(self):
+        path = tk_filedialog.askopenfilename(title='Open File')
+        self.tk_path.set(path)
         
-
-
     def _enqueue(self):
         '''Places a new job in queue.'''
         if not check_slot_open(self.index):
@@ -555,7 +609,10 @@ class InputWindow(tk.Toplevel):
         if self.tk_extraframes.get() != '':
             extraframes = self.tk_extraframes.get().split(',')
         render_engine = self.tk_render_engine.get()
-        complist = self.tk_complist.get().split(',')
+        complist = []
+        for computer in self.compvars:
+            if self.compvars[computer].get() == 1:
+                complist.append(computer)
         self.destroy()
         render_args = { 'index':self.index,
                         'path':path, 

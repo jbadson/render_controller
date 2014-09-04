@@ -10,6 +10,7 @@ import time
 import threading
 import os.path
 import ast
+import json
 
 host = 'localhost'
 port = 2020
@@ -35,12 +36,15 @@ class ClientSocket(object):
                 break
             chunks.append(chunk.decode('UTF-8'))
             bytes_recvd += len(chunk)
-        data = ''.join(chunks)
+        #now having everything be json object for web interface convenience
+        data = json.loads(''.join(chunks))
         return data
 
     def _sendmsg(self, message):
         '''Wrapper for socket.sendall() that formats message for server.
         Message must be a UTF-8 string.'''
+        #now doing everything in json for web interface convenience
+        message = json.dumps(message)
         msg = bytes(message, 'UTF-8')
         msglen = str(len(msg))
         #first 8 bytes contains message length 
@@ -155,7 +159,8 @@ class StatusThread(threading.Thread):
             if self.stop == True:
                 break
             attrdict = ClientSocket().send_cmd('get_all_attrs')
-            attrdict = ast.literal_eval(attrdict)
+            print('atterdict type: ', type(attrdict), attrdict)
+            #attrdict = ast.literal_eval(attrdict)
             for job in attrdict:
                 stats = attrdict[job]
                 #if stats['status'] == 'Empty':
@@ -654,10 +659,11 @@ job_stat_boxes = {}
 main_notebook = ttk.Notebook(width=450)
 tabs = {}
 for i in range(1, maxqueuelength + 1):
-    job_stat_boxes[i] = JobStatusBox(master=left_frame, index=i)
-    job_stat_boxes[i].draw_smallbox()
-    tabs[i] = StatusTab(i)
-    main_notebook.add(tabs[i], text='Job ' + str(i))
+    #indices must be strings b/c json.dumps requires all dict keys to be strings
+    job_stat_boxes[str(i)] = JobStatusBox(master=left_frame, index=str(i))
+    job_stat_boxes[str(i)].draw_smallbox()
+    tabs[str(i)] = StatusTab(str(i))
+    main_notebook.add(tabs[str(i)], text='Job ' + str(i))
 
 #pad bottom of left pane for even spacing
 #ttk.Label(left_pane, text='', width=5).pack(pady=0)

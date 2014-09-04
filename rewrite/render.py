@@ -8,6 +8,7 @@ import subprocess
 import os
 import socket
 import ast
+import json
 
 class Job(object):
     '''Represents a render job.'''
@@ -226,13 +227,14 @@ class Job(object):
             #convert byte object to unicode string
             #necessary for Python 3.x compatibility
             line = line.decode('UTF-8')
-            if line:
-                #reset timer
+            if not line:
+                continue
+            #reset timer
+            with threadlock:
+                self.compstatus[computer]['timer'] = time.time()
+            if verbose:
                 with threadlock:
-                    self.compstatus[computer]['timer'] = time.time()
-                if verbose:
-                    with threadlock:
-                        print(line)
+                    print(line)
     
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
                 progress = self._parseline(line, frame, computer)
@@ -285,13 +287,14 @@ class Job(object):
 
         for line in iter(command.stdout.readline, ''):
             line = line.decode('UTF-8')
-            if line:
-                #reset timer
+            if not line:
+                continue
+            #reset timer
+            with threadlock:
+                self.compstatus[computer]['timer'] = time.time()
+            if verbose:
                 with threadlock:
-                    self.compstatus[computer]['timer'] = time.time()
-                if verbose:
-                    with threadlock:
-                        print(line)
+                    print(line)
 
             #Terragen provides much less continuous status info, so parseline 
             #replaced with a few specific conditionals
@@ -690,7 +693,8 @@ requests from client threads:
 
     2. The function must accept the kwargs argument, even if it isn't used.
 
-    3. The function must return a string on completeion.
+    3. The function must return something on completion. It can be any type of 
+       object as long as it's compatible with python's json.dumps and json.loads.
 
 '''
 
@@ -705,6 +709,8 @@ class ClientThread(threading.Thread):
     def _sendmsg(self, message):
         '''Wrapper for socket.sendall() that formats message for client.    
         Message must be a UTF-8 string.'''
+        #now converting everything to a json string for web interface convenience
+        message = json.dumps(message)
         msg = bytes(message, 'UTF-8')
         msglen = str(len(msg))
         #first 8 bytes contains message length 
@@ -726,7 +732,7 @@ class ClientThread(threading.Thread):
                 break
             chunks.append(chunk.decode('UTF-8'))
             bytes_recvd += len(chunk)
-        data = ''.join(chunks)
+        data = json.loads(''.join(chunks))
         return data
 
     def _clientthread(self):
@@ -779,7 +785,7 @@ def get_all_attrs(kwargs):
     attrdict = {}
     for i in renderjobs:
         attrdict[i] = renderjobs[i].get_attrs()
-    return str(attrdict)
+    return attrdict
 
 def check_slot_open(kwargs):
     '''Returns True if queue slot is open.'''
@@ -886,7 +892,8 @@ if __name__ == '__main__':
     maxqueuelength = 8
     renderjobs = {}
     for i in range(1, maxqueuelength + 1):
-        renderjobs[i] = Job()
+        #indices must be strings b/c json.dumps requires all dict keys to be strings
+        renderjobs[str(i)] = Job()
 
     #socket server to handle interface interactions
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -42,7 +42,7 @@ class ClientSocket(object):
 
     def _sendmsg(self, message):
         '''Wrapper for socket.sendall() that formats message for server.
-        Message must be a UTF-8 string.'''
+        Message must be compatible with json.dumps/json.loads.'''
         #now doing everything in json for web interface convenience
         message = json.dumps(message)
         msg = bytes(message, 'UTF-8')
@@ -67,7 +67,7 @@ class ClientSocket(object):
             return 'Invalid command'
         #if command was valid, send associated arguments
         if not command == 'get_all_attrs': print('sending kwargs', str(kwargs))
-        self._sendmsg(str(kwargs))
+        self._sendmsg(kwargs)
         #collect the return string (True/False for success/fail or requested data)
         return_str = self._recvall()
         if not command == 'get_all_attrs': print('received return_str', return_str)
@@ -82,12 +82,6 @@ def cmdtest():
     kwargs = {'1':'one', '2':'two'}
     return_str = ClientSocket().send_cmd(command, kwargs)
     print(return_str)
-
-def get_all_attrs():
-    '''Gets attributes for all Job() instances on the server.'''
-    attrdict = ClientSocket().send_cmd('get_all_attrs')
-    attrdict = ast.literal_eval(attrdict)
-    print(type(attrdict))
 
 def check_slot_open(index):
     '''Returns true if queue slot is open.'''
@@ -126,7 +120,7 @@ fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross',
 #list of computers in the 'farm' group
 farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
 
-maxqueuelength = 8
+maxqueuelength = 6
 
 
 
@@ -159,12 +153,8 @@ class StatusThread(threading.Thread):
             if self.stop == True:
                 break
             attrdict = ClientSocket().send_cmd('get_all_attrs')
-            print('atterdict type: ', type(attrdict), attrdict)
-            #attrdict = ast.literal_eval(attrdict)
             for job in attrdict:
                 stats = attrdict[job]
-                #if stats['status'] == 'Empty':
-                #    continue
                 #update the small (left pane) job status box
                 job_stat_boxes[job].update(stats['status'], stats['startframe'], 
                         stats['endframe'], stats['path'], stats['progress'], 
@@ -222,7 +212,6 @@ class StatusTab(tk.LabelFrame):
         #for ease of reference later
         self.frameno = {}
         self.frameprog = {}
-        #self._job_main_info_box(self)
         self.jobstat = JobStatusBox(self.index, master=self)
         self.jobstat.draw_bigbox()
         buttonbar = ttk.Frame(self)

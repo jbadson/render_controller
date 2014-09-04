@@ -144,7 +144,10 @@ class Job(object):
     
         print('started _masterthread()') #debug
         self.threads_active = False
-    
+        if self.render_engine == 'blender':
+            tgt_thread = self._renderthread
+        elif self.render_engine == 'terragen':
+            tgt_thread = self._renderthread_tgn
         while True:
             if self.killflag == True:
                 print('Kill flag detected, breaking render loop.')
@@ -175,11 +178,7 @@ class Job(object):
                             self.compstatus[computer]['timer'] = time.time()
                             self.threads_active = True
                         print('creating renderthread') #debug
-                        if self.render_engine == 'blender':
-                            tgt = self._renderthread
-                        elif self.render_engine == 'terragen':
-                            tgt = self._renderthread_tgn
-                        rthread = threading.Thread(target=tgt, args=(frame, 
+                        rthread = threading.Thread(target=tgt_thread, args=(frame, 
                             computer, self.queue))
                         rthread.start()
     
@@ -278,12 +277,17 @@ class Job(object):
 
     def _renderthread_tgn(self, frame, computer, framequeue):
         print('started _renderthread_tgn()') #debug
+        #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in macs:
-            renderpath = terragenpath_mac
+            cmd_string = ('ssh igp@'+computer+' "'+terragenpath_mac+' -p '
+                +self.path+' -hide -exit -r -f '+str(frame)
+                +' & pgrep -n Terragen&wait"')
         else:
-            renderpath = terragenpath_linux
+            cmd_string = ('ssh igp@'+computer+' "'+terragenpath_linux+' -p '
+                +self.path+' -hide -exit -r -f '+str(frame)
+                +' & pgrep -n terragen&wait"')
 
-        command = subprocess.Popen('ssh igp@'+computer+' "'+renderpath+' -p '+self.path+' -hide -exit -r -f '+str(frame)+' & pgrep -n Terragen&wait"', stdout=subprocess.PIPE, shell=True)
+        command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, shell=True)
 
         for line in iter(command.stdout.readline, ''):
             line = line.decode('UTF-8')
@@ -554,7 +558,7 @@ def set_defaults():
         'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
     
     #timeout for failed machine in seconds
-    timeout = 30
+    timeout = 99
     
     #start next job when current one finishes. 1=yes, 0=no, on by default
     startnext = 1 
@@ -708,7 +712,7 @@ class ClientThread(threading.Thread):
 
     def _sendmsg(self, message):
         '''Wrapper for socket.sendall() that formats message for client.    
-        Message must be a UTF-8 string.'''
+        Message must be compatible with json.dumps/json.loads.'''
         #now converting everything to a json string for web interface convenience
         message = json.dumps(message)
         msg = bytes(message, 'UTF-8')
@@ -721,7 +725,7 @@ class ClientThread(threading.Thread):
         self.clientsocket.sendall(msg)
 
     def _recvall(self):
-        '''Receives a message of a specified length, returns it as a string.'''
+        '''Receives a message of a specified length, returns original type.'''
         #first 8 bytes contain msg length
         msglen = int(self.clientsocket.recv(8).decode('UTF-8'))
         bytes_recvd = 0
@@ -750,10 +754,10 @@ class ClientThread(threading.Thread):
         #now get the args
         kwargs = self._recvall()
         if not command == 'get_all_attrs': print('received kwargs', kwargs)
-        if kwargs:
-            kwargs = ast.literal_eval(kwargs)
-        else:
-            kwargs = {}
+        #if kwargs:
+        #    kwargs = ast.literal_eval(kwargs)
+        #else:
+        #    kwargs = {}
         return_str = eval(command)(kwargs)
         if not command == 'get_all_attrs': print('sending return_str', return_str)
         #send the return string (T/F for success or fail, or other requested data)
@@ -889,7 +893,7 @@ def clear_job(kwargs):
 
 
 if __name__ == '__main__':
-    maxqueuelength = 8
+    maxqueuelength = 6
     renderjobs = {}
     for i in range(1, maxqueuelength + 1):
         #indices must be strings b/c json.dumps requires all dict keys to be strings

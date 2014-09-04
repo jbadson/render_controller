@@ -104,7 +104,6 @@ def get_job_status(index):
 #    '''Get contents of config file from server.'''
     
 
-    
 
 
 #----------GUI----------

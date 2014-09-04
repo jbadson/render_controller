@@ -112,7 +112,8 @@ class Job(object):
             self.extraframes.sort().reverse()
             for frame in self.extraframes:
                 self.queue.put(frame)
-
+        self.renderlog = RenderLog(self.path, self.startframe, self.endframe, 
+            self.extraframes, self.complist)
         self.status = 'Waiting'
         return True
 
@@ -125,7 +126,7 @@ class Job(object):
             return False
         self.status = 'Rendering'
         self._start_timer()
-        #create log entry
+        self.renderlog.start()
 
         self.skiplist = []
         self.killflag = False
@@ -158,7 +159,7 @@ class Job(object):
                 print('Render done at detector.') #debug
                 self.status = 'Finished'
                 self._stop_timer()
-                #write status to log
+                self.renderlog.finished(self.get_times())
                 break
     
             for computer in computers:
@@ -177,11 +178,11 @@ class Job(object):
                             self.compstatus[computer]['frame'] = frame
                             self.compstatus[computer]['timer'] = time.time()
                             self.threads_active = True
+                            self.renderlog.frame_sent(frame, computer) 
                         print('creating renderthread') #debug
                         rthread = threading.Thread(target=tgt_thread, args=(frame, 
                             computer, self.queue))
                         rthread.start()
-    
                 #ignore computers in skiplist
                 elif computer in self.skiplist:
                     continue
@@ -190,13 +191,13 @@ class Job(object):
                     frame = self.compstatus[computer]['frame']
                     print('Frame ' + str(frame) + ' on ' + computer + 
                           ' timed out in render loop. Adding to skiplist')
-                    #write to error log
                     self.skiplist.append(computer)
                     print('skiplist:', self.skiplist)#debug
                     self.kill_thread(computer)
                     with threadlock:
                         self.compstatus[computer]['active'] = False
                         self.compstatus[computer]['error'] = 'timeout'
+                        self.renderlog.frame_failed(frame, computer, 'Timed out')
 
         print('_masterthread() terminating') #debug
 
@@ -211,35 +212,38 @@ class Job(object):
 
 
     def _renderthread(self, frame, computer, framequeue):
+        '''Thread to send command, montor status, and parse return data for a
+        single frame in Blender's Cycles render engine.  NOTE: This will not
+        parse output from Blender's internal engine correctly.'''
+
         print('started _renderthread()', frame, computer ) #debug
-    
         if computer in macs:
             renderpath = blenderpath_mac
         else:
             renderpath = blenderpath_linux
-    
         command = subprocess.Popen('ssh igp@' + computer + ' "' + renderpath +
                 ' -b ' + self.path + ' -f ' + str(frame) + ' & pgrep -n blender"', 
                 stdout=subprocess.PIPE, shell=True )
-    
         for line in iter(command.stdout.readline, ''):
             #convert byte object to unicode string
             #necessary for Python 3.x compatibility
             line = line.decode('UTF-8')
             if not line:
-                continue
-            #reset timer
+                #pipe broken, 
+                #assume render failed but wait for timeout in _masterthread
+                print('no line in stdout from _renderthread(), breaking', computer)
+                break
+            #reset timeout timer every time an update is received
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
             if verbose:
                 with threadlock:
                     print(line)
-    
+            #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
                 progress = self._parseline(line, frame, computer)
                 with threadlock:
                     self.compstatus[computer]['progress'] = progress
-    
             #detect PID at first line
             elif line.strip().isdigit():
                 pid = line
@@ -249,15 +253,11 @@ class Job(object):
                 if computer in renice_list:
                     subprocess.call('ssh igp@' + computer + ' "renice 20 -p ' + 
                                      str(pid) + '"', shell=True)
+                #remove oldest item from skiplist if render started successfully
                 with threadlock:
                     if len(self.skiplist) > 0:
                         skipcomp = self.skiplist.pop(0)
                         self.compstatus[skipcomp] = self._reset_compstatus(skipcomp)
-
-            elif time.time() - self.compstatus[computer]['timer'] > timeout:
-                print('_renderthread timed out on ' + computer)
-                break
-    
             #detect if frame has finished rendering
             elif line.find('Saved:') >= 0 and line.find('Time') >= 0:
                 self.totalframes.append(frame)
@@ -268,14 +268,19 @@ class Job(object):
                     self.compstatus[computer] = self._reset_compstatus(computer)
 
                 #get final rendertime from blender's output
-                rendertime = line[line.find('Time'):].split(' ')[1]
-                print('Frame ' + str(frame) + ' finished after ' + str(rendertime))
+                rendertime = str(line[line.find('Time'):].split(' ')[1])
+                print('Frame ' + str(frame) + ' finished after ' + rendertime)
+                with threadlock:
+                    self.renderlog.frame_recvd(frame, computer, rendertime)
                 break
     
         #NOTE omitting stderr checking for now
         print('_renderthread() terminated', frame, computer) #debug
 
     def _renderthread_tgn(self, frame, computer, framequeue):
+        '''Thread to send command, monitor status, and parse return data for a
+        single frame in Terragen 3.'''
+
         print('started _renderthread_tgn()') #debug
         #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in macs:
@@ -292,7 +297,10 @@ class Job(object):
         for line in iter(command.stdout.readline, ''):
             line = line.decode('UTF-8')
             if not line:
-                continue
+                #pipe broken, 
+                #assume render failed but wait for timeout in _masterthread
+                print('no line in stdout from _renderthread(), breaking', computer)
+                break
             #reset timer
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
@@ -313,30 +321,32 @@ class Job(object):
                     print('PID set to: '+str(pid)) #debugging
                     with threadlock:
                         self.compstatus[computer]['pid'] = pid
-                        #renice process to lowest priority on specified comps 
+                    #renice process to lowest priority on specified comps 
                     if computer in renice_list: 
                         subprocess.call('ssh igp@'+computer+' "renice 20 -p '
                                         +str(pid)+'"', shell=True)
                         print('reniced PID '+str(pid)+' to pri 20 on '+computer)
+                    #remove oldest item from skiplist if render starts successfully
                     with threadlock:
                         if len(self.skiplist) > 0:
                             skipcomp = self.skiplist.pop(0)
                             self.compstatus[skipcomp] = self._reset_compstatus( \
                                 skipcomp)
+            #starting a new render pass
             elif line.find('Starting') >= 0:
                 ellipsis = line.find('...')
                 passname = line[9:ellipsis]
                 print('Fra:'+str(frame)+'|'+computer+'|Starting '+passname)
 
+            #finished one of the render passes
             elif line.find('Rendered') >= 0:
-                #finished one of the render passes
                 mark = line.find('of ')
                 passname = line[mark+3:]
                 print('|Fra:'+str(frame)+'|'+computer+'|Finished '+passname)
 
             elif line.find('Rendering') >= 0:
                 #pattern 'Rendering pre pass... 0:00:30s, 2% of pre pass'
-                #NOTE: terragen ALWAYS has at least 2 passes, so prog bars to 
+                #NOTE: terragen ALWAYS has at least 2 passes, so prog bars go
                 #to 100% twice.  Need to note this somewhere or workaround.
                 #could scale percentages so that prepass accounts for no more 
                 #than 50% of progress bar
@@ -344,26 +354,17 @@ class Job(object):
                 #get name of pass:
                 ellipsis = line.find('...')
                 passname = line[10:ellipsis]
-
                 #get percent complete for pass
                 for i in line.split():
                     if '%' in i:
                         pct_str = i
                         percent = float(pct_str[:-1])
                         break
-
                 print('Frame '+str(frame)+' on '+computer+' '+str(percent)+'%')
-                #pass info to progress bars (equiv of parseline())
                 with threadlock:
                     self.compstatus[computer]['progress'] = percent
-
-            elif time.time() - self.compstatus[computer]['timer'] > timeout:
-                print('_renderthread timed out on ' + computer)
-                break
-
+            #frame is done rendering
             elif line.find('Finished') >= 0:
-                print('Finished line: '+line) #debugging
-
                 #XXX write to log
                 self.totalframes.append(frame)
                 if 0 in self.totalframes:
@@ -371,16 +372,16 @@ class Job(object):
                 framequeue.task_done()
                 with threadlock:
                     self.compstatus[computer] = self._reset_compstatus(computer)
-                rendertime = line.split()[2][:-1]
-                print('Frame ' + str(frame) + ' finished after ' + str(rendertime))
+                rendertime = str(line.split()[2][:-1])
+                print('Frame ' + str(frame) + ' finished after ' + rendertime)
+                with threadlock:
+                    self.renderlog.frame_recvd(frame, computer, rendertime)
                 break
             #NOTE: omitting stderr testing for now
         print('_renderthread_tgn() terminated', frame, computer) #debug
 
-
-
     def _parseline(self, line, frame, computer):
-        '''Parses render progress and returns it in a compact form.'''
+        '''Parses Blender cycles progress and returns it in a compact form.'''
         tiles, total = line.split('|')[-1].split(' ')[-1].split('/')
         tiles = float(tiles)
         total = float(total)
@@ -388,7 +389,7 @@ class Job(object):
         return percent
 
     def _start_timer(self):
-        '''Returns start time for a render job.'''
+        '''Starts the render timer for the job.'''
         if self.status == 'Stopped':
             #account for time elapsed since render was stopped
             self.starttime = time.time() - (self.stoptime - self.starttime)
@@ -396,6 +397,7 @@ class Job(object):
             self.starttime = time.time()
 
     def _stop_timer(self):
+        '''Stops the render timer for the job.'''
         self.stoptime = time.time()
 
     def get_times(self):
@@ -421,8 +423,7 @@ class Job(object):
         return (elapsed_time, avg_time, rem_time)
 
     def get_attrs(self):
-        '''Returns dict containing all status-related attributes and times to
-        update analogous Job() objects on clients.'''
+        '''Returns dict containing all status-related attributes and times.'''
         attrdict = {'status':self.status,
                     'starttime':self.starttime,
                     'stoptime':self.stoptime,
@@ -446,6 +447,9 @@ class Job(object):
         else:
             self.complist.append(computer)
             self.compstatus[computer]['pool'] = True
+            if self.status == 'Rendering':
+                with threadlock:
+                    self.renderlog.computer_added(computer)
             return True
 
     def remove_computer(self, computer):
@@ -456,6 +460,9 @@ class Job(object):
         else:
             self.complist.remove(computer)
             self.compstatus[computer]['pool'] = False
+            if self.status == 'Rendering':
+                with threadlock:
+                    self.renderlog.computer_removed(computer)
             return True
 
     def kill_thread(self, computer):
@@ -487,15 +494,23 @@ class Job(object):
                 self.kill_thread(computer)
         self.status = 'Stopped'
         self._stop_timer()
+        with threadlock:
+            self.renderlog.stop(self.get_times())
         return True
 
     def kill_later(self):
-        '''Kills job but allows any currently rendering frames to finish.'''
+        '''Kills job but allows any currently rendering frames to finish.
+        NOTE: Does not monitor progress of currently rendering frames, so if they
+        do not finish there will be missing frames, or if job is immediately
+        resumed there may be multiple render processes running on each computer
+        until the old frames finish.'''
         if not self.status == 'Rendering':
             return False
         self.killflag = True
         self.status = 'Stopped'
         self._stop_timer()
+        with threadlock:
+            self.renderlog.stop(self.get_times())
         return True
 
     def resume(self):
@@ -510,7 +525,143 @@ class Job(object):
         return True
 
 
+class RenderLog(Job):
+    '''Logs render progress for a given job.  Log instance is created when
+    job is placed in queue, but actual log file is not created until render
+    is started. Time in filename reflects time job was placed in queue.'''
+    hrule = '=' * 70 + '\n' #for printing thick horizontal line
+    def __init__(self, path, startframe, endframe, extraframes, complist):
+        #XXX Need to make basepath modifiable in config
+        self.path = path
+        self.startframe = startframe
+        self.endframe = endframe
+        self.extraframes = extraframes
+        self.complist = complist
+        self.log_basepath = '/mnt/data/renderlogs/'
+        #in case basepath isn't present, save log to home directory
+        if not os.path.exists(self.log_basepath):
+            self.log_basepath = '~/'
+            print('Log path inaccessible, saving logs to ~/')
+        self.filename, ext = os.path.splitext(os.path.basename(self.path))
+        self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
+        self.logpath = (self.log_basepath + self.filename + '.' 
+                        + self.enq_time + '.txt')
+        self.total = str(len(range(startframe, endframe)) + 1 + len(extraframes))
 
+    def _gettime(self):
+        '''Returns current time as string formatted for timestamps.'''
+        timestamp = time.strftime('%H:%M:%S %Y/%m/%d', time.localtime())
+        return timestamp
+
+    def start(self):
+        '''Creates initial entry corresponding to render start.'''
+        #check if file exists. If so, assume render is being resumed
+        if os.path.exists(self.logpath):
+            self._resume()
+            return
+        self.log = open(self.logpath, 'w')
+        self.log.write(RenderLog.hrule)
+        self.log.write('Render started at ' + self._gettime() + '\n')
+        self.log.write('File: ' + self.path + '\n')
+        self.log.write('Frames: ' + str(self.startframe) + ' - ' 
+            + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+        self.log.write('On: ' + ', '.join(self.complist) + '\n')
+        self.log.write(RenderLog.hrule)
+        self.log.flush()
+
+    def frame_sent(self, frame, computer):
+        self.log.write('Sent frame ' + str(frame) + ' of ' + self.total + ' to '
+            + computer + ' at ' + self._gettime() + '\n')
+        self.log.flush()
+
+    def frame_recvd(self, frame, computer, rendertime):
+        self.log.write('Received frame ' + str(frame) + ' of ' + self.total 
+            + ' from ' + computer + ' at ' + self._gettime() + '. Render time was '
+            + rendertime + '\n')
+        self.log.flush()
+
+    def frame_failed(self, frame, computer, errtxt):
+        self.log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
+            + computer + ' at ' + self._gettime() + ': ' + errtxt + '\n')
+        self.log.flush()
+
+    def computer_added(self, computer):
+        self.log.write('Added ' + computer + ' to render pool at ' + self._gettime() 
+            + '\n')
+        self.log.flush()
+
+    def computer_removed(self, computer):
+        self.log.write('Removed ' + computer + ' from render pool at ' 
+            + self._gettime() + '\n')
+        self.log.flush()
+
+    def finished(self, times):
+        '''Marks render finished, closes log file.'''
+        elapsed, avg, rem = times
+        self.log.write(RenderLog.hrule)
+        self.log.write('Render finished at ' + self._gettime() + '\n')
+        self.log.write('Total time: ' + self.format_time(elapsed) + '\n')
+        self.log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+        self.log.write(RenderLog.hrule)
+        self.log.close()
+
+    def stop(self, times):
+        '''Marks render stopped, closes log file.'''
+        elapsed, avg, rem = times
+        self.log.write(RenderLog.hrule)
+        self.log.write('Render stopped by user at ' + self._gettime() + '\n')
+        self.log.write('Total time: ' + self.format_time(elapsed) + '\n')
+        self.log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+        self.log.write(RenderLog.hrule)
+        #closing the log in case render is not resumed
+        self.log.close()
+
+    def _resume(self):
+        '''If render is being resumed, read the contents of the existing log
+        first, then overwrite, replace the original contents, and write resume
+        info at the end.'''
+        self.log = open(self.logpath, 'r')
+        old_data = self.log.read()
+        self.log.close()
+        self.log = open(self.logpath, 'w')
+        self.log.write(old_data)
+        self.log.write(RenderLog.hrule)
+        self.log.write('Render resumed at ' + self._gettime() + '\n')
+        self.log.write('File: ' + self.path + '\n')
+        self.log.write('Frames: ' + str(self.startframe) + ' - ' 
+            + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+        self.log.write('On: ' + ', '.join(self.complist) + '\n')
+        self.log.write(RenderLog.hrule)
+        self.log.flush()
+
+    def format_time(self, time):
+        '''Converts time in decimal seconds to human-friendly strings.
+        format is ddhhmmss.s'''
+        if time < 60:
+            newtime = [round(time, 1)]
+        elif time < 3600:
+            m, s = time / 60, time % 60
+            newtime = [int(m), round(s, 1)]
+        elif time < 86400:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            newtime = [int(h), int(m), round(s, 1)]
+        else:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            d, h = h / 24, h % 24
+            newtime = [int(d), int(h), int(m), round(s, 1)]
+        if len(newtime) == 1:
+            timestr = str(newtime[0])+'s'
+        elif len(newtime) == 2:
+            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
+        elif len(newtime) == 3:
+            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
+                +str(newtime[2])+'s')
+        else:
+            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h '
+                +str(newtime[2])+'m '+str(newtime[3])+'s')
+        return timestr
 
 
 
@@ -558,7 +709,7 @@ def set_defaults():
         'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
     
     #timeout for failed machine in seconds
-    timeout = 99
+    timeout = 30
     
     #start next job when current one finishes. 1=yes, 0=no, on by default
     startnext = 1 
@@ -896,7 +1047,8 @@ if __name__ == '__main__':
     maxqueuelength = 6
     renderjobs = {}
     for i in range(1, maxqueuelength + 1):
-        #indices must be strings b/c json.dumps requires all dict keys to be strings
+        #indices must be strings b/c json.dumps requires all dict keys to be 
+        #strings
         renderjobs[str(i)] = Job()
 
     #socket server to handle interface interactions

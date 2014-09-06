@@ -11,6 +11,7 @@ import threading
 import os.path
 import ast
 import json
+import cfgfile
 
 host = 'localhost'
 port = 2020
@@ -99,40 +100,56 @@ def get_job_status(index):
     status = ClientSocket().send_cmd('get_status', kwargs)
     return status
 
+def get_config_vars():
+    '''Gets current values for global config variables from server.'''
+    cfgvars = ClientSocket().send_cmd('get_config_vars')
+    return cfgvars
 
-#def get_config():
-#    '''Get contents of config file from server.'''
-    
+
+
+
+#----------CONFIG VARIABLES----------
+#client-specific config settings
+#these do not affect the server
+gui_cfg = cfgfile.ConfigFile(filename='gui_config.json')
+print('GUI config file: ' + str(gui_cfg.filepath()))
+
+def set_gui_defaults():
+    '''Restores GUI config file variables to default values. Also use for creating
+    the initial config file.'''
+    #default values for fields in the input window
+    default_path = '/mnt/data/test_render/test_render.blend'
+    default_startframe = 1
+    default_endframe = 4
+    default_render_engine = 'blender'
+    return (default_path, default_startframe, default_endframe, 
+            default_render_engine)
+
+if not gui_cfg.exists():
+    print('No GUI config file found, creating one from defaults.')
+    guisettings = gui_cfg.write(set_gui_defaults())
+else:
+    print('GUI config file found, reading...')
+    try:
+        guisettings = gui_cfg.read()
+        if not len(guisettings) == len(set_gui_defaults()):
+            raise IndexError
+    except:
+        print('GUI config file corrupt or incorrect. Creating new')
+        guisettings = gui_cfg.write(set_gui_defaults())
+
+#server-specific config variables    
+#most of these aren't directly used by the GUI, but are needed for the prefs window
+computers, fast, farm, renice_list, macs, maxqueuelength, blenderpath_mac, blenderpath_linux, terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, log_basepath = get_config_vars()
+
 
 
 
 #----------GUI----------
-
-#need some basic data to initialize the GUI
-#This will need to be grabbed from the server
-computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-        'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache', 
-        'conundrum', 'paradox'] 
-#list of computers in the 'fast' group
-fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-        'eldiente'] 
-#list of computers in the 'farm' group
-farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
-
-maxqueuelength = 6
-
-
-
 #----Initialize GUI----
 root = tk.Tk()
 root.bind('<Command-q>', lambda x: quit()) 
 root.bind('<Control-q>', lambda x: quit())
-
-
-
-
-
-
 
 
 #---GUI Classes---
@@ -142,6 +159,7 @@ class StatusThread(threading.Thread):
     def __init__(self):
         self.stop = False
         threading.Thread.__init__(self, target=self._statusthread)
+        self.localjobs = {} #dict to hold instances of JobObject
 
     def end(self):
         '''Terminates the status thread cleanly.'''
@@ -152,23 +170,45 @@ class StatusThread(threading.Thread):
             if self.stop == True:
                 break
             attrdict = ClientSocket().send_cmd('get_all_attrs')
-            for job in attrdict:
-                stats = attrdict[job]
+            serverjobs = []
+            for index in attrdict:
+                serverjobs.append(index)
+                if not index in self.localjobs:
+                    self.localjobs[index] = JobObject(index)
+            #delete any local jobs that are no longer on server
+            dellist = []
+            for index in self.localjobs:
+                if not index in serverjobs:
+                    dellist.append(index)
+            for index in dellist:
+                self.localjobs[index].delete()
+                del self.localjobs[index]
+            #now do updates
+            for index in attrdict:
+                self.localjobs[index].update(attrdict[index])
+            #update frequency in seconds
+            time.sleep(0.5)
+            '''
+            for index in attrdict:
+                if not index in localjobs:
+                    localjobs[index] = JobObject(index)
+                stats = attrdict[index]
                 #update the small (left pane) job status box
-                job_stat_boxes[job].update(stats['status'], stats['startframe'], 
+                job_stat_boxes[index].update(stats['status'], stats['startframe'], 
                         stats['endframe'], stats['path'], stats['progress'], 
                         stats['times'])
                 #update the large (top of tab) job status box
-                tabs[job].jobstat.update(stats['status'], stats['startframe'], 
+                tabs[index].jobstat.update(stats['status'], stats['startframe'], 
                         stats['endframe'], stats['path'], stats['progress'], 
                         stats['times'])
                 #update the status for each computer
                 for computer in stats['compstatus']:
                     compstats = stats['compstatus'][computer]
-                    tabs[job].update_status(computer, compstats['pool'], 
+                    tabs[index].update_status(computer, compstats['pool'], 
                         compstats['frame'], compstats['progress'])
-            #update frequency in seconds
-            time.sleep(0.5)
+
+            '''
+
 
 class Dialog(object):
     '''Wrapper for tkMessageBox that displays text passed as message string'''
@@ -222,7 +262,10 @@ class StatusTab(tk.LabelFrame):
             side=tk.LEFT)
         ttk.Button(buttonbar, text='Resume', command=self._resume_render).pack( \
             side=tk.LEFT)
-        ttk.Button(buttonbar, text='Remove', command=self._clear_job).pack( \
+        #ttk.Button(buttonbar, text='Remove', command=self._clear_job).pack( \
+        #XXX Testing way to dynamically create/remove queue items
+        ttk.Button(buttonbar, text='Remove', command=lambda: delete_job(self.index)).pack( \
+
             side=tk.RIGHT)
         #encapsulate computer boxes in canvas to make it scrollable
         canvframe = ttk.LabelFrame(self)
@@ -487,22 +530,22 @@ class JobStatusBox(ttk.LabelFrame):
 
 class InputWindow(tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.'''
-    def __init__(self, index):
-        self.index = index
-        if get_job_status(self.index) == 'Rendering':
-            return
+    #def __init__(self, index):
+        #self.index = index
+    def __init__(self):
+        #if get_job_status(self.index) == 'Rendering':
+        #    return
         self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
         self.tk_extraframes = tk.StringVar()
         self.tk_render_engine = tk.StringVar()
         self.tk_complist = tk.StringVar()
-        #set some temp defaults
-        self.tk_path.set('/mnt/data/test_render/test_render.blend')
-        self.tk_startframe.set('1')
-        self.tk_endframe.set('4')
-        self.tk_render_engine.set('blender')
-        self.tk_complist.set('massive')
+        #put in default values
+        self.tk_path.set(guisettings[0])
+        self.tk_startframe.set(guisettings[1])
+        self.tk_endframe.set(guisettings[2])
+        self.tk_render_engine.set(guisettings[3])
         tk.Toplevel.__init__(self)
         self.config(bg='gray90')
         container = ttk.LabelFrame(self)
@@ -591,11 +634,12 @@ class InputWindow(tk.Toplevel):
         
     def _enqueue(self):
         '''Places a new job in queue.'''
-        if not check_slot_open(self.index):
-            if not Dialog('Overwrite existing queue contents?').yesno():
-                self.destroy()
-                return
+        #if not check_slot_open(self.index):
+        #    if not Dialog('Overwrite existing queue contents?').yesno():
+        #        self.destroy()
+        #        return
         path = self.tk_path.get()
+        self.filename, ext = os.path.splitext(os.path.basename(path))
         startframe = int(self.tk_startframe.get())
         endframe = int(self.tk_endframe.get())
         extraframes = []
@@ -607,7 +651,12 @@ class InputWindow(tk.Toplevel):
             if self.compvars[computer].get() == 1:
                 complist.append(computer)
         self.destroy()
-        render_args = { 'index':self.index,
+        kwargs = {'index':self.filename}
+        reply = ClientSocket().send_cmd('create_job', kwargs)
+        if not reply:
+            print('Failed to create job.')
+            return
+        render_args = { 'index':self.filename,
                         'path':path, 
                         'startframe':startframe,
                         'endframe':endframe, 
@@ -625,10 +674,54 @@ def quit():
     raise SystemExit
 
 
+def create_job():
+    '''GUI elements are not created directly by this function. They are created 
+    from the status thread to ensure that the GUI state is only changed if the 
+    server state was successfully changed.'''
+    reply = ClientSocket().send_cmd('create_job')
+    print(reply)
 
 
+def delete_job(index):
+    '''GUI elements are not removed directly by this function. They are deleted
+    from the status thread to ensure that the GUI state is only changed if the 
+    server state was successfully changed.'''
+    kwargs = {'index':index}
+    reply = ClientSocket().send_cmd('clear_job', kwargs)
+    print(reply)
 
+#localjobs = {} #dict to hold all instances of JobObject currently in the GUI
+class JobObject(object):
+    def __init__(self, index):
+        self.index = index
+        self._create()
 
+    def _create(self):
+        self.smallbox = JobStatusBox(master=left_frame, index=self.index)
+        self.smallbox.draw_smallbox()
+        self.tab = StatusTab(self.index)
+        main_notebook.add(self.tab, text=self.index)
+
+    def delete(self):
+        main_notebook.forget(self.tab)
+        del self.tab
+        self.smallbox.destroy()
+        del self.smallbox
+
+    def update(self, stats):
+        #update the small (left pane) job status box
+        self.smallbox.update(stats['status'], stats['startframe'], 
+                stats['endframe'], stats['path'], stats['progress'], 
+                stats['times'])
+        #update the large (top of tab) job status box
+        self.tab.jobstat.update(stats['status'], stats['startframe'], 
+                stats['endframe'], stats['path'], stats['progress'], 
+                stats['times'])
+        #update the status for each computer
+        for computer in stats['compstatus']:
+            compstats = stats['compstatus'][computer]
+            self.tab.update_status(computer, compstats['pool'], 
+                compstats['frame'], compstats['progress'])
 
 
 main_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
@@ -642,16 +735,18 @@ ttk.Label(left_pane, text='', width=1).pack(side=tk.LEFT, fill=tk.X)
 left_frame = ttk.LabelFrame(left_pane)
 left_frame.pack(side=tk.LEFT, ipady=5, expand=True, fill=tk.BOTH)
 ttk.Label(left_frame, text='Render Queue').pack()
-job_stat_boxes = {}
+ttk.Button(left_frame, text='new job', command=InputWindow).pack()
+ttk.Button(left_frame, text='delete job', command=delete_job).pack()
+#job_stat_boxes = {}
 
 main_notebook = ttk.Notebook(width=450)
 tabs = {}
-for i in range(1, maxqueuelength + 1):
-    #indices must be strings b/c json.dumps requires all dict keys to be strings
-    job_stat_boxes[str(i)] = JobStatusBox(master=left_frame, index=str(i))
-    job_stat_boxes[str(i)].draw_smallbox()
-    tabs[str(i)] = StatusTab(str(i))
-    main_notebook.add(tabs[str(i)], text='Job ' + str(i))
+#for i in range(1, maxqueuelength + 1):
+#    #indices must be strings b/c json.dumps requires all dict keys to be strings
+#    job_stat_boxes[str(i)] = JobStatusBox(master=left_frame, index=str(i))
+#    job_stat_boxes[str(i)].draw_smallbox()
+#    tabs[str(i)] = StatusTab(str(i))
+#    main_notebook.add(tabs[str(i)], text='Job ' + str(i))
 
 #pad bottom of left pane for even spacing
 #ttk.Label(left_pane, text='', width=5).pack(pady=0)

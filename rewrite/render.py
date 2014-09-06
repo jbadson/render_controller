@@ -246,7 +246,7 @@ class Job(object):
                     self.compstatus[computer]['progress'] = progress
             #detect PID at first line
             elif line.strip().isdigit():
-                pid = line
+                pid = line.strip()
                 print('PID detected: ', pid)#debug
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
@@ -313,7 +313,7 @@ class Job(object):
 
             #starting overall render or one of the render passes
             if line.strip().isdigit():
-                pid = int(line)
+                pid = int(line.strip())
                 print('Possible PID detected: ', pid)
                 if pid != frame: 
                     #necessary b/c terragen echoes frame # at start. 
@@ -365,7 +365,6 @@ class Job(object):
                     self.compstatus[computer]['progress'] = percent
             #frame is done rendering
             elif line.find('Finished') >= 0:
-                #XXX write to log
                 self.totalframes.append(frame)
                 if 0 in self.totalframes:
                     self.totalframes.remove(0)
@@ -467,21 +466,25 @@ class Job(object):
 
     def kill_thread(self, computer):
         '''Attempts to terminate active render thread on a specified computer.'''
-        if not self.status == 'Rendering':
-            return False
         if not self.compstatus[computer]['active'] == True:
             return False
         try:
             frame = self.compstatus[computer]['frame']
             pid = self.compstatus[computer]['pid']
+            if not frame > 0 and pid > 0:
+                raise RuntimeError
         except:
             return False
+        #remove computer from pool unless render is being stopped
+        if self.compstatus[computer]['pool'] == True and self.status != 'Stopped':
+            self.remove_computer(computer)
         with threadlock:
             self.queue.put(frame)
         subprocess.call('ssh igp@'+computer+' "kill '+str(pid)+'"', shell=True)
         with threadlock:
             self.compstatus[computer]['active'] = False
             self.compstatus[computer]['error'] = 'killed'
+            self.renderlog.process_killed(pid, computer)
         return pid
 
     def kill_now(self):
@@ -492,10 +495,10 @@ class Job(object):
         for computer in computers:
             if self.compstatus[computer]['active'] == True:
                 self.kill_thread(computer)
-        self.status = 'Stopped'
         self._stop_timer()
         with threadlock:
             self.renderlog.stop(self.get_times())
+        self.status = 'Stopped'
         return True
 
     def kill_later(self):
@@ -507,10 +510,10 @@ class Job(object):
         if not self.status == 'Rendering':
             return False
         self.killflag = True
-        self.status = 'Stopped'
         self._stop_timer()
         with threadlock:
             self.renderlog.stop(self.get_times())
+        self.status = 'Stopped'
         return True
 
     def resume(self):
@@ -531,17 +534,12 @@ class RenderLog(Job):
     is started. Time in filename reflects time job was placed in queue.'''
     hrule = '=' * 70 + '\n' #for printing thick horizontal line
     def __init__(self, path, startframe, endframe, extraframes, complist):
-        #XXX Need to make basepath modifiable in config
         self.path = path
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
         self.complist = complist
-        self.log_basepath = '/mnt/data/renderlogs/'
-        #in case basepath isn't present, save log to home directory
-        if not os.path.exists(self.log_basepath):
-            self.log_basepath = '~/'
-            print('Log path inaccessible, saving logs to ~/')
+        self.log_basepath = log_basepath
         self.filename, ext = os.path.splitext(os.path.basename(self.path))
         self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
         self.logpath = (self.log_basepath + self.filename + '.' 
@@ -559,80 +557,85 @@ class RenderLog(Job):
         if os.path.exists(self.logpath):
             self._resume()
             return
-        self.log = open(self.logpath, 'w')
-        self.log.write(RenderLog.hrule)
-        self.log.write('Render started at ' + self._gettime() + '\n')
-        self.log.write('File: ' + self.path + '\n')
-        self.log.write('Frames: ' + str(self.startframe) + ' - ' 
-            + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
-        self.log.write('On: ' + ', '.join(self.complist) + '\n')
-        self.log.write(RenderLog.hrule)
-        self.log.flush()
+        with open(self.logpath, 'w') as log:
+            log.write(RenderLog.hrule)
+            log.write('Render started at ' + self._gettime() + '\n')
+            log.write('File: ' + self.path + '\n')
+            log.write('Frames: ' + str(self.startframe) + ' - ' 
+                + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+            log.write('On: ' + ', '.join(self.complist) + '\n')
+            log.write(RenderLog.hrule)
+        
 
     def frame_sent(self, frame, computer):
-        self.log.write('Sent frame ' + str(frame) + ' of ' + self.total + ' to '
-            + computer + ' at ' + self._gettime() + '\n')
-        self.log.flush()
+        with open(self.logpath, 'a') as log:
+            log.write('Sent frame ' + str(frame) + ' of ' + self.total + ' to '
+                + computer + ' at ' + self._gettime() + '\n')
+        
 
     def frame_recvd(self, frame, computer, rendertime):
-        self.log.write('Received frame ' + str(frame) + ' of ' + self.total 
+        with open(self.logpath, 'a') as log:
+            log.write('Received frame ' + str(frame) + ' of ' + self.total 
             + ' from ' + computer + ' at ' + self._gettime() + '. Render time was '
-            + rendertime + '\n')
-        self.log.flush()
+                + rendertime + '\n')
+        
 
     def frame_failed(self, frame, computer, errtxt):
-        self.log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
-            + computer + ' at ' + self._gettime() + ': ' + errtxt + '\n')
-        self.log.flush()
+        with open(self.logpath, 'a') as log:
+            log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
+                + computer + ' at ' + self._gettime() + ': ' + errtxt + '\n')
+
+    def process_killed(self, pid, computer):
+        with open(self.logpath, 'a') as log:
+            log.write('Killed process ' + str(pid) + ' on ' + computer + ' at '
+                + self._gettime() + '\n')
+        
 
     def computer_added(self, computer):
-        self.log.write('Added ' + computer + ' to render pool at ' + self._gettime() 
-            + '\n')
-        self.log.flush()
+        with open(self.logpath, 'a') as log:
+            log.write('Added ' + computer + ' to render pool at ' 
+                + self._gettime() + '\n')
+        
 
     def computer_removed(self, computer):
-        self.log.write('Removed ' + computer + ' from render pool at ' 
-            + self._gettime() + '\n')
-        self.log.flush()
+        with open(self.logpath, 'a') as log:
+            log.write('Removed ' + computer + ' from render pool at ' 
+                + self._gettime() + '\n')
+        
 
     def finished(self, times):
         '''Marks render finished, closes log file.'''
         elapsed, avg, rem = times
-        self.log.write(RenderLog.hrule)
-        self.log.write('Render finished at ' + self._gettime() + '\n')
-        self.log.write('Total time: ' + self.format_time(elapsed) + '\n')
-        self.log.write('Average time per frame: ' + self.format_time(avg) + '\n')
-        self.log.write(RenderLog.hrule)
-        self.log.close()
+        with open(self.logpath, 'a') as log:
+            log.write(RenderLog.hrule)
+            log.write('Render finished at ' + self._gettime() + '\n')
+            log.write('Total time: ' + self.format_time(elapsed) + '\n')
+            log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+            log.write(RenderLog.hrule)
+        
 
     def stop(self, times):
         '''Marks render stopped, closes log file.'''
         elapsed, avg, rem = times
-        self.log.write(RenderLog.hrule)
-        self.log.write('Render stopped by user at ' + self._gettime() + '\n')
-        self.log.write('Total time: ' + self.format_time(elapsed) + '\n')
-        self.log.write('Average time per frame: ' + self.format_time(avg) + '\n')
-        self.log.write(RenderLog.hrule)
-        #closing the log in case render is not resumed
-        self.log.close()
+        with open(self.logpath, 'a') as log:
+            log.write(RenderLog.hrule)
+            log.write('Render stopped by user at ' + self._gettime() + '\n')
+            log.write('Total time: ' + self.format_time(elapsed) + '\n')
+            log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+            log.write(RenderLog.hrule)
+        
 
     def _resume(self):
-        '''If render is being resumed, read the contents of the existing log
-        first, then overwrite, replace the original contents, and write resume
-        info at the end.'''
-        self.log = open(self.logpath, 'r')
-        old_data = self.log.read()
-        self.log.close()
-        self.log = open(self.logpath, 'w')
-        self.log.write(old_data)
-        self.log.write(RenderLog.hrule)
-        self.log.write('Render resumed at ' + self._gettime() + '\n')
-        self.log.write('File: ' + self.path + '\n')
-        self.log.write('Frames: ' + str(self.startframe) + ' - ' 
-            + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
-        self.log.write('On: ' + ', '.join(self.complist) + '\n')
-        self.log.write(RenderLog.hrule)
-        self.log.flush()
+        '''Appends a new header to the existing log file.'''
+        with open(self.logpath, 'a') as log:
+            log.write(RenderLog.hrule)
+            log.write('Render resumed at ' + self._gettime() + '\n')
+            log.write('File: ' + self.path + '\n')
+            log.write('Frames: ' + str(self.startframe) + ' - ' 
+                + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+            log.write('On: ' + ', '.join(self.complist) + '\n')
+            log.write(RenderLog.hrule)
+        
 
     def format_time(self, time):
         '''Converts time in decimal seconds to human-friendly strings.
@@ -692,15 +695,17 @@ def set_defaults():
     
     #computers running OSX. Needed because blender uses different path
     macs = ['conundrum', 'paradox', 'sherman'] 
-    
+
+    #default number of queue slots
+    maxqueuelength = 1
+
     #path to blender executable on OSX computers
     blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' 
     
     #path to blender executable on Linux computers
     blenderpath_linux = '/usr/local/bin/blender' 
     
-    terragenpath_mac = ('/mnt/data/software/terragen_rendernode/osx/terragen3.app' +
-                       '/Contents/MacOS/Terragen_3')
+    terragenpath_mac = ('/mnt/data/software/terragen_rendernode/osx/terragen3.app'                          + '/Contents/MacOS/Terragen_3')
     
     terragenpath_linux = '/mnt/data/software/terragen_rendernode/linux/terragen'
     
@@ -721,18 +726,13 @@ def set_defaults():
     #stdout to terminal
     verbose = 0
 
-    #default path, start, and end frame to put in New / Edit job window
-    default_path = '/mnt/data/test_render/test_render.blend'
-    default_start = 1
-    default_end = 3
+    #default directory to hold render log files
+    log_basepath = '/mnt/data/renderlogs/'
 
-    #default render engine. Can be 'blender' or 'terragen'
-    default_renderer = 'blender'
-
-    defaults = [computers, fast, farm, renice_list, macs, blenderpath_mac, 
-            blenderpath_linux, terragenpath_mac, terragenpath_linux, 
-            allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, 
-            default_path, default_start, default_end, default_renderer]
+    defaults = [computers, fast, farm, renice_list, macs, maxqueuelength, 
+            blenderpath_mac, blenderpath_linux, terragenpath_mac, 
+            terragenpath_linux, allowed_filetypes, timeout, startnext, 
+            maxglobalrenders, verbose, log_basepath]
 
     return defaults
 
@@ -744,6 +744,7 @@ def define_global_config_vars(settings):
     global farm
     global renice_list
     global macs
+    global maxqueuelength
     global blenderpath_mac
     global blenderpath_linux
     global terragenpath_mac
@@ -753,67 +754,77 @@ def define_global_config_vars(settings):
     global startnext
     global maxglobalrenders
     global verbose
-    global default_path
-    global default_start
-    global default_end
-    global default_renderer
+    global log_basepath
 
-    print('Updating global config variables.')
+    print('Global config variables updated.')
     cfgsettings = settings
     computers = settings[0]
     fast = settings[1]
     farm = settings[2]
     renice_list = settings[3]
     macs = settings[4]
-    blenderpath_mac = settings[5]
-    blenderpath_linux = settings[6]
-    terragenpath_mac = settings[7]
-    terragenpath_linux = settings[8]
-    allowed_filetypes = settings[9]
-    timeout = settings[10]
-    startnext = settings[11]
-    maxglobalrenders = settings[12]
-    verbose = settings[13]
-    default_path = settings[14]
-    default_start = settings[15]
-    default_end = settings[16]
-    default_renderer = settings[17]
+    maxqueuelength = settings[5]
+    blenderpath_mac = settings[6]
+    blenderpath_linux = settings[7]
+    terragenpath_mac = settings[8]
+    terragenpath_linux = settings[9]
+    allowed_filetypes = settings[10]
+    timeout = settings[11]
+    startnext = settings[12]
+    maxglobalrenders = settings[13]
+    verbose = settings[14]
+    log_basepath = settings[15]
 
-#check for a config file
-if not cfgfile.check():
-    print('No config file found. Creating one from defaults.')
-    cfgsettings = cfgfile.write(set_defaults())
+#Create ConfigFile instance with default path & filename
+#file will be stored in same directory as this file and called config.json
+config_file = cfgfile.ConfigFile()
+#if file already exists and is valid, load config vars. Otherwise make new file.
+if not config_file.exists():
+    print('No config file found, creating one from defaults.')
+    cfgsettings = config_file.write(set_defaults())
 else:
-    print('Config file found. Reading...')
+    print('Config file found, reading...')
     try:
-        cfgsettings = cfgfile.read()
+        cfgsettings = config_file.read()
+        if not len(cfgsettings) == len(set_defaults()):
+            raise IndexError
     except:
-        print('Config file corrupt or damaged. Creating new...')
-        cfgsettings = cfgfile.write(set_defaults())
+        print('Config file corrupt or incorrect. Creating new')
+        cfgsettings = config_file.write(set_defaults())
 
-    #verify that config file contains appropriate number of entries
-    #avoids error if config file is out of date with script version
-    defaults = set_defaults()
-    if not len(defaults) == len(cfgsettings):
-        print('Config file length mismatch. Overwriting with default values...')
-        cfgsettings = cfgfile.write(defaults)
 
 #now define variables in main based on cfgsettings
 define_global_config_vars(cfgsettings)
 
 def update_cfgfile():
-    cfgsettings = [computers, fast, farm, renice_list, macs, blenderpath_mac, 
-            blenderpath_linux, terragenpath_mac, terragenpath_linux, 
-            allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, 
-            default_path, default_start, default_end, default_renderer]
+    cfgsettings = [computers, fast, farm, renice_list, macs, maxqueuelength, 
+            blenderpath_mac, blenderpath_linux, terragenpath_mac, 
+            terragenpath_linux, allowed_filetypes, timeout, startnext, 
+            maxglobalrenders, verbose, log_basepath]
     print('Updating config file.')
-    cfgfile.write(cfgsettings)
+    config_file.write(cfgsettings)
 
 def quit():
     '''Forces immediate exit without waiting for loops to terminate.'''
     os._exit(1)
 
-
+#verify that renderlog path is accessible
+if not os.path.exists(log_basepath):
+    print('WARNING: Path to renderlog directory: "'+log_basepath
+            +'" could not be found.')
+    if input('Do you want to specify a new path now? (Y/n)') == 'Y':
+        log_basepath = input('Path:')
+        if not os.path.exists(log_basepath):
+            print('Path does not exist, shutting down server.')
+            quit()
+        elif log_basepath[-1] != '/':
+            log_basepath = log_basepath + '/'
+        print('Render logs will be stored in ' + log_basepath + '.\n'
+            + 'To permanently change the log path, use the Preferences window '
+            + 'in the client GUI or edit the server config file.')
+    else:
+        print('Server start failed, no renderlog path.')
+        quit()
 
 
 #----------SERVER INTERFACE----------
@@ -926,7 +937,7 @@ class ClientThread(threading.Thread):
 #must match function names exactly
 allowed_commands= ['cmdtest', 'get_all_attrs', 'check_slot_open', 'enqueue',
     'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
-    'get_status', 'resume_render', 'clear_job']
+    'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job']
 
 def cmdtest(kwargs):
     '''a basic test of client-server command-response protocol'''
@@ -935,7 +946,7 @@ def cmdtest(kwargs):
         print('arg:', arg, kwargs[arg])
     return 'cmdtest() success'
 
-def get_all_attrs(kwargs):
+def get_all_attrs(kwargs=None):
     '''Returns dict of attributes for all Job instances.'''
     attrdict = {}
     for i in renderjobs:
@@ -1033,18 +1044,36 @@ def clear_job(kwargs):
     '''Clears an existing job from a queue slot.'''
     index = kwargs['index']
     del renderjobs[index]
+    return 'Job ' + index + 'deleted.'
+
     renderjobs[index] = Job()
     print(renderjobs[index].get_job_status())
     return 'Job '+str(index)+' cleared.'
 
+def get_config_vars(kwargs=None):
+    '''Gets server-side configuration variables and returns them as a list.'''
+    cfgsettings = [computers, fast, farm, renice_list, macs, maxqueuelength, 
+            blenderpath_mac, blenderpath_linux, terragenpath_mac, 
+            terragenpath_linux, allowed_filetypes, timeout, startnext, 
+            maxglobalrenders, verbose, log_basepath]
+    return cfgsettings
 
+#Testing dynamic creation of jobs
+def create_job(kwargs):
+    #XXX needs to find an empty index number then create job there.
+    #index = str(int(max(renderjobs)) + 1)
+    index = kwargs['index']
+    if index in renderjobs:
+        return 'Failed to create job. Index ' + index + ' is in use.'
+    renderjobs[index] = Job()
+    return index
 
 
 
 
 
 if __name__ == '__main__':
-    maxqueuelength = 6
+    #maxqueuelength = 6 #now getting this from config file
     renderjobs = {}
     for i in range(1, maxqueuelength + 1):
         #indices must be strings b/c json.dumps requires all dict keys to be 

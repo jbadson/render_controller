@@ -1,10 +1,11 @@
 #graphical user interface for IGP Render Controller
-#must run in python 3
+#Written for Python 3.4
 import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.font as tkfont
 import tkinter.filedialog as tk_filedialog
 import tkinter.messagebox as tk_msgbox
+import tkinter.scrolledtext as tk_st
 import socket
 import time
 import threading
@@ -12,6 +13,7 @@ import os.path
 import ast
 import json
 import cfgfile
+import framechecker
 
 host = 'localhost'
 port = 2020
@@ -105,6 +107,12 @@ def get_config_vars():
     cfgvars = ClientSocket().send_cmd('get_config_vars')
     return cfgvars
 
+def quit():
+    '''Terminates status thread and mainloop, then sends exit call.'''
+    statthread.end()
+    #masterwin.destroy()
+    raise SystemExit
+
 
 
 
@@ -143,351 +151,162 @@ else:
 computers, fast, farm, renice_list, macs, maxqueuelength, blenderpath_mac, blenderpath_linux, terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, log_basepath = get_config_vars()
 
 
+#XXX Some additional config stuff, decide where to put it later
+#XXX Get rid of LightBlueBGColor if you're not going to use it.
+LightBlueBGColor = 'white'
+MidBGColor = '#%02x%02x%02x' % (190, 190, 190)
+LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
+#DarkBGColor = '#%02x%02x%02x' % (50, 50, 50)
+HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
+
+
 
 
 #----------GUI----------
-#----Initialize GUI----
-root = tk.Tk()
-#root.geometry('800x500')
-root.bind('<Command-q>', lambda x: quit()) 
-root.bind('<Control-q>', lambda x: quit())
 
-localjobs = {} #dict to hold all instances of JobObject currently in the GUI
-
-#---GUI Classes---
-class StatusThread(threading.Thread):
-    '''Obtains current status info from all queue slots on server and updates
-    GUI accordingly.'''
+class MasterWin(tk.Tk):
     def __init__(self):
-        self.stop = False
-        threading.Thread.__init__(self, target=self._statusthread)
-        self.localjobs = {} #dict to hold instances of JobObject
+        tk.Tk.__init__(self)
+        self.bind('<Command-q>', lambda x: quit()) 
+        self.bind('<Control-q>', lambda x: quit())
+        self.config(bg=LightBGColor)
+        self.geometry('1257x720')
+        #create dictionaries to hold job-specific GUI elements
+        #format is { 'index' : object }
+        self.jobboxes = {}
+        self.comppanels = {}
+        self._build_main()
 
-    def end(self):
-        '''Terminates the status thread cleanly.'''
-        self.stop = True
+    def _build_main(self):
+        '''Creates the main window elements.'''
+        topbar = tk.Frame(self, bg=MidBGColor)
+        topbar.pack(fill=tk.BOTH)
+        ttk.Button(topbar, text='Check Missing Frames', command=self._checkframes, 
+            style='Toolbutton').pack(padx=(25, 5), pady=15, side=tk.LEFT)
+        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
-    def _statusthread(self):
-        while True:
-            global localjobs
-            if self.stop == True:
+        midblock = tk.Frame(self, bg=LightBGColor)
+        midblock.pack(padx=15, pady=(10, 20), expand=True, fill=tk.BOTH)
+        
+        left_frame = tk.Frame(midblock, bg=LightBGColor)
+        left_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
+        tk.Label(left_frame, text='Queue:', bg=LightBGColor).pack(padx=5, 
+            anchor=tk.W)
+        left_frame_inner = tk.LabelFrame(left_frame, bg=LightBGColor)
+        left_frame_inner.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
+        
+        self.jobbox_frame = tk.Frame(left_frame_inner, bg=LightBlueBGColor, 
+            width=260)
+        self.jobbox_frame.pack(expand=True, fill=tk.BOTH)
+        jobbtns = tk.Frame(left_frame_inner, bg=LightBGColor)
+        jobbtns.pack(fill=tk.X)
+        ttk.Separator(jobbtns).pack(fill=tk.X)
+        RectButton(jobbtns, text='+', command=self._new_job).pack(side=tk.LEFT)
+        RectButton(jobbtns, text='-', command=self._delete_job).pack(side=tk.LEFT)
+        
+        self.right_frame = ttk.LabelFrame(midblock, width=921)
+        self.right_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.BOTH)
+        
+        
+        #footer = tk.Frame(self, bg=LightBGColor)
+        #footer.pack(fill=tk.BOTH)
+        #tk.Label(footer, text='', bg=LightBGColor).pack()
+
+    def update(self, serverjobs):
+        '''Takes dict containing all server job info and updates 
+        children based on that.'''
+        for index in serverjobs:
+            if not index in self.jobboxes:
+                self._create_job(index)
+                print('Created new job object at ', index)
+        #delete any local jobs that are no longer on the server
+        dellist = []
+        for index in self.jobboxes:
+            if not index in serverjobs:
+                #can't directly delete here b/c dict length will change-->exception
+                dellist.append(index)
+        for index in dellist:
+            self._remove_job(index)
+        #now update GUI elements
+        for index in serverjobs:
+            attrdict = serverjobs[index]
+            #update job box
+            self.jobboxes[index].update(attrdict['status'], attrdict['startframe'], 
+                attrdict['endframe'], attrdict['path'], attrdict['progress'], 
+                attrdict['times'])
+            #update comp panel
+            self.comppanels[index].update(attrdict)
+
+    def _new_job(self):
+        '''Opens an instance of InputWindow to create a new job on the server.
+
+        GUI elements are not created directly by this function. They are created 
+        by self.update() when called by the status thread to ensure that the GUI 
+        state is only changed if the server state was successfully changed.'''
+        newjob = InputWindow()
+
+    def _delete_job(self):
+        '''Deletes the selected job from the server.
+
+        GUI elements are not removed directly by this function. They are deleted
+        by self.update() when called by the status thread to ensure that the GUI 
+        state is only changed if the server state was successfully changed.'''
+        #XXX Need safety checking here
+        for index in self.jobboxes:
+            if self.jobboxes[index].selected == True:
                 break
-            attrdict = ClientSocket().send_cmd('get_all_attrs')
-            serverjobs = []
-            for index in attrdict:
-                serverjobs.append(index)
-                if not index in localjobs:
-                    localjobs[index] = JobObject(index)
-                    print('Adding job to localjobs', index)
-            #delete any local jobs that are no longer on server
-            dellist = []
-            for index in localjobs:
-                if not index in serverjobs:
-                    dellist.append(index)
-            for index in dellist:
-                localjobs[index].delete()
-                del localjobs[index]
-            #now do updates
-            for index in attrdict:
-                localjobs[index].update(attrdict[index])
-            #update frequency in seconds
-            time.sleep(0.5)
+        kwargs = {'index':index}
+        reply = ClientSocket().send_cmd('clear_job', kwargs)
+        print(reply)
+
+    def _create_job(self, index):
+        '''Creates GUI elements for a given index.'''
+        #create job box
+        self.jobboxes[index] = SmallBox(master=self.jobbox_frame, 
+            index=index)
+        #create comp panel
+        self.comppanels[index] = ComputerPanel(master=self.right_frame, 
+            index=index)
+        #select the most recently added job
+        #XXX This might be annoying or worse if another client adds a job while
+        #you're editing. Probably should have a different way of doing this.
+        #self.select_job(index)
+
+    def _remove_job(self, index):
+        '''Permanently removes GUI elements for a given index.'''
+        #delete job box
+        self.jobboxes[index].destroy()
+        del self.jobboxes[index]
+        #delete comp panel
+        self.comppanels[index].destroy()
+        del self.comppanels[index]
+
+    def select_job(self, index):
+        for i in self.jobboxes:
+            if not i == index and self.jobboxes[i].selected == True:
+                self.deselect_job(i)
+        self.jobboxes[index].select()
+        self.comppanels[index].pack(padx=10, pady=10)
+
+    def deselect_job(self, index):
+        self.jobboxes[index].deselect()
+        self.comppanels[index].pack_forget()
+
+    def _checkframes(self):
+        '''Opens check missing frames window.'''
+        self.checkwin = MissingFramesWindow()
 
 
-
-class Dialog(object):
-    '''Wrapper for tkMessageBox that displays text passed as message string'''
-    def __init__(self, message):
-        self.msg = message
-    def warn(self):
-        '''Displays a box with a single OK button.'''
-        tk_msgbox.showwarning('Warning', self.msg)
-    def confirm(self):
-        '''Displays a box with OK and Cancel buttons. Returns True if OK.'''
-        if tk_msgbox.askokcancel('Confirm', self.msg, icon='warning'):
-            return True
-        else:
-            return False
-    def yesno(self):
-        '''Displays a box with Yes and No buttons. Returns True if Yes.'''
-        if tk_msgbox.askyesno('Confirm', self.msg, icon='info'):
-            return True
-        else:
-            return False
-
-#
-#class StatusTab(tk.LabelFrame):
-#
-#    def __init__(self, index, master=None):
-#        tk.LabelFrame.__init__(self, master, bg='gray90')
-#        #self.pack()
-#
-#        '''need the following info for each box:
-#            computer
-#            frame
-#            progress %
-#            in/out of pool'''
-#
-#        #internal index needed for sending job-specific commands
-#        self.index = index
-#        #dict of tk variables for progress bars
-#        self.compdata = {}
-#        #dict to hold tk.Label objects for frame number and % complete
-#        #for ease of reference later
-#        self.frameno = {}
-#        self.frameprog = {}
-#        self.jobstat = JobStatusBox(self.index, master=self)
-#        self.jobstat.draw_bigbox()
-#        buttonbar = ttk.Frame(self)
-#        buttonbar.pack(padx=5, pady=5, expand=True, fill=tk.X)
-#        ttk.Button(buttonbar, text='Edit', command=self._input).pack( \
-#            side=tk.LEFT)
-#        ttk.Button(buttonbar, text='Start', command=self._start).pack(side=tk.LEFT)
-#        ttk.Button(buttonbar, text='Stop', command=self._kill_render).pack( \
-#            side=tk.LEFT)
-#        ttk.Button(buttonbar, text='Resume', command=self._resume_render).pack( \
-#            side=tk.LEFT)
-#        #ttk.Button(buttonbar, text='Remove', command=self._clear_job).pack( \
-#        #XXX Testing way to dynamically create/remove queue items
-#        ttk.Button(buttonbar, text='Remove', command=lambda: delete_job(self.index)).pack( \
-#
-#            side=tk.RIGHT)
-#        #encapsulate computer boxes in canvas to make it scrollable
-#        #canvframe = ttk.LabelFrame(self)
-#        #canvframe.pack(expand=True, fill=tk.BOTH)
-#        #determine height of canvas based on number of computer boxes to be rendered
-#        #canvheight = len(computers) * 70
-#        #self.canv = tk.Canvas(canvframe, height=canvheight, 
-#        #    scrollregion=(0,0,450,canvheight))
-#        #self.scrollbar = ttk.Scrollbar(canvframe, orient=tk.VERTICAL)
-#        #self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-#        #self.scrollbar.config(command=self.canv.yview)
-#        #self.canv.config(yscrollcommand=self.scrollbar.set)
-#
-#
-#
-#        self.compframe = tk.Frame(self)
-#        self.compframe.pack(expand=True, fill=tk.BOTH)
-#        #for computer in computers:
-#        #    self.compdata[computer] = {} 
-#        #    self.compdata[computer]['frame'] = tk.IntVar(0)
-#        #    self.compdata[computer]['progress'] = tk.IntVar(0)
-#        #    self.compdata[computer]['pool'] = tk.IntVar(0)
-#        #    self.frameno[computer] = None
-#        #    self.frameprog[computer] = None
-#        cols = 2
-#        rows = len(computers) // cols
-#        i = 0
-#        end = len(computers) - 10
-#        for row in range(0, rows):
-#            print(row)
-#            for col in range(0, cols):
-#                print(col)
-                #CompCube(master=self, computer=computers[i]).grid(row=row, column=col)
-#                tk.Label(self, text=computers[i]).grid(row=row, column=col)
-#                i += 1
-#                if i == end: break
-#
-#
-#
-#            #self._comp_status_box(self.compframe, computers[i])
-#        #self.canv.create_window(0, 0, window=self.compframe, anchor=tk.NW)
-#        #self.canv.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-#
-#    def _input(self):
-#        self.inputwin = InputWindow(self.index)
-#
-#    def _start(self):
-#        '''Starts the render.'''
-#        if not get_job_status(self.index) == 'Waiting':
-#            Dialog('Cannot start render unless status is "Waiting"').warn()
-#            return
-#        kwargs = {'index':self.index}
-#        reply = ClientSocket().send_cmd('start_render', kwargs)
-#        print(reply)
-#
-#    def _comp_status_box(self, master, computer):
-#        '''Render progress/status box for a given computer.'''
-#        compbox = tk.LabelFrame(master, bg='gray90')
-#        compbox.pack(padx=5, pady=5, expand=True, fill=tk.X)
-#        leftblock = ttk.Frame(compbox)
-#        leftblock.pack(side=tk.LEFT)
-#
-#        toprow = ttk.Frame(leftblock)
-#        toprow.pack(fill=tk.X, padx=5, pady=5)
-#        ttk.Label(toprow, text=computer).pack(side=tk.LEFT)
-#        ttk.Label(toprow, text='Frame: ').pack(side=tk.LEFT, padx=15)
-#        self.frameno[computer] = ttk.Label(toprow, text='')
-#        self.frameno[computer].pack(side=tk.LEFT)
-#
-#        ttk.Label(toprow, text='% Complete').pack(side=tk.RIGHT)
-#        self.frameprog[computer] = ttk.Label(toprow, text='0.0')
-#        self.frameprog[computer].pack(side=tk.RIGHT)
-#
-#        ttk.Progressbar(leftblock, length=380, mode='determinate',
-#            orient=tk.HORIZONTAL, variable=self.compdata[computer]['progress'])\
-#            .pack(padx=5, pady=5)
-#
-#        rightblock = ttk.Frame(compbox)
-#        rightblock.pack(side=tk.LEFT)
-#        ttk.Checkbutton(rightblock, text='Pool', 
-#            variable=self.compdata[computer]['pool'],
-#            command=lambda: self._toggle_comp(computer)).pack()
-#        ttk.Button(rightblock, text='Kill', 
-#            command=lambda: self._kill_thread(computer)).pack()
-#
-#    def _toggle_comp(self, computer):
-#        '''Adds or removes a computer from the pool.'''
-#        if check_slot_open(self.index):
-#            return
-#        kwargs = {'index':self.index, 'computer':computer}
-#        reply = ClientSocket().send_cmd('toggle_comp', kwargs)
-#        print(reply)
-#
-#    def _kill_thread(self, computer):
-#        kwargs = {'index':self.index, 'computer':computer}
-#        reply = ClientSocket().send_cmd('kill_single_thread', kwargs)
-#        print(reply)
-#
-#    def _kill_render(self):
-#        '''Kill the current render.'''
-#        if get_job_status(self.index) != 'Rendering':
-#            Dialog('Cannot stop a render unless its status is "Rendering"').warn()
-#            return
-#        if Dialog('Allow currently rendering frames to finish?').yesno():
-#            kill_now = False
-#        else:
-#            kill_now = True
-#        kwargs = {'index':self.index, 'kill_now':kill_now}
-#        reply = ClientSocket().send_cmd('kill_render', kwargs)
-#        print(reply)
-#
-#    def _resume_render(self):
-#        if get_job_status(self.index) != 'Stopped':
-#            Dialog('Cannot resume a render unless its status is "Stopped"').warn()
-#            return
-#        kwargs = {'index':self.index}
-#        reply = ClientSocket().send_cmd('resume_render', kwargs)
-#        print(reply)
-#
-#    def _clear_job(self):
-#        '''Replaces the current Job instance and replaces it with a blank one.'''
-#        status = get_job_status(self.index)
-#        if status == 'Empty':
-#            Dialog('Cannot remove an empty job.').warn()
-#            return
-#        if status == 'Rendering':
-#            Dialog('Cannot remove a job while rendering. Stop the render then try' +
-#                    ' again.').warn()
-#        if not Dialog('Clear all job information and reset queue slot to ' +
-#                        'defaults?').yesno():
-#            return
-#        kwargs = {'index':self.index}
-#        reply = ClientSocket().send_cmd('clear_job', kwargs)
-#        print(reply)
-#
-#    def update_status(self, computer, pool, frame, progress):
-#        '''Updates render progress stats for a given computer.'''
-#        #disable until other stuff is working
-#        return
-#        self.frameno[computer].config(text=str(frame))
-#        self.frameprog[computer].config(text=str(round(progress, 1)))
-#        self.compdata[computer]['progress'].set(int(progress))
-#        if pool == False:
-#            self.compdata[computer]['pool'].set(0)
-#        else:
-#            self.compdata[computer]['pool'].set(1)
-
-    #def draw_bigbox(self):
-        '''Creates a large status box to go at the top of a job tab.'''
-        '''
-        self.kind = 'bigbox'
-        self.font = 'TkDefaultFont'
-        toprow = tk.Frame(self)
-        toprow.pack(padx=5, expand=True, fill=tk.X)
-        tk.Label(toprow, font=self.font, text='Job ' + str(self.index) + 
-            ':').pack(side=tk.LEFT)
-        self.statuslbl = tk.Label(toprow, font=self.font, text='Empty')
-        self.statuslbl.pack(side=tk.LEFT)
-        self.namelabel = tk.Label(toprow, font=self.font, text='filename')
-        self.namelabel.pack(padx=5, side=tk.LEFT)
-        self.extraslabel = tk.Label(toprow, font=self.font, text='None')
-        self.extraslabel.pack(side=tk.RIGHT)
-        tk.Label(toprow, font=self.font, text='Extras:').pack(side=tk.RIGHT)
-        self.endlabel = tk.Label(toprow, font=self.font, text='1000  ')
-        self.endlabel.pack(side=tk.RIGHT)
-        tk.Label(toprow, font=self.font, text='End:').pack(side=tk.RIGHT)
-        self.startlabel = tk.Label(toprow, font=self.font, text='0000  ')
-        self.startlabel.pack(side=tk.RIGHT)
-        tk.Label(toprow, font=self.font, text='Start:').pack(side=tk.RIGHT)
-
-        middlerow = tk.Frame(self)
-        middlerow.pack(padx=5, expand=True, fill=tk.X)
-        ttk.Progressbar(middlerow, length=425, mode='determinate', 
-            orient=tk.HORIZONTAL, variable=self.progress).pack(side=tk.LEFT)
-        tk.Label(middlerow, font=self.font, text='%').pack(side=tk.RIGHT)
-        self.proglabel = tk.Label(middlerow, font=self.font, text='0.0')
-        self.proglabel.pack(side=tk.RIGHT)
-
-        bottomrow = tk.Frame(self)
-        bottomrow.pack(padx=5, expand=True, fill=tk.X)
-        tk.Label(bottomrow, font=self.font, text='Elapsed:').pack(side=tk.LEFT)
-        self.elapsed_time_lbl = tk.Label(bottomrow, text='')
-        self.elapsed_time_lbl.pack(side=tk.LEFT)
-        tk.Label(bottomrow, text='   Avg. time/frame:').pack(side=tk.LEFT)
-        self.avg_time_lbl = tk.Label(bottomrow, text='')
-        self.avg_time_lbl.pack(side=tk.LEFT)
-        self.rem_time_lbl = tk.Label(bottomrow, font=self.font, text='0d0h0m0s')
-        self.rem_time_lbl.pack(side=tk.RIGHT)
-        tk.Label(bottomrow, font=self.font, text='Remaining:').pack(side=tk.RIGHT)
-        '''
-
-
-
-class JobObject(object):
-    def __init__(self, index):
+class ComputerPanel(ttk.Frame):
+    '''Main job info panel with computer boxes.'''
+    def __init__(self, master, index):
         self.index = index
-        self.selected = False
-        self._create_gui_elements()
-
-    def _create_gui_elements(self):
-        self.smallbox = SmallBox(master=jobbox_frame, index=self.index)
-        self._computer_panel()
-        self.select()
-
-    def select(self):
-        '''Displays the _computer_panel in the GUI'''
-        #deselect all other jobs
-        for index in localjobs:
-            if not index == self.index:
-                localjobs[index].deselect()
-        self.selected = True
-        self.comppanel.pack(padx=10, pady=10)
-        self.smallbox.select()
-        print('height:', jobbox_frame.winfo_height())
-        print('width:', jobbox_frame.winfo_width())
-        print('root height:', root.winfo_height())
-        print('root width:', root.winfo_width())
-
-    def deselect(self):
-        '''Removes the _computer_panel from the GUI'''
-        self.selected = False
-        self.comppanel.pack_forget()
-        self.smallbox.deselect()
-
-    def delete(self):
-        self.smallbox.destroy()
-        self.smallbox.hrule.destroy()
-        self.comppanel.pack_forget()
-
-    def _computer_panel(self):
-        '''Array of computer status boxes for right frame.'''
-        self.comppanel = ttk.Frame(right_frame)
-        #NOTE Do not pack comppanel unless the job is selected
-        self.bigbox = BigBox(master=self.comppanel, index=self.index)
+        ttk.Frame.__init__(self, master=master)
+        #Create the main job status box at the top of the panel
+        self.bigbox = BigBox(master=self, index=self.index)
         self.bigbox.pack(expand=True, fill=tk.X, padx=5)
-
-        buttonbox = ttk.Frame(self.comppanel)
+        #Create job control buttons
+        buttonbox = ttk.Frame(self)
         buttonbox.pack(anchor=tk.W, padx=5, pady=5)
         ttk.Button(buttonbox, text='Edit', command=self._edit).pack(side=tk.LEFT)
         ttk.Button(buttonbox, text='Start', command=self._start).pack(side=tk.LEFT)
@@ -495,12 +314,15 @@ class JobObject(object):
             side=tk.LEFT)
         ttk.Button(buttonbox, text='Resume', command=self._resume_render).pack(
             side=tk.LEFT)
+        #now create the main array of computer boxes
+        self._create_computer_array()
 
-        self.compframe = ttk.Frame(self.comppanel)
+    def _create_computer_array(self):
+        self.compframe = ttk.Frame(self)
         self.compframe.pack()
         self.compcubes = {}
         #changing the number of cols should automatically generate the rest
-        #of the layout correctly
+        #of the layout correctly. Put this in GUI config?
         cols = 3
         rows = len(computers) // cols
         #extra rows are needed if the number of computers isn't evenly divisible
@@ -510,25 +332,19 @@ class JobObject(object):
         i = 0
         for col in range(0, cols):
             for row in range(0, rows + extra_rows):
-                try:
-                    self.compcubes[computers[i]] = CompCube(master=self.compframe,
-                        computer=computers[i], index=self.index)
-                    self.compcubes[computers[i]].grid(row=row, column=col, padx=5)
-                except IndexError:
-                    #this is blank space if there are no computers left
-                    print('Got index error while building compcubes, ignoring')
-                    pass
+                self.compcubes[computers[i]] = CompCube(master=self.compframe,
+                    computer=computers[i], index=self.index)
+                self.compcubes[computers[i]].grid(row=row, column=col, padx=5)
                 i += 1
                 if i == end: break
-        #put in some buttons in a temp location
-
 
     def _edit(self):
         '''Edits job information.'''
-        #XXX Not sure what will happen if I change filename, might break indexing
-        #it seems to work. Index should be independent of filename except at job
-        #creation
-        InputWindow(self.index)
+        status = get_job_status(self.index)
+        if status == 'Rendering' or status == 'Stopped':
+            Dialog('Cannot edit job while it is rendering or stopped.').warn()
+            return
+        editjob = InputWindow(self.index)
 
     def _start(self):
         '''Starts the render.'''
@@ -537,19 +353,6 @@ class JobObject(object):
             return
         kwargs = {'index':self.index}
         reply = ClientSocket().send_cmd('start_render', kwargs)
-        print(reply)
-
-    def toggle_comp(self, computer):
-        '''Adds or removes a computer from the pool.'''
-        if check_slot_open(self.index):
-            return
-        kwargs = {'index':self.index, 'computer':computer}
-        reply = ClientSocket().send_cmd('toggle_comp', kwargs)
-        print(reply)
-
-    def kill_thread(self, computer):
-        kwargs = {'index':self.index, 'computer':computer}
-        reply = ClientSocket().send_cmd('kill_single_thread', kwargs)
         print(reply)
 
     def _kill_render(self):
@@ -574,9 +377,7 @@ class JobObject(object):
         print(reply)
 
     def update(self, attrdict):
-        self.smallbox.update(attrdict['status'], attrdict['startframe'], 
-            attrdict['endframe'], attrdict['path'], attrdict['progress'], 
-            attrdict['times'])
+        '''Calls the update methods for all child elements.'''
         self.bigbox.update(attrdict['status'], attrdict['startframe'], 
             attrdict['endframe'], attrdict['path'], attrdict['progress'], 
             attrdict['times'])
@@ -586,8 +387,40 @@ class JobObject(object):
                 compstatus['progress'], compstatus['pool'])
 
 
+class _statusbox(object):
+    '''Master class for status box-related objects. Holds shared methods related to
+    output formatting.'''
+    def format_time(self, time):
+        '''Converts time in decimal seconds to human-friendly strings.
+        format is ddhhmmss.s'''
+        if time < 60:
+            newtime = [round(time, 1)]
+        elif time < 3600:
+            m, s = time / 60, time % 60
+            newtime = [int(m), round(s, 1)]
+        elif time < 86400:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            newtime = [int(h), int(m), round(s, 1)]
+        else:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            d, h = h / 24, h % 24
+            newtime = [int(d), int(h), int(m), round(s, 1)]
+        if len(newtime) == 1:
+            timestr = str(newtime[0])+'s'
+        elif len(newtime) == 2:
+            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
+        elif len(newtime) == 3:
+            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
+                +str(newtime[2])+'s')
+        else:
+            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h '
+                +str(newtime[2])+'m '+str(newtime[3])+'s')
+        return timestr
 
-class BigBox(ttk.LabelFrame):
+
+class BigBox(_statusbox, ttk.LabelFrame):
     '''Large status box for top of comp panel.'''
     def __init__(self, master=None, index=None):
         self.index = index
@@ -625,7 +458,7 @@ class BigBox(ttk.LabelFrame):
 
         middlerow = tk.Frame(container)
         middlerow.pack(padx=5, expand=True, fill=tk.X)
-        ttk.Progressbar(middlerow, length=830, mode='determinate', 
+        ttk.Progressbar(middlerow, length=810, mode='determinate', 
             orient=tk.HORIZONTAL, variable=self.progress).pack(side=tk.LEFT)
         tk.Label(middlerow, font=self.font, text='%').pack(side=tk.RIGHT)
         self.proglabel = tk.Label(middlerow, font=self.font, text='0.0')
@@ -636,12 +469,14 @@ class BigBox(ttk.LabelFrame):
         tk.Label(bottomrow, font=self.font, text='Time elapsed:').pack(side=tk.LEFT)
         self.elapsed_time_lbl = tk.Label(bottomrow, text='')
         self.elapsed_time_lbl.pack(side=tk.LEFT)
-        tk.Label(bottomrow, text='Avg. time/frame:').pack(side=tk.LEFT, padx=(220, 0))
+        tk.Label(bottomrow, text='Avg. time/frame:').pack(side=tk.LEFT, padx=(220, 
+            0))
         self.avg_time_lbl = tk.Label(bottomrow, text='')
         self.avg_time_lbl.pack(side=tk.LEFT)
         self.rem_time_lbl = tk.Label(bottomrow, font=self.font, text='0d0h0m0s')
         self.rem_time_lbl.pack(side=tk.RIGHT)
-        tk.Label(bottomrow, font=self.font, text='Time remaining:').pack(side=tk.RIGHT)
+        tk.Label(bottomrow, font=self.font, text='Time remaining:').pack(
+            side=tk.RIGHT)
 
     def update(self, status, startframe, endframe, path, progress, times):
         self.statuslbl.config(text=status)
@@ -657,43 +492,14 @@ class BigBox(ttk.LabelFrame):
         self.avg_time_lbl.config(text=avg_time)
         self.rem_time_lbl.config(text=time_rem)
 
-    def format_time(self, time):
-        '''Converts time in decimal seconds to human-friendly strings.
-        format is ddhhmmss.s'''
-        if time < 60:
-            newtime = [round(time, 1)]
-        elif time < 3600:
-            m, s = time / 60, time % 60
-            newtime = [int(m), round(s, 1)]
-        elif time < 86400:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            newtime = [int(h), int(m), round(s, 1)]
-        else:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            d, h = h / 24, h % 24
-            newtime = [int(d), int(h), int(m), round(s, 1)]
-        if len(newtime) == 1:
-            timestr = str(newtime[0])+'s'
-        elif len(newtime) == 2:
-            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
-        elif len(newtime) == 3:
-            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
-                +str(newtime[2])+'s')
-        else:
-            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h '
-                +str(newtime[2])+'m '+str(newtime[3])+'s')
-        return timestr
 
-
-class SmallBox(tk.Frame):
+class SmallBox(_statusbox, tk.Frame):
     '''Small job status box for the left window pane.'''
     def __init__(self, master=None, index='0'):
         self.index = index
+        self.selected = False
         self.bgcolor = 'white'
         self.progress = tk.IntVar()
-        self.kind = 'smallbox'
         self.font='TkSmallCaptionFont'
         tk.Frame.__init__(self, master=master)
         self.pack()
@@ -701,7 +507,6 @@ class SmallBox(tk.Frame):
 
     def _draw(self):
         '''Creates a small status box for the left window pane.'''
-
         toprow = tk.Frame(self, bg=self.bgcolor)
         toprow.pack(padx=5, expand=True, fill=tk.X)
         self.namelabel = tk.Label(toprow, font=self.font, text='filename' + ':', 
@@ -729,24 +534,24 @@ class SmallBox(tk.Frame):
         for child in self.winfo_children():
             child.bind('<Button-1>', self.toggle)
             if len(child.winfo_children()) > 0:
-                print('double nesting in draw')
                 for babby in child.winfo_children():
                     babby.bind('<Button-1>', self.toggle)
-        self.hrule = HRule(jobbox_frame)
 
     def toggle(self, event=None):
         '''Switches between selected and deselected state.'''
-        if localjobs[self.index].selected == False:
-            localjobs[self.index].select()
+        if not self.selected:
+            masterwin.select_job(self.index)
         else:
-            localjobs[self.index].deselect()
+            masterwin.deselect_job(self.index)
 
     def select(self):
         '''Changes background colors to selected state.'''
+        self.selected = True
         self._changecolor(HighlightColor)
 
     def deselect(self):
         '''Changes background colors to deselected state.'''
+        self.selected = False
         self._changecolor(self.bgcolor)
 
     def _changecolor(self, color):
@@ -759,65 +564,19 @@ class SmallBox(tk.Frame):
             except:
                 pass
             if len(child.winfo_children()) > 0:
-                print('double nesting in toggle')
                 for babby in child.winfo_children():
                     babby.config(bg=color)
 
     def update(self, status, startframe, endframe, path, progress, times):
-        if path:
-            filename = os.path.basename(path)
-        else:
-            filename = ''
+        filename = os.path.basename(path)
         self.statuslbl.config(text=status)
         self.namelabel.config(text=filename)
         self.progress.set(progress)
         self.proglabel.config(text=str(round(progress, 1)))
-        if self.kind == 'smallbox':
-            time_rem = self.format_time(times[2])
-            self.rem_time_lbl.config(text=time_rem)
-        else:
-            elapsed_time = self.format_time(times[0])
-            avg_time = self.format_time(times[1])
-            time_rem = self.format_time(times[2])
-            self.elapsed_time_lbl.config(text=elapsed_time)
-            self.avg_time_lbl.config(text=avg_time)
-            self.rem_time_lbl.config(text=time_rem)
+        time_rem = self.format_time(times[2])
+        self.rem_time_lbl.config(text=time_rem)
 
-
-    def format_time(self, time):
-        '''Converts time in decimal seconds to human-friendly strings.
-        format is ddhhmmss.s'''
-        if time < 60:
-            newtime = [round(time, 1)]
-        elif time < 3600:
-            m, s = time / 60, time % 60
-            newtime = [int(m), round(s, 1)]
-        elif time < 86400:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            newtime = [int(h), int(m), round(s, 1)]
-        else:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            d, h = h / 24, h % 24
-            newtime = [int(d), int(h), int(m), round(s, 1)]
-        if len(newtime) == 1:
-            timestr = str(newtime[0])+'s'
-        elif len(newtime) == 2:
-            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
-        elif len(newtime) == 3:
-            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
-                +str(newtime[2])+'s')
-        else:
-            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h '
-                +str(newtime[2])+'m '+str(newtime[3])+'s')
-        return timestr
-
-
-
-
-
-class CompCube(tk.LabelFrame):
+class CompCube(_statusbox, tk.LabelFrame):
     '''Class representing box to display computer status.'''
     def __init__(self, index, computer, master=None):
         self.index = index
@@ -847,9 +606,19 @@ class CompCube(tk.LabelFrame):
         buttonblock = tk.Frame(self)
         buttonblock.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
         tk.Checkbutton(buttonblock, text='Use', variable=self.pool, 
-            command=(lambda: localjobs[self.index].toggle_comp(computer))).pack()
-        tk.Button(buttonblock, text='Kill', command=(lambda: 
-            localjobs[self.index].kill_thread(computer))).pack()
+            command=self._toggle_pool_state).pack()
+        tk.Button(buttonblock, text='Kill', command=self._kill_thread).pack()
+
+    def _toggle_pool_state(self):
+        '''Adds or removes the computer from the pool.'''
+        kwargs = {'index':self.index, 'computer':self.computer}
+        reply = ClientSocket().send_cmd('toggle_comp', kwargs)
+        print(reply)
+
+    def _kill_thread(self):
+        kwargs = {'index':self.index, 'computer':self.computer}
+        reply = ClientSocket().send_cmd('kill_single_thread', kwargs)
+        print(reply)
 
     def update(self, frame, progress, pool):
         self.progress.set(progress)
@@ -857,14 +626,49 @@ class CompCube(tk.LabelFrame):
         self.frameprog.config(text=str(round(progress, 1)))
         self.pool.set(pool)
 
+class RectButton(tk.Frame):
+    '''Subclass of tkinter Frame that looks and behaves like a rectangular 
+    button.'''
+    bgcolor = '#%02x%02x%02x' % (235, 235, 235)
+    highlight = '#%02x%02x%02x' % (74, 139, 222)
+
+    def __init__(self, master, text='Button', command=None, bg=bgcolor):
+        RectButton.bgcolor = bg
+        self.command = command
+        tk.LabelFrame.__init__(self, master, borderwidth=1, relief=tk.GROOVE, 
+            bg=RectButton.bgcolor)
+        self.lbl = tk.Label(self, text=text, bg=RectButton.bgcolor)
+        self.lbl.pack(expand=True, fill=tk.BOTH, padx=3)
+        self.bind('<Button-1>', self._select)
+        self.lbl.bind('<Button-1>', self._select)
+        self.bind('<ButtonRelease-1>', self._execute)
+        self.lbl.bind('<ButtonRelease-1>', self._execute)
+        self.bind('<Leave>', self._deselect)
+        self.lbl.bind('<Leave>', self._deselect)
+
+    def _select(self, event=None):
+        '''Changes the background color to the highlight color'''
+        self.selected = True
+        self.config(bg=RectButton.highlight)
+        self.lbl.config(bg=RectButton.highlight)
+        self.update_idletasks()
+
+    def _deselect(self, event=None):
+        self.selected = False
+        self.config(bg=RectButton.bgcolor)
+        self.lbl.config(bg=RectButton.bgcolor)
+        return
+
+    def _execute(self, event=None):
+        '''Returns the button bgcolor to it's original state.'''
+        if self.command and self.selected == True:
+            self.command()
+        self._deselect()
 
 
 class InputWindow(tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.'''
     def __init__(self, index=None):
-        #if get_job_status(self.index) == 'Rendering':
-        #    return
-        #for editing an existing job, accept existing index
         self.index = index
         self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
@@ -966,10 +770,10 @@ class InputWindow(tk.Toplevel):
         
     def _enqueue(self):
         '''Places a new job in queue.'''
-        #if not check_slot_open(self.index):
-        #    if not Dialog('Overwrite existing queue contents?').yesno():
-        #        self.destroy()
-        #        return
+        if not check_slot_open(self.index):
+            if not Dialog('Overwrite existing queue contents?').yesno():
+                self.destroy()
+                return
         path = self.tk_path.get()
         #if this is a new job, create index based on filename
         if not self.index:
@@ -1001,32 +805,115 @@ class InputWindow(tk.Toplevel):
         print(reply)
 
 
-def quit():
-    '''Terminates status thread and mainloop, then sends exit call.'''
-    stat_thread.end()
-    root.quit()
-    raise SystemExit
+class MissingFramesWindow(tk.Toplevel):
+    def __init__(self):
+        tk.Toplevel.__init__(self)
+        #self.chkf = checkframes.CheckFrames(allowed_extensions=allowed_filetypes)
+        self.checkjob = tk.IntVar()
+        self.check_path = tk.StringVar()
+        self.check_startframe = tk.StringVar()
+        self.check_endframe = tk.StringVar()
+        self.checked = False
+        self._build_window()
 
+    def _build_window(self):
+        outerframe = tk.Frame(self)
+        outerframe.pack(padx=10, pady=10)
+        
+        jobButtonBlock = tk.Frame(outerframe)
+        jobButtonBlock.pack()
+        
+        tk.Label(jobButtonBlock, text='Existing Job:').pack(side=tk.LEFT)
+        #ttk.Radiobutton(jobButtonBlock, text='None', variable=self.checkjob, 
+        #    value=0, command=lambda: select_job(0)).pack(side=tk.LEFT)
+        #ttk.Radiobutton(jobButtonBlock, text='1', variable=self.checkjob, value=1, 
+        #    command=lambda: select_job(1)).pack(side=tk.LEFT)
+        
+        tk.Label(outerframe, text='Directory to check:').pack()
+        tk.Entry(outerframe, width=50, textvariable=self.check_path).pack()
+        
+        tk.Label(outerframe, text='Start frame:').pack()
+        tk.Entry(outerframe, width=20, textvariable=self.check_startframe).pack()
+        
+        tk.Label(outerframe, text='End frame:').pack()
+        tk.Entry(outerframe, width=20, textvariable=self.check_endframe).pack()
+        
+        nameleft = tk.Label(outerframe)
+        nameleft.pack()
+        nameseq = tk.Label(outerframe)
+        nameseq.pack()
+        nameright = tk.Label(outerframe)
+        nameright.pack()
+        
+        self.slider_left = ttk.Scale(outerframe, from_=0, to=100, orient=tk.HORIZONTAL, 
+            length=300, command=self._update_sliders)
+        self.slider_left.pack()
+        self.slider_right = ttk.Scale(outerframe, from_=0, to=100, orient=tk.HORIZONTAL, 
+            length=300, command=self._update_sliders)
+        self.slider_right.pack()
+        
+        ttk.Button(outerframe, text='OK', command=self._recheck_directory).pack()
+        
+        outputframe = tk.LabelFrame(outerframe)
+        outputframe.pack(padx=5, pady=5)
+        
+        dirconts = tk_st.ScrolledText(outputframe, width=20, height=5)
+        dirconts.pack(side=tk.LEFT)
+        
+        expFrames = tk_st.ScrolledText(outputframe, width=20, height=5)
+        expFrames.pack(side=tk.LEFT)
+        
+        foundFrames = tk_st.ScrolledText(outputframe, width=20, height=5)
+        foundFrames.pack(side=tk.LEFT)
+        
+        missingFrames = tk_st.ScrolledText(outputframe, width=20, height=5)
+        missingFrames.pack(side=tk.LEFT)
+        
+        ttk.Button(outerframe, text='Start', command=self._start).pack()
 
-def create_job():
-    '''GUI elements are not created directly by this function. They are created 
-    from the status thread to ensure that the GUI state is only changed if the 
-    server state was successfully changed.'''
-    reply = ClientSocket().send_cmd('create_job')
-    print(reply)
+        #XXX some temp settings
+        self.check_path.set('/Users/igp/test_render/render/')
+        self.check_startframe.set('1')
+        self.check_endframe.set('15')
 
+    def _start(self):
+        renderpath = self.check_path.get()
+        if not renderpath:
+            print('no path')#debug
+            return
+        if not os.path.exists(renderpath):
+            print('path does not exist')#debug
+            return
+        try:
+            startframe = int(self.check_startframe.get())
+            endframe = int(self.check_endframe.get())
+        except ValueError:
+            print('Start and end frames must be integers')#debug
+            return
+        #XXX Need to format allowed_filetypes correctly, then pass those along too.
+        self.checker = framechecker.Framechecker(renderpath, startframe, endframe)
+        left, right = self.checker.calculate_indices()
+        lists = self.checker.generate_lists(left, right)
+        self._put_text(lists)
+        self.checked = True
+        
 
-def delete_job():
-    '''GUI elements are not removed directly by this function. They are deleted
-    from the status thread to ensure that the GUI state is only changed if the 
-    server state was successfully changed.'''
-    for index in localjobs:
-        if localjobs[index].selected == True:
-            break
-    kwargs = {'index':index}
-    reply = ClientSocket().send_cmd('clear_job', kwargs)
-    print(reply)
+    def _recheck_directory(self):
+        '''If the script didn't parse the filenames correctly, get new indices
+        from the sliders the user has used to isolate the sequential numbers.'''
+        if not self.checked:
+            print('must check before rechecking')#debug
+            return
+        left = int(self.slider_left.get())
+        right = int(self.slider_right.get())
+        lists = self.checker.generate_lists(left, right)
+        self._put_text(lists)
 
+    def _update_sliders(self):
+        pass
+
+    def _put_text(self, lists):
+        print(lists)
 
 
 class HRule(ttk.Separator):
@@ -1035,111 +922,31 @@ class HRule(ttk.Separator):
         ttk.Separator.__init__(self, master, orient=tk.HORIZONTAL)
         self.pack(padx=40, pady=10, fill=tk.X)
 
-class RectButton(tk.Frame):
-    '''Subclass of tkinter Frame that looks and behaves like a rectangular 
-    button.'''
-    bgcolor = '#%02x%02x%02x' % (235, 235, 235)
-    highlight = '#%02x%02x%02x' % (74, 139, 222)
 
-    def __init__(self, master, text='Button', command=None, bg=bgcolor):
-        RectButton.bgcolor = bg
-        self.command = command
-        tk.LabelFrame.__init__(self, master, borderwidth=1, relief=tk.GROOVE, 
-            bg=RectButton.bgcolor)
-        self.lbl = tk.Label(self, text=text, bg=RectButton.bgcolor)
-        self.lbl.pack(expand=True, fill=tk.BOTH, padx=3)
-        self.bind('<Button-1>', self._select)
-        self.lbl.bind('<Button-1>', self._select)
-        self.bind('<ButtonRelease-1>', self._execute)
-        self.lbl.bind('<ButtonRelease-1>', self._execute)
-        self.bind('<Leave>', self._deselect)
-        self.lbl.bind('<Leave>', self._deselect)
+class StatusThread(threading.Thread):
+    '''Obtains current status info from all queue slots on server and updates
+    GUI accordingly.'''
+    def __init__(self):
+        self.stop = False
+        threading.Thread.__init__(self, target=self._statusthread)
 
-    def _select(self, event=None):
-        '''Changes the background color to the highlight color'''
-        self.selected = True
-        self.config(bg=RectButton.highlight)
-        self.lbl.config(bg=RectButton.highlight)
-        self.update_idletasks()
+    def end(self):
+        '''Terminates the status thread cleanly.'''
+        self.stop = True
 
-    def _deselect(self, event=None):
-        self.selected = False
-        self.config(bg=RectButton.bgcolor)
-        self.lbl.config(bg=RectButton.bgcolor)
-        return
-
-    def _execute(self, event=None):
-        '''Returns the button bgcolor to it's original state.'''
-        if self.command and self.selected == True:
-            self.command()
-        self._deselect()
-
-#class Toolbar(tk.Canvas):
-#    def __init__(self, master, height=0, width=0):
-#        tk.Canvas.__init__(self, master, height=height, width=width, borderwidth=0, highlightthickness=0)
-#        limit = height #vertical gradient
-#        r2, g2, b2 = 290, 290, 290
-#        r1, g1, b1 = 131, 131, 131
-#        r_ratio = float(r2-r1) / limit
-#        g_ratio = float(g2-g1) / limit
-#        b_ratio = float(b2-b1) / limit
-#        for i in range(limit):
-#            r = int(r1 + (r_ratio * i))
-#            g = int(g1 + (g_ratio * i))
-#            b = int(b1 + (b_ratio * i))
-#            color = "#%02x%02x%02x" % (r, g, b)
-#            self.create_line(0, i, width, i, tags=('gradient'), fill=color)
-#        self.tag_lower('gradient')
-
-#LightBlueBGColor = '#%02x%02x%02x' % (222, 228, 234)
-#XXX Just get rid of the below ref if it works
-LightBlueBGColor = 'white'
-MidBGColor = '#%02x%02x%02x' % (190, 190, 190)
-LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
-DarkBGColor = '#%02x%02x%02x' % (50, 50, 50)
-HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
-root.config(bg=LightBGColor)
-
-
-topbar = tk.Frame(root, bg=MidBGColor)
-#topbar = Toolbar(root, height=50, width=1200)
-#topbar = tk.Canvas(root, height=100, width=500)
-#topbar.create_rectangle(0,0,100,100)
-topbar.pack(fill=tk.BOTH)
-#inner_frame = tk.Frame(topbar, bg='')
-#inner_frame.pack(padx=10, pady=10)
-#topbar.create_window(0, 0, inner_frame)
-#tk.Label(inner_frame, text='lekjer').pack()
-tk.Label(topbar, text='Other options go here', bg=MidBGColor).pack()
-ttk.Separator(topbar).pack(fill=tk.X)
-
-midblock = tk.Frame(root, bg=LightBGColor)
-midblock.pack(padx=15, pady=10, expand=True, fill=tk.BOTH)
-
-left_frame = tk.Frame(midblock, bg=LightBGColor)
-left_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
-tk.Label(left_frame, text='Queue:', bg=LightBGColor).pack(padx=5, anchor=tk.W)
-left_frame_inner = tk.LabelFrame(left_frame, bg=LightBGColor)
-left_frame_inner.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
-
-jobbox_frame = tk.Frame(left_frame_inner, bg=LightBlueBGColor)
-jobbox_frame.pack(expand=True, fill=tk.BOTH)
-jobbtns = tk.Frame(left_frame_inner, bg=LightBGColor)
-jobbtns.pack(fill=tk.X)
-ttk.Separator(jobbtns).pack(fill=tk.X)
-RectButton(jobbtns, text='+', command=InputWindow).pack(side=tk.LEFT)
-RectButton(jobbtns, text='-', command=delete_job).pack(side=tk.LEFT)
-
-right_frame = ttk.LabelFrame(midblock)
-right_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.BOTH)
-
-
-footer = tk.Frame(root, bg=LightBGColor)
-footer.pack(fill=tk.BOTH)
-tk.Label(footer, text='', bg=LightBGColor).pack()
+    def _statusthread(self):
+        while True:
+            if self.stop == True:
+                break
+            serverjobs = ClientSocket().send_cmd('get_all_attrs')
+            masterwin.update(serverjobs)
+            #refresh interval in seconds
+            time.sleep(0.5)
 
 
 
-stat_thread = StatusThread()
-stat_thread.start()
-root.mainloop()
+if __name__ == '__main__':
+    masterwin = MasterWin()
+    statthread = StatusThread()
+    statthread.start()
+    masterwin.mainloop()

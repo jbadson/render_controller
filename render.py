@@ -1,5 +1,5 @@
 #Fifth major revison of IGP render controller
-#must run in python 3
+#Written for Python 3.4
 import queue
 import threading
 import time
@@ -956,7 +956,10 @@ def get_all_attrs(kwargs=None):
 def check_slot_open(kwargs):
     '''Returns True if queue slot is open.'''
     index = kwargs['index']
-    if renderjobs[index].exists() == False:
+    #if renderjobs[index].exists() == False:
+    #XXX Probably don't need Job.exists() method anymore since there's no way
+    #to have a job entry without a path
+    if not index in renderjobs:
         return 'True'
     else:
         return 'False'

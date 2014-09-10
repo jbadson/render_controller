@@ -492,13 +492,16 @@ class Job(object):
         if not self.status == 'Rendering':
             return False
         self.killflag = True
-        for computer in computers:
-            if self.compstatus[computer]['active'] == True:
-                self.kill_thread(computer)
         self._stop_timer()
         with threadlock:
             self.renderlog.stop(self.get_times())
         self.status = 'Stopped'
+        for computer in computers:
+            try:
+                if self.compstatus[computer]['active'] == True:
+                    self.kill_thread(computer)
+            except:
+                pass
         return True
 
     def kill_later(self):
@@ -848,9 +851,10 @@ receive result <--  report return string/result
 Each connection from a client receives its own instance of ClientThread. This
 thread checks the command against a list of valid commands, reports success or
 failure of validation to the client, then executes the command with arguments 
-supplied in a dict (kwargs). It then reports the string returned from the function
-to the client. This can be a simple success/fail indicator, or it can be whatever
-data the client has requested.
+supplied in a dict (kwargs) transmitted as a JSON string. It then reports the 
+data returned from the function to the client. This can be a simple success/fail 
+indicator, or it can be whatever data the client has requested also formatted as 
+a JSON string..
 
 For this reason, there are some rules for functions that directly carry out 
 requests from client threads:
@@ -916,10 +920,6 @@ class ClientThread(threading.Thread):
         #now get the args
         kwargs = self._recvall()
         if not command == 'get_all_attrs': print('received kwargs', kwargs)
-        #if kwargs:
-        #    kwargs = ast.literal_eval(kwargs)
-        #else:
-        #    kwargs = {}
         return_str = eval(command)(kwargs)
         if not command == 'get_all_attrs': print('sending return_str', return_str)
         #send the return string (T/F for success or fail, or other requested data)
@@ -1044,7 +1044,7 @@ def clear_job(kwargs):
     '''Clears an existing job from a queue slot.'''
     index = kwargs['index']
     del renderjobs[index]
-    return 'Job ' + index + 'deleted.'
+    return 'Job ' + index + ' deleted.'
 
     renderjobs[index] = Job()
     print(renderjobs[index].get_job_status())
@@ -1070,15 +1070,13 @@ def create_job(kwargs):
 
 
 
-
-
 if __name__ == '__main__':
     #maxqueuelength = 6 #now getting this from config file
     renderjobs = {}
-    for i in range(1, maxqueuelength + 1):
+    #for i in range(1, maxqueuelength + 1):
         #indices must be strings b/c json.dumps requires all dict keys to be 
         #strings
-        renderjobs[str(i)] = Job()
+        #renderjobs[str(i)] = Job()
 
     #socket server to handle interface interactions
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

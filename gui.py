@@ -15,7 +15,7 @@ import json
 import cfgfile
 import framechecker
 
-host = 'localhost'
+host = 'sneffels'
 port = 2020
 
 
@@ -148,7 +148,7 @@ else:
 
 #server-specific config variables    
 #most of these aren't directly used by the GUI, but are needed for the prefs window
-computers, fast, farm, renice_list, macs, maxqueuelength, blenderpath_mac, blenderpath_linux, terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, startnext, maxglobalrenders, verbose, log_basepath = get_config_vars()
+computers, fast, farm, renice_list, macs, maxqueuelength, blenderpath_mac, blenderpath_linux, terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, autostart, maxglobalrenders, verbose, log_basepath = get_config_vars()
 
 
 #XXX Some additional config stuff, decide where to put it later
@@ -171,6 +171,10 @@ class MasterWin(tk.Tk):
         self.bind('<Control-q>', lambda x: quit())
         self.config(bg=LightBGColor)
         self.geometry('1257x720')
+        self.verbosity = tk.IntVar()
+        self.verbosity.set(verbose)
+        self.autostart = tk.IntVar()
+        self.autostart.set(autostart)
         #create dictionaries to hold job-specific GUI elements
         #format is { 'index' : object }
         self.jobboxes = {}
@@ -181,8 +185,13 @@ class MasterWin(tk.Tk):
         '''Creates the main window elements.'''
         topbar = tk.Frame(self, bg=MidBGColor)
         topbar.pack(fill=tk.BOTH)
+        ttk.Checkbutton(topbar, text='Verbose', command=self._toggle_verbose,
+            variable=self.verbosity, style='Toolbutton').pack(padx=(25, 5), 
+            pady=10, side=tk.LEFT)
+        ttk.Checkbutton(topbar, text='Autostart', command=self._toggle_autostart,
+            variable=self.autostart, style='Toolbutton').pack(padx=5, side=tk.LEFT)
         ttk.Button(topbar, text='Check Missing Frames', command=self._checkframes, 
-            style='Toolbutton').pack(padx=(25, 5), pady=15, side=tk.LEFT)
+            style='Toolbutton').pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
         midblock = tk.Frame(self, bg=LightBGColor)
@@ -296,6 +305,15 @@ class MasterWin(tk.Tk):
         '''Opens check missing frames window.'''
         self.checkwin = MissingFramesWindow()
 
+    def _toggle_verbose(self):
+        '''Toggles verbose reporting state on the server.'''
+        reply = ClientSocket().send_cmd('toggle_verbose')
+        print(reply)
+
+    def _toggle_autostart(self):
+        '''Toggles the autostart state on the server.'''
+        reply = ClientSocket().send_cmd('toggle_autostart')
+        print(reply)
 
 class ComputerPanel(ttk.Frame):
     '''Main job info panel with computer boxes.'''
@@ -845,11 +863,11 @@ class MissingFramesWindow(tk.Toplevel):
         nameright = tk.Label(outerframe)
         nameright.pack()
         
-        self.slider_left = ttk.Scale(outerframe, from_=0, to=100, orient=tk.HORIZONTAL, 
-            length=300, command=self._update_sliders)
+        self.slider_left = ttk.Scale(outerframe, from_=0, to=100, 
+            orient=tk.HORIZONTAL, length=300, command=self._update_sliders)
         self.slider_left.pack()
-        self.slider_right = ttk.Scale(outerframe, from_=0, to=100, orient=tk.HORIZONTAL, 
-            length=300, command=self._update_sliders)
+        self.slider_right = ttk.Scale(outerframe, from_=0, to=100, 
+            orient=tk.HORIZONTAL, length=300, command=self._update_sliders)
         self.slider_right.pack()
         
         ttk.Button(outerframe, text='OK', command=self._recheck_directory).pack()
@@ -921,6 +939,26 @@ class HRule(ttk.Separator):
     def __init__(self, master):
         ttk.Separator.__init__(self, master, orient=tk.HORIZONTAL)
         self.pack(padx=40, pady=10, fill=tk.X)
+
+class Dialog(object):
+    '''Wrapper for tkMessageBox that displays text passed as message string'''
+    def __init__(self, message):
+        self.msg = message
+    def warn(self):
+        '''Displays a box with a single OK button.'''
+        tk_msgbox.showwarning('Warning', self.msg)
+    def confirm(self):
+        '''Displays a box with OK and Cancel buttons. Returns True if OK.'''
+        if tk_msgbox.askokcancel('Confirm', self.msg, icon='warning'):
+            return True
+        else:
+            return False
+    def yesno(self):
+        '''Displays a box with Yes and No buttons. Returns True if Yes.'''
+        if tk_msgbox.askyesno('Confirm', self.msg, icon='info'):
+            return True
+        else:
+            return False
 
 
 class StatusThread(threading.Thread):

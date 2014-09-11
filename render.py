@@ -720,7 +720,7 @@ def set_defaults():
     timeout = 30
     
     #start next job when current one finishes. 1=yes, 0=no, on by default
-    startnext = 1 
+    autostart = 1 
     
     #maximum number of simultaneous renders for the start_next_job() function
     maxglobalrenders = 1 
@@ -734,7 +734,7 @@ def set_defaults():
 
     defaults = [computers, fast, farm, renice_list, macs, maxqueuelength, 
             blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-            terragenpath_linux, allowed_filetypes, timeout, startnext, 
+            terragenpath_linux, allowed_filetypes, timeout, autostart, 
             maxglobalrenders, verbose, log_basepath]
 
     return defaults
@@ -754,7 +754,7 @@ def define_global_config_vars(settings):
     global terragenpath_linux
     global allowed_filetypes
     global timeout
-    global startnext
+    global autostart
     global maxglobalrenders
     global verbose
     global log_basepath
@@ -773,7 +773,7 @@ def define_global_config_vars(settings):
     terragenpath_linux = settings[9]
     allowed_filetypes = settings[10]
     timeout = settings[11]
-    startnext = settings[12]
+    autostart = settings[12]
     maxglobalrenders = settings[13]
     verbose = settings[14]
     log_basepath = settings[15]
@@ -802,7 +802,7 @@ define_global_config_vars(cfgsettings)
 def update_cfgfile():
     cfgsettings = [computers, fast, farm, renice_list, macs, maxqueuelength, 
             blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-            terragenpath_linux, allowed_filetypes, timeout, startnext, 
+            terragenpath_linux, allowed_filetypes, timeout, autostart, 
             maxglobalrenders, verbose, log_basepath]
     print('Updating config file.')
     config_file.write(cfgsettings)
@@ -937,7 +937,8 @@ class ClientThread(threading.Thread):
 #must match function names exactly
 allowed_commands= ['cmdtest', 'get_all_attrs', 'check_slot_open', 'enqueue',
     'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
-    'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job']
+    'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
+    'toggle_verbose', 'toggle_autostart']
 
 def cmdtest(kwargs):
     '''a basic test of client-server command-response protocol'''
@@ -1057,9 +1058,30 @@ def get_config_vars(kwargs=None):
     '''Gets server-side configuration variables and returns them as a list.'''
     cfgsettings = [computers, fast, farm, renice_list, macs, maxqueuelength, 
             blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-            terragenpath_linux, allowed_filetypes, timeout, startnext, 
+            terragenpath_linux, allowed_filetypes, timeout, autostart, 
             maxglobalrenders, verbose, log_basepath]
     return cfgsettings
+
+def toggle_verbose(kwargs=None):
+    '''Toggles the state of the verbose variable.'''
+    global verbose
+    if verbose == 0:
+        verbose = 1
+        return 'verbose reporting enabled'
+    else:
+        verbose = 0
+        return 'verbose reporting disabled'
+
+def toggle_autostart(kwargs=None):
+    '''Toggles the state of the autostart variable.'''
+    global autostart
+    if autostart == 0:
+        autostart = 1
+        return 'autostart enabled'
+    else:
+        autostart = 0
+        return 'autostart disabled'
+    
 
 #Testing dynamic creation of jobs
 def create_job(kwargs):

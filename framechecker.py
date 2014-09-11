@@ -51,8 +51,8 @@ class Framechecker(object):
         return False
 
     def generate_lists(self, left, right):
-        '''Given left and right slice indices, returns lists of frames
-        expected, frames found and frames missing.'''
+        '''Given left and right slice indices, returns lists of directory contents,
+        frames expected, frames found and frames missing.'''
         self.left = left
         self.right = right
         frames_expected = []
@@ -66,13 +66,15 @@ class Framechecker(object):
         for item in self.dir_contents:
             #ignore files that don't have allowed extensions
             if os.path.splitext(item)[-1] in self.allowed_extensions:
+                self.filename = item
                 frame = int(item[self.left:self.right])
                 frames_found.append(frame)
         #now compare to get list of missing frames
         for frame in frames_expected:
             if not frame in frames_found:
                 frames_missing.append(frame)
-        return(frames_expected, frames_found, frames_missing)
+        return(self.filename, self.dir_contents, frames_expected, frames_found, 
+                frames_missing)
 
 
 if __name__ == '__main__':

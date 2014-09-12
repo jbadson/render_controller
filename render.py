@@ -3,12 +3,12 @@
 import queue
 import threading
 import time
-import cfgfile
 import subprocess
 import os
 import socket
 import ast
 import json
+import cfgfile
 
 class Job(object):
     '''Represents a render job.'''
@@ -37,12 +37,10 @@ class Job(object):
             pool = True
         else:
             pool = False
-        return { 'active':False, 'frame':None, 'pid':None, 'timer':None, 
-                 'progress':0.0, 'error':None, 'pool':pool }
-
-    def get_job_status(self):
-        '''Retuns the status of a job.'''
-        return self.status
+        return {
+            'active':False, 'frame':None, 'pid':None, 'timer':None, 
+            'progress':0.0, 'error':None, 'pool':pool
+            }
 
     def get_job_progress(self):
         '''Returns the percent complete for the job.'''
@@ -100,7 +98,7 @@ class Job(object):
             for frame in self.extraframes:
                 self.queue.put(frame)
         self.renderlog = RenderLog(self.path, self.startframe, self.endframe, 
-            self.extraframes, self.complist)
+                                   self.extraframes, self.complist)
         self.status = 'Waiting'
         return True
 
@@ -123,17 +121,17 @@ class Job(object):
 
     def _masterthread(self):
         '''Main thread to control render process and create renderthreads.'''
-        '''{ 'active':False, 'frame':None,
-            'pid':None, 'timer':None, 'progress':0.0, 'error':None }'''
+        '''{'active':False, 'frame':None,
+            'pid':None, 'timer':None, 'progress':0.0, 'error':None}'''
     
         print('started _masterthread()') #debug
         self.threads_active = False
-        if self.render_engine == 'blender':
+        if self.render_engine == 'blend':
             tgt_thread = self._renderthread
-        elif self.render_engine == 'terragen':
+        elif self.render_engine == 'tgd':
             tgt_thread = self._renderthread_tgn
         while True:
-            if self.killflag == True:
+            if self.killflag:
                 print('Kill flag detected, breaking render loop.')
                 #deal with log & render timer
                 break
@@ -147,10 +145,10 @@ class Job(object):
     
             for computer in computers:
                 time.sleep(0.01)
-                if self.compstatus[computer]['pool'] == False:
+                if not self.compstatus[computer]['pool']:
                     continue
-                if not self.compstatus[computer]['active'] == True and \
-                not computer in self.skiplist:
+                if (not self.compstatus[computer]['active'] and 
+                        computer not in self.skiplist):
                     #break loop if queue becomes empty after new computer is added
                     if self.queue.empty():
                         break
@@ -164,7 +162,7 @@ class Job(object):
                             self.renderlog.frame_sent(frame, computer) 
                         print('creating renderthread') #debug
                         rthread = threading.Thread(target=tgt_thread, args=(frame, 
-                            computer, self.queue))
+                                                   computer, self.queue))
                         rthread.start()
                 #ignore computers in skiplist
                 elif computer in self.skiplist:
@@ -187,7 +185,7 @@ class Job(object):
     def _threadsactive(self):
         '''Returns true if instances of _renderthread() are active.'''
         for computer in self.compstatus:
-            if self.compstatus[computer]['active'] == True:
+            if self.compstatus[computer]['active']:
                 return True
         print('_threadsactive() returning false') #debug
         return False
@@ -202,9 +200,10 @@ class Job(object):
             renderpath = blenderpath_mac
         else:
             renderpath = blenderpath_linux
-        command = subprocess.Popen('ssh igp@' + computer + ' "' + renderpath +
-                ' -b ' + self.path + ' -f ' + str(frame) + ' & pgrep -n blender"', 
-                stdout=subprocess.PIPE, shell=True )
+        command = subprocess.Popen(
+            'ssh igp@' + computer + ' "' + renderpath +
+             ' -b ' + self.path + ' -f ' + str(frame) + 
+             ' & pgrep -n blender"', stdout=subprocess.PIPE, shell=True )
         for line in iter(command.stdout.readline, ''):
             #convert byte object to unicode string
             #necessary for Python 3.x compatibility
@@ -238,7 +237,9 @@ class Job(object):
                 with threadlock:
                     if len(self.skiplist) > 0:
                         skipcomp = self.skiplist.pop(0)
-                        self.compstatus[skipcomp] = self._reset_compstatus(skipcomp)
+                        self.compstatus[skipcomp] = (
+                            self._reset_compstatus(skipcomp)
+                            )
             #detect if frame has finished rendering
             elif line.find('Saved:') >= 0 and line.find('Time') >= 0:
                 self.totalframes.append(frame)
@@ -266,12 +267,12 @@ class Job(object):
         #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in macs:
             cmd_string = ('ssh igp@'+computer+' "'+terragenpath_mac+' -p '
-                +self.path+' -hide -exit -r -f '+str(frame)
-                +' & pgrep -n Terragen&wait"')
+                          +self.path+' -hide -exit -r -f '+str(frame)
+                          +' & pgrep -n Terragen&wait"')
         else:
             cmd_string = ('ssh igp@'+computer+' "'+terragenpath_linux+' -p '
-                +self.path+' -hide -exit -r -f '+str(frame)
-                +' & pgrep -n terragen&wait"')
+                          +self.path+' -hide -exit -r -f '+str(frame)
+                          +' & pgrep -n terragen&wait"')
 
         command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, shell=True)
 
@@ -311,8 +312,9 @@ class Job(object):
                     with threadlock:
                         if len(self.skiplist) > 0:
                             skipcomp = self.skiplist.pop(0)
-                            self.compstatus[skipcomp] = self._reset_compstatus( \
-                                skipcomp)
+                            self.compstatus[skipcomp] = (
+                                self._reset_compstatus(skipcomp)
+                                )
             #starting a new render pass
             elif line.find('Starting') >= 0:
                 ellipsis = line.find('...')
@@ -404,23 +406,25 @@ class Job(object):
 
     def get_attrs(self):
         '''Returns dict containing all status-related attributes and times.'''
-        attrdict = {'status':self.status,
-                    'starttime':self.starttime,
-                    'stoptime':self.stoptime,
-                    'complist':self.complist,
-                    'compstatus':self.compstatus,
-                    'path':self.path,
-                    'startframe':self.startframe,
-                    'endframe':self.endframe,
-                    'extraframes':self.extraframes,
-                    'render_engine':self.render_engine,
-                    'totalframes':self.totalframes,
-                    'progress':self.get_job_progress(),
-                    'times':self.get_times()}
+        attrdict = {
+            'status':self.status,
+            'starttime':self.starttime,
+            'stoptime':self.stoptime,
+            'complist':self.complist,
+            'compstatus':self.compstatus,
+            'path':self.path,
+            'startframe':self.startframe,
+            'endframe':self.endframe,
+            'extraframes':self.extraframes,
+            'render_engine':self.render_engine,
+            'totalframes':self.totalframes,
+            'progress':self.get_job_progress(),
+            'times':self.get_times()
+            }
         return attrdict
 
     def add_computer(self, computer):
-        if self.compstatus[computer]['pool'] == True:
+        if self.compstatus[computer]['pool']:
             return False
         else:
             self.complist.append(computer)
@@ -431,7 +435,7 @@ class Job(object):
             return True
 
     def remove_computer(self, computer):
-        if self.compstatus[computer]['pool'] == False:
+        if not self.compstatus[computer]['pool']:
             return False
         else:
             self.complist.remove(computer)
@@ -443,17 +447,17 @@ class Job(object):
 
     def kill_thread(self, computer):
         '''Attempts to terminate active render thread on a specified computer.'''
-        if not self.compstatus[computer]['active'] == True:
+        if not self.compstatus[computer]['active']:
             return False
         try:
             frame = self.compstatus[computer]['frame']
             pid = self.compstatus[computer]['pid']
             if not frame > 0 and pid > 0:
                 raise RuntimeError
-        except:
+        except Exception:
             return False
         #remove computer from pool unless render is being stopped
-        if self.compstatus[computer]['pool'] == True and self.status != 'Stopped':
+        if self.compstatus[computer]['pool'] and self.status != 'Stopped':
             self.remove_computer(computer)
         with threadlock:
             self.queue.put(frame)
@@ -475,9 +479,9 @@ class Job(object):
         self.status = 'Stopped'
         for computer in computers:
             try:
-                if self.compstatus[computer]['active'] == True:
+                if self.compstatus[computer]['active']:
                     self.kill_thread(computer)
-            except:
+            except Exception:
                 pass
         return True
 
@@ -505,7 +509,7 @@ class Job(object):
         for computer in computers:
             self._reset_compstatus(computer)
         self.status = 'Waiting'
-        if startnow == True:
+        if startnow:
             self.render()
             return True
         else:
@@ -546,40 +550,40 @@ class RenderLog(Job):
             log.write('Render started at ' + self._gettime() + '\n')
             log.write('File: ' + self.path + '\n')
             log.write('Frames: ' + str(self.startframe) + ' - ' 
-                + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+                      + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
             log.write(RenderLog.hrule)
 
     def frame_sent(self, frame, computer):
         with open(self.logpath, 'a') as log:
             log.write('Sent frame ' + str(frame) + ' of ' + self.total + ' to '
-                + computer + ' at ' + self._gettime() + '\n')
+                      + computer + ' at ' + self._gettime() + '\n')
 
     def frame_recvd(self, frame, computer, rendertime):
         with open(self.logpath, 'a') as log:
             log.write('Received frame ' + str(frame) + ' of ' + self.total 
-            + ' from ' + computer + ' at ' + self._gettime() + '. Render time was '
-                + rendertime + '\n')
+                      + ' from ' + computer + ' at ' + self._gettime() + 
+                      '. Render time was ' + rendertime + '\n')
 
     def frame_failed(self, frame, computer, errtxt):
         with open(self.logpath, 'a') as log:
             log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
-                + computer + ' at ' + self._gettime() + ': ' + errtxt + '\n')
+                      + computer + ' at ' + self._gettime() + ': ' + errtxt + '\n')
 
     def process_killed(self, pid, computer):
         with open(self.logpath, 'a') as log:
             log.write('Killed process ' + str(pid) + ' on ' + computer + ' at '
-                + self._gettime() + '\n')
+                      + self._gettime() + '\n')
 
     def computer_added(self, computer):
         with open(self.logpath, 'a') as log:
             log.write('Added ' + computer + ' to render pool at ' 
-                + self._gettime() + '\n')
+                      + self._gettime() + '\n')
 
     def computer_removed(self, computer):
         with open(self.logpath, 'a') as log:
             log.write('Removed ' + computer + ' from render pool at ' 
-                + self._gettime() + '\n')
+                      + self._gettime() + '\n')
 
     def finished(self, times):
         '''Marks render finished, closes log file.'''
@@ -608,7 +612,7 @@ class RenderLog(Job):
             log.write('Render resumed at ' + self._gettime() + '\n')
             log.write('File: ' + self.path + '\n')
             log.write('Frames: ' + str(self.startframe) + ' - ' 
-                + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+                      + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
             log.write(RenderLog.hrule)
 
@@ -637,8 +641,8 @@ class RenderLog(Job):
             timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
                 +str(newtime[2])+'s')
         else:
-            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h '
-                +str(newtime[2])+'m '+str(newtime[3])+'s')
+            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
+                       str(newtime[2])+'m '+str(newtime[3])+'s')
         return timestr
 
 
@@ -654,13 +658,17 @@ def set_defaults():
             initial config file or restoring it if corrupted.'''
 
     #create list of all computers available for rendering
-    computers = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-        'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache', 
-        'smaug', 'conundrum', 'paradox'] 
+    computers = [ 
+        'bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
+        'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 
+        'tabeguache', 'smaug', 'conundrum', 'paradox'
+        ] 
     
     #list of computers in the 'fast' group
-    fast = ['bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-        'eldiente'] 
+    fast = [
+        'bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
+        'eldiente'
+        ] 
     #list of computers in the 'farm' group
     farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
     
@@ -677,16 +685,17 @@ def set_defaults():
     #path to blender executable on Linux computers
     blenderpath_linux = '/usr/local/bin/blender' 
     
-    terragenpath_mac = ('/mnt/data/software/terragen_rendernode/osx/terragen3.app'                          + '/Contents/MacOS/Terragen_3')
+    terragenpath_mac = ('/mnt/data/software/terragen_rendernode/osx/terragen3.app'                         '/Contents/MacOS/Terragen_3')
     
     terragenpath_linux = '/mnt/data/software/terragen_rendernode/linux/terragen'
     
     #allowed file extensions (last 3 chars only) for check_missing_files
-    allowed_filetypes = ['png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 
+    allowed_filetypes = [
+        'png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 
         'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
     
     #timeout for failed machine in seconds
-    timeout = 30
+    timeout = 600
     
     #start next job when current one finishes. 1=yes, 0=no, on by default
     autostart = 1 
@@ -701,10 +710,12 @@ def set_defaults():
     #default directory to hold render log files
     log_basepath = '/mnt/data/renderlogs/'
 
-    defaults = [computers, fast, farm, renice_list, macs,
-            blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-            terragenpath_linux, allowed_filetypes, timeout, autostart, 
-            maxglobalrenders, verbose, log_basepath]
+    defaults = [
+        computers, fast, farm, renice_list, macs,
+        blenderpath_mac, blenderpath_linux, terragenpath_mac, 
+        terragenpath_linux, allowed_filetypes, timeout, autostart, 
+        maxglobalrenders, verbose, log_basepath
+        ]
 
     return defaults
 
@@ -729,6 +740,7 @@ def define_global_config_vars(settings):
 
     print('Global config variables updated.')
     cfgsettings = settings
+    '''
     computers = settings[0]
     fast = settings[1]
     farm = settings[2]
@@ -744,6 +756,13 @@ def define_global_config_vars(settings):
     maxglobalrenders = settings[12]
     verbose = settings[13]
     log_basepath = settings[14]
+    '''
+    (
+    computers, fast, farm, renice_list, macs, blenderpath_mac,
+    blenderpath_linux, terragenpath_mac, terragenpath_linux,
+    allowed_filetypes, timeout, autostart, maxglobalrenders,
+    verbose, log_basepath
+    ) = settings
 
 #Create ConfigFile instance with default path & filename
 #file will be stored in same directory as this file and called config.json
@@ -758,7 +777,7 @@ else:
         cfgsettings = config_file.read()
         if not len(cfgsettings) == len(set_defaults()):
             raise IndexError
-    except:
+    except Exception:
         print('Config file corrupt or incorrect. Creating new')
         cfgsettings = config_file.write(set_defaults())
 
@@ -767,10 +786,12 @@ else:
 define_global_config_vars(cfgsettings)
 
 def update_cfgfile():
-    cfgsettings = [computers, fast, farm, renice_list, macs,  
-            blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-            terragenpath_linux, allowed_filetypes, timeout, autostart, 
-            maxglobalrenders, verbose, log_basepath]
+    cfgsettings = [
+        computers, fast, farm, renice_list, macs,  
+        blenderpath_mac, blenderpath_linux, terragenpath_mac, 
+        terragenpath_linux, allowed_filetypes, timeout, autostart, 
+        maxglobalrenders, verbose, log_basepath
+        ]
     print('Updating config file.')
     config_file.write(cfgsettings)
 
@@ -789,9 +810,9 @@ if not os.path.exists(log_basepath):
             quit()
         elif log_basepath[-1] != '/':
             log_basepath = log_basepath + '/'
-        print('Render logs will be stored in ' + log_basepath + '.\n'
-            + 'To permanently change the log path, use the Preferences window '
-            + 'in the client GUI or edit the server config file.')
+        print('Render logs will be stored in ' + log_basepath + '.\n' + 
+              'To permanently change the log path, use the Preferences window ' + 
+              'in the client GUI or edit the server config file.')
     else:
         print('Server start failed, no renderlog path.')
         quit()
@@ -902,10 +923,12 @@ class ClientThread(threading.Thread):
 
 #list of permitted commands
 #must match function names exactly
-allowed_commands= ['cmdtest', 'get_all_attrs', 'job_exists', 'enqueue',
+allowed_commands= [
+    'cmdtest', 'get_all_attrs', 'job_exists', 'enqueue',
     'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
     'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
-    'toggle_verbose', 'toggle_autostart', 'check_path_exists']
+    'toggle_verbose', 'toggle_autostart', 'check_path_exists'
+    ]
 
 def cmdtest(kwargs):
     '''a basic test of client-server command-response protocol'''
@@ -933,7 +956,7 @@ def create_job(kwargs):
     index = kwargs['index']
     #overwriting is OK, but not while job is rendering
     if index in renderjobs:
-        if renderjobs[index].get_job_status() == 'Rendering':
+        if renderjobs[index].status() == 'Rendering':
             return False
     renderjobs[index] = Job()
     return True
@@ -948,8 +971,10 @@ def enqueue(kwargs):
     render_engine = kwargs['render_engine']
     complist = kwargs['complist']
 
-    reply = renderjobs[index].enqueue(path, startframe, endframe, 
-                                render_engine, complist, extraframes=extras)
+    reply = renderjobs[index].enqueue(
+        path, startframe, endframe, render_engine, complist, 
+        extraframes=extras
+        )
     if reply:
         return (index + ' successfully placed in queue')
     else:
@@ -967,7 +992,7 @@ def start_render(kwargs):
 def toggle_comp(kwargs):
     index = kwargs['index']
     computer = kwargs['computer']
-    if renderjobs[index].get_comp_status(computer)['pool'] == True:
+    if renderjobs[index].get_comp_status(computer)['pool']:
         reply = renderjobs[index].remove_computer(computer)
         if reply: return computer+' removed from render pool for '+str(index)
     else:
@@ -988,7 +1013,7 @@ def kill_single_thread(kwargs):
 def kill_render(kwargs):
     index = kwargs['index']
     kill_now = kwargs['kill_now']
-    if kill_now == True:
+    if kill_now:
         reply = renderjobs[index].kill_now()
         if reply:
             return 'Killed render and all associated processes for '+str(index)
@@ -1011,7 +1036,7 @@ def resume_render(kwargs):
 def get_status(kwargs):
     '''Returns status string for a given job.'''
     index = kwargs['index']
-    status = renderjobs[index].get_job_status()
+    status = renderjobs[index].status
     return status
 
 def clear_job(kwargs):
@@ -1022,10 +1047,12 @@ def clear_job(kwargs):
 
 def get_config_vars(kwargs=None):
     '''Gets server-side configuration variables and returns them as a list.'''
-    cfgsettings = [computers, fast, farm, renice_list, macs,  
-            blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-            terragenpath_linux, allowed_filetypes, timeout, autostart, 
-            maxglobalrenders, verbose, log_basepath]
+    cfgsettings = [
+        computers, fast, farm, renice_list, macs,  
+        blenderpath_mac, blenderpath_linux, terragenpath_mac, 
+        terragenpath_linux, allowed_filetypes, timeout, autostart, 
+        maxglobalrenders, verbose, log_basepath
+        ]
     return cfgsettings
 
 def toggle_verbose(kwargs=None):

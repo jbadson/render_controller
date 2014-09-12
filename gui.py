@@ -20,8 +20,8 @@ port = 2020
 
 
 class ClientSocket(object):
-    '''Wrapper for socket to handle command-response protocol for interacting with
-    the render controller server.'''
+    '''Wrapper for socket to handle command-response protocol for interacting 
+    with the render controller server.'''
 
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -139,13 +139,18 @@ else:
         guisettings = gui_cfg.read()
         if not len(guisettings) == len(set_gui_defaults()):
             raise IndexError
-    except:
+    except Exception:
         print('GUI config file corrupt or incorrect. Creating new')
         guisettings = gui_cfg.write(set_gui_defaults())
 
 #server-specific config variables    
 #most of these aren't directly used by the GUI, but are needed for the prefs window
-computers, fast, farm, renice_list, macs, blenderpath_mac, blenderpath_linux, terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, autostart, maxglobalrenders, verbose, log_basepath = get_config_vars()
+(
+computers, fast, farm, renice_list, macs, blenderpath_mac, 
+blenderpath_linux, terragenpath_mac, terragenpath_linux, 
+allowed_filetypes, timeout, autostart, maxglobalrenders, 
+verbose, log_basepath 
+) = get_config_vars()
 
 
 #XXX Some additional config stuff, decide where to put it later
@@ -173,7 +178,7 @@ class MasterWin(tk.Tk):
         self.autostart = tk.IntVar()
         self.autostart.set(autostart)
         #create dictionaries to hold job-specific GUI elements
-        #format is { 'index' : object }
+        #format is {'index':object}
         self.jobboxes = {}
         self.comppanels = {}
         self._build_main()
@@ -182,13 +187,18 @@ class MasterWin(tk.Tk):
         '''Creates the main window elements.'''
         topbar = tk.Frame(self, bg=MidBGColor)
         topbar.pack(fill=tk.BOTH)
-        ttk.Checkbutton(topbar, text='Verbose', command=self._toggle_verbose,
-            variable=self.verbosity, style='Toolbutton').pack(padx=(25, 5), 
-            pady=10, side=tk.LEFT)
-        ttk.Checkbutton(topbar, text='Autostart', command=self._toggle_autostart,
-            variable=self.autostart, style='Toolbutton').pack(padx=5, side=tk.LEFT)
-        ttk.Button(topbar, text='Check Missing Frames', command=self._checkframes, 
-            style='Toolbutton').pack(padx=5, side=tk.LEFT)
+        ttk.Checkbutton(
+            topbar, text='Verbose', command=self._toggle_verbose,
+            variable=self.verbosity, style='Toolbutton'
+            ).pack(padx=(25, 5), pady=10, side=tk.LEFT)
+        ttk.Checkbutton(
+            topbar, text='Autostart', command=self._toggle_autostart,
+            variable=self.autostart, style='Toolbutton'
+            ).pack(padx=5, side=tk.LEFT)
+        ttk.Button(
+            topbar, text='Check Missing Frames', command=self._checkframes, 
+            style='Toolbutton'
+            ).pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
         midblock = tk.Frame(self, bg=LightBGColor)
@@ -196,13 +206,14 @@ class MasterWin(tk.Tk):
         
         left_frame = tk.Frame(midblock, bg=LightBGColor)
         left_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
-        tk.Label(left_frame, text='Queue:', bg=LightBGColor).pack(padx=5, 
-            anchor=tk.W)
+        tk.Label(
+            left_frame, text='Queue:', bg=LightBGColor
+            ).pack(padx=5, anchor=tk.W)
         left_frame_inner = tk.LabelFrame(left_frame, bg=LightBGColor)
         left_frame_inner.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
         
         self.jobbox_frame = tk.Frame(left_frame_inner, bg=LightBlueBGColor, 
-            width=260)
+                                     width=260)
         self.jobbox_frame.pack(expand=True, fill=tk.BOTH)
         jobbtns = tk.Frame(left_frame_inner, bg=LightBGColor)
         jobbtns.pack(fill=tk.X)
@@ -232,9 +243,10 @@ class MasterWin(tk.Tk):
         for index in serverjobs:
             attrdict = serverjobs[index]
             #update job box
-            self.jobboxes[index].update(attrdict['status'], attrdict['startframe'], 
-                attrdict['endframe'], attrdict['path'], attrdict['progress'], 
-                attrdict['times'])
+            self.jobboxes[index].update(
+                attrdict['status'], attrdict['startframe'], attrdict['endframe'], 
+                attrdict['path'], attrdict['progress'], attrdict['times']
+                )
             #update comp panel
             self.comppanels[index].update(attrdict)
 
@@ -254,7 +266,7 @@ class MasterWin(tk.Tk):
         state is only changed if the server state was successfully changed.'''
         #XXX Need safety checking here
         for index in self.jobboxes:
-            if self.jobboxes[index].selected == True:
+            if self.jobboxes[index].selected:
                 break
         if get_job_status(index) == 'Rendering':
             Dialog("Can't delete a job while it's rendering.").warn()
@@ -268,11 +280,10 @@ class MasterWin(tk.Tk):
     def _create_job(self, index):
         '''Creates GUI elements for a given index.'''
         #create job box
-        self.jobboxes[index] = SmallBox(master=self.jobbox_frame, 
-            index=index)
+        self.jobboxes[index] = SmallBox(master=self.jobbox_frame, index=index)
         #create comp panel
         self.comppanels[index] = ComputerPanel(master=self.right_frame, 
-            index=index)
+                                               index=index)
         #select the most recently added job
         #XXX This might be annoying or worse if another client adds a job while
         #you're editing. Probably should have a different way of doing this.
@@ -289,7 +300,7 @@ class MasterWin(tk.Tk):
 
     def select_job(self, index):
         for i in self.jobboxes:
-            if not i == index and self.jobboxes[i].selected == True:
+            if not i == index and self.jobboxes[i].selected:
                 self.deselect_job(i)
         self.jobboxes[index].select()
         self.comppanels[index].pack(padx=10, pady=10)
@@ -326,10 +337,12 @@ class ComputerPanel(ttk.Frame):
         buttonbox.pack(anchor=tk.W, padx=5, pady=5)
         ttk.Button(buttonbox, text='Edit', command=self._edit).pack(side=tk.LEFT)
         ttk.Button(buttonbox, text='Start', command=self._start).pack(side=tk.LEFT)
-        ttk.Button(buttonbox, text='Stop', command=self._kill_render).pack(
-            side=tk.LEFT)
-        ttk.Button(buttonbox, text='Resume', command=self._resume_render).pack(
-            side=tk.LEFT)
+        ttk.Button(
+            buttonbox, text='Stop', command=self._kill_render
+            ).pack(side=tk.LEFT)
+        ttk.Button(
+            buttonbox, text='Resume', command=self._resume_render
+            ).pack(side=tk.LEFT)
         #now create the main array of computer boxes
         self._create_computer_array()
 
@@ -348,8 +361,10 @@ class ComputerPanel(ttk.Frame):
         i = 0
         for col in range(0, cols):
             for row in range(0, rows + extra_rows):
-                self.compcubes[computers[i]] = CompCube(master=self.compframe,
-                    computer=computers[i], index=self.index)
+                self.compcubes[computers[i]] = CompCube(
+                    master=self.compframe, computer=computers[i], 
+                    index=self.index
+                    )
                 self.compcubes[computers[i]].grid(row=row, column=col, padx=5)
                 i += 1
                 if i == end: break
@@ -377,7 +392,7 @@ class ComputerPanel(ttk.Frame):
             Dialog('Cannot stop a render unless its status is "Rendering"').warn()
             return
         confirm = Dialog('Stopping render. Allow currently rendering frames to '
-            'finish?').yesnocancel()
+                         'finish?').yesnocancel()
         if confirm == 'cancel':
             return
         elif confirm == 'yes':
@@ -411,8 +426,9 @@ class ComputerPanel(ttk.Frame):
             attrdict['times'])
         for computer in computers:
             compstatus = attrdict['compstatus'][computer]
-            self.compcubes[computer].update(compstatus['frame'], 
-                compstatus['progress'], compstatus['pool'])
+            self.compcubes[computer].update(
+                compstatus['frame'], compstatus['progress'], compstatus['pool']
+                )
 
 
 class _statusbox(object):
@@ -440,11 +456,11 @@ class _statusbox(object):
         elif len(newtime) == 2:
             timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
         elif len(newtime) == 3:
-            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
-                +str(newtime[2])+'s')
+            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m ' +
+                       str(newtime[2])+'s')
         else:
-            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h '
-                +str(newtime[2])+'m '+str(newtime[3])+'s')
+            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
+                       str(newtime[2])+'m '+str(newtime[3])+'s')
         return timestr
 
 
@@ -480,31 +496,36 @@ class BigBox(_statusbox, ttk.LabelFrame):
         pathrow = tk.Frame(container)
         pathrow.pack(padx=5, anchor=tk.W)
         tk.Label(pathrow, text='Path:').pack(side=tk.LEFT)
-        self.pathlabel = tk.Label(pathrow, font=self.font, 
-            text='filename')
+        self.pathlabel = tk.Label(pathrow, font=self.font, text='filename')
         self.pathlabel.pack(padx=5, side=tk.LEFT)
 
         middlerow = tk.Frame(container)
         middlerow.pack(padx=5, expand=True, fill=tk.X)
-        ttk.Progressbar(middlerow, length=810, mode='determinate', 
-            orient=tk.HORIZONTAL, variable=self.progress).pack(side=tk.LEFT)
+        ttk.Progressbar(
+            middlerow, length=810, mode='determinate', 
+            orient=tk.HORIZONTAL, variable=self.progress
+            ).pack(side=tk.LEFT)
         tk.Label(middlerow, font=self.font, text='%').pack(side=tk.RIGHT)
         self.proglabel = tk.Label(middlerow, font=self.font, text='0.0')
         self.proglabel.pack(side=tk.RIGHT)
 
         bottomrow = tk.Frame(container)
         bottomrow.pack(padx=5, expand=True, fill=tk.X)
-        tk.Label(bottomrow, font=self.font, text='Time elapsed:').pack(side=tk.LEFT)
+        tk.Label(
+            bottomrow, font=self.font, text='Time elapsed:'
+            ).pack(side=tk.LEFT)
         self.elapsed_time_lbl = tk.Label(bottomrow, text='')
         self.elapsed_time_lbl.pack(side=tk.LEFT)
-        tk.Label(bottomrow, text='Avg. time/frame:').pack(side=tk.LEFT, padx=(220, 
-            0))
+        tk.Label(
+            bottomrow, text='Avg. time/frame:'
+            ).pack(side=tk.LEFT, padx=(220, 0))
         self.avg_time_lbl = tk.Label(bottomrow, text='')
         self.avg_time_lbl.pack(side=tk.LEFT)
         self.rem_time_lbl = tk.Label(bottomrow, font=self.font, text='0d0h0m0s')
         self.rem_time_lbl.pack(side=tk.RIGHT)
-        tk.Label(bottomrow, font=self.font, text='Time remaining:').pack(
-            side=tk.RIGHT)
+        tk.Label(
+            bottomrow, font=self.font, text='Time remaining:'
+            ).pack(side=tk.RIGHT)
 
     def update(self, status, startframe, endframe, path, progress, times):
         self.statuslbl.config(text=status)
@@ -538,26 +559,28 @@ class SmallBox(_statusbox, tk.Frame):
         toprow = tk.Frame(self, bg=self.bgcolor)
         toprow.pack(padx=5, expand=True, fill=tk.X)
         self.namelabel = tk.Label(toprow, font=self.font, text='filename' + ':', 
-            bg=self.bgcolor)
+                                  bg=self.bgcolor)
         self.namelabel.pack(side=tk.LEFT)
         self.statuslbl = tk.Label(toprow, font=self.font, text='Empty', 
-            bg=self.bgcolor)
+                                  bg=self.bgcolor)
         self.statuslbl.pack(side=tk.RIGHT)
 
-        ttk.Progressbar(self, length=250, mode='determinate', 
-            orient=tk.HORIZONTAL, variable=self.progress).pack(padx=5)
+        ttk.Progressbar(
+            self, length=250, mode='determinate', 
+            orient=tk.HORIZONTAL, variable=self.progress
+            ).pack(padx=5)
 
         bottomrow = tk.Frame(self, bg=self.bgcolor)
         bottomrow.pack(padx=5, expand=True, fill=tk.X)
         self.proglabel = tk.Label(bottomrow, font=self.font, text='0.0', 
-            bg=self.bgcolor)
+                                  bg=self.bgcolor)
         self.proglabel.pack(side=tk.LEFT)
         tk.Label(bottomrow, font=self.font, text='% Complete', 
-            bg=self.bgcolor).pack(side=tk.LEFT)
+                 bg=self.bgcolor).pack(side=tk.LEFT)
         tk.Label(bottomrow, font=self.font, text='Remaining', 
-            bg=self.bgcolor).pack(side=tk.RIGHT)
+                 bg=self.bgcolor).pack(side=tk.RIGHT)
         self.rem_time_lbl = tk.Label(bottomrow, font=self.font, text='0d0h0m0s', 
-            bg=self.bgcolor)
+                                     bg=self.bgcolor)
         self.rem_time_lbl.pack(side=tk.RIGHT)
         for child in self.winfo_children():
             child.bind('<Button-1>', self.toggle)
@@ -588,8 +611,8 @@ class SmallBox(_statusbox, tk.Frame):
         for child in self.winfo_children():
             try:
                 child.config(bg=color)
-            #XXX progress bar will throw an exception, so ignoring it
-            except:
+            except tk.TclError:
+                #ttk.Progressbar doesn't have a bg element & will raise exception
                 pass
             if len(child.winfo_children()) > 0:
                 for babby in child.winfo_children():
@@ -618,24 +641,29 @@ class CompCube(_statusbox, tk.LabelFrame):
         mainblock = tk.Frame(self)
         mainblock.pack(side=tk.LEFT)
         tk.Label(mainblock, text=computer, bg=self.bgcolor).pack(anchor=tk.W)
-        ttk.Progressbar(mainblock, length=230, mode='determinate',
-            orient=tk.HORIZONTAL, variable=self.progress).pack(padx=5, pady=5)
+        ttk.Progressbar(
+            mainblock, length=230, mode='determinate',
+            orient=tk.HORIZONTAL, variable=self.progress
+            ).pack(padx=5, pady=5)
         bottomrow = tk.Frame(mainblock, bg=self.bgcolor)
         bottomrow.pack(expand=True, fill=tk.X)
-        tk.Label(bottomrow, text='Frame:', font=self.font, bg=self.bgcolor).pack(
-            side=tk.LEFT)
+        tk.Label(
+            bottomrow, text='Frame:', font=self.font, bg=self.bgcolor
+            ).pack(side=tk.LEFT)
         self.frameno = tk.Label(bottomrow, text='0', font=self.font, 
-            bg=self.bgcolor, fg='black')
+                                bg=self.bgcolor, fg='black')
         self.frameno.pack(side=tk.LEFT)
         tk.Label(bottomrow, text='% Complete', font=self.font, 
-            bg=self.bgcolor).pack(side=tk.RIGHT)
+                 bg=self.bgcolor).pack(side=tk.RIGHT)
         self.frameprog = tk.Label(bottomrow, text='0.0', font=self.font, 
-            bg=self.bgcolor)
+                                  bg=self.bgcolor)
         self.frameprog.pack(side=tk.RIGHT) 
         buttonblock = tk.Frame(self)
         buttonblock.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-        tk.Checkbutton(buttonblock, text='Use', variable=self.pool, 
-            command=self._toggle_pool_state).pack()
+        tk.Checkbutton(
+            buttonblock, text='Use', variable=self.pool, 
+            command=self._toggle_pool_state
+            ).pack()
         tk.Button(buttonblock, text='Kill', command=self._kill_thread).pack()
 
     def _toggle_pool_state(self):
@@ -659,15 +687,15 @@ class CompCube(_statusbox, tk.LabelFrame):
 class RectButton(tk.Frame):
     '''Subclass of tkinter Frame that looks and behaves like a rectangular 
     button.'''
-    bgcolor = '#%02x%02x%02x' % (235, 235, 235)
-    highlight = '#%02x%02x%02x' % (74, 139, 222)
+    BGCOLOR = '#%02x%02x%02x' % (235, 235, 235)
+    HIGHLIGHT = '#%02x%02x%02x' % (74, 139, 222)
 
-    def __init__(self, master, text='Button', command=None, bg=bgcolor):
-        RectButton.bgcolor = bg
+    def __init__(self, master, text='Button', command=None, bg=BGCOLOR):
+        self.bgcolor = bg
         self.command = command
         tk.LabelFrame.__init__(self, master, borderwidth=1, relief=tk.GROOVE, 
-            bg=RectButton.bgcolor)
-        self.lbl = tk.Label(self, text=text, bg=RectButton.bgcolor)
+                               bg=self.bgcolor)
+        self.lbl = tk.Label(self, text=text, bg=self.bgcolor)
         self.lbl.pack(expand=True, fill=tk.BOTH, padx=3)
         self.bind('<Button-1>', self._select)
         self.lbl.bind('<Button-1>', self._select)
@@ -679,19 +707,19 @@ class RectButton(tk.Frame):
     def _select(self, event=None):
         '''Changes the background color to the highlight color'''
         self.selected = True
-        self.config(bg=RectButton.highlight)
-        self.lbl.config(bg=RectButton.highlight)
+        self.config(bg=self.HIGHLIGHT)
+        self.lbl.config(bg=self.HIGHLIGHT)
         self.update_idletasks()
 
     def _deselect(self, event=None):
         self.selected = False
-        self.config(bg=RectButton.bgcolor)
-        self.lbl.config(bg=RectButton.bgcolor)
+        self.config(bg=self.bgcolor)
+        self.lbl.config(bg=self.bgcolor)
         return
 
     def _execute(self, event=None):
         '''Returns the button bgcolor to it's original state.'''
-        if self.command and self.selected == True:
+        if self.command and self.selected:
             self.command()
         self._deselect()
 
@@ -722,33 +750,46 @@ class InputWindow(tk.Toplevel):
     def _build(self, master):
         pathrow = ttk.Frame(master)
         pathrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Label(pathrow, text='Path:').grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(pathrow, textvariable=self.tk_path, width=60).grid(row=1, 
-            column=0, sticky=tk.W)
-        ttk.Button(pathrow, text='Browse', command=self._get_path).grid(row=1, 
-            column=1, sticky=tk.W)
+        ttk.Label(
+            pathrow, text='Path:').grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            pathrow, textvariable=self.tk_path, width=60
+            ).grid(row=1, column=0, sticky=tk.W)
+        ttk.Button(
+            pathrow, text='Browse', command=self._get_path
+            ).grid(row=1, column=1, sticky=tk.W)
 
         framesrow = ttk.Frame(master)
         framesrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Label(framesrow, text='Start frame:').grid(row=0, column=0, 
-            sticky=tk.W)
-        ttk.Label(framesrow, text='End frame:').grid(row=0, column=1, padx=5,
-            sticky=tk.W)
-        ttk.Label(framesrow, text='Extra frames:').grid(row=0, column=2, padx=5,
-            sticky=tk.W)
-        ttk.Entry(framesrow, textvariable=self.tk_startframe, width=12).grid(
-            row=1, column=0, sticky=tk.W)
-        ttk.Entry(framesrow, textvariable=self.tk_endframe, width=12).grid(row=1, 
-            column=1, padx=5, sticky=tk.W)
-        ttk.Entry(framesrow, textvariable=self.tk_extraframes, width=40).grid(
-            row=1, column=2, padx=5, sticky=tk.W)
+        ttk.Label(
+            framesrow, text='Start frame:'
+            ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(
+            framesrow, text='End frame:'
+            ).grid(row=0, column=1, padx=5, sticky=tk.W)
+        ttk.Label(
+            framesrow, text='Extra frames:'
+            ).grid(row=0, column=2, padx=5, sticky=tk.W)
+        ttk.Entry(
+            framesrow, textvariable=self.tk_startframe, width=12
+            ).grid(row=1, column=0, sticky=tk.W)
+        ttk.Entry(
+            framesrow, textvariable=self.tk_endframe, width=12
+            ).grid(row=1, column=1, padx=5, sticky=tk.W)
+        ttk.Entry(
+            framesrow, textvariable=self.tk_extraframes, width=40
+            ).grid(row=1, column=2, padx=5, sticky=tk.W)
 
         rengrow = ttk.LabelFrame(master, text='Render Engine')
         rengrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Radiobutton(rengrow, variable=self.tk_render_engine, 
-            text='Blender', value='blender').pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Radiobutton(rengrow, variable=self.tk_render_engine, 
-            text='Terragen', value='terragen').pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Radiobutton(
+            rengrow, variable=self.tk_render_engine, 
+            text='Blender', value='blend'
+            ).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Radiobutton(
+            rengrow, variable=self.tk_render_engine, 
+            text='Terragen', value='tgd'
+            ).pack(side=tk.LEFT, padx=5, pady=5)
 
         self.compboxes = ttk.LabelFrame(master, text='Computers')
         self.compboxes.pack(expand=True, fill=tk.X, padx=10, pady=5)
@@ -757,8 +798,9 @@ class InputWindow(tk.Toplevel):
         buttons = ttk.Frame(master)
         buttons.pack(expand=True, fill=tk.X, padx=10, pady=5)
         ttk.Button(buttons, text='OK', command=self._enqueue).pack(side=tk.LEFT)
-        ttk.Button(buttons, text='Cancel', command=self.destroy).pack(
-            side=tk.LEFT, padx=5)
+        ttk.Button(
+            buttons, text='Cancel', command=self.destroy
+            ).pack(side=tk.LEFT, padx=5)
 
     def _compgrid(self, master):
         '''Generates grid of computer checkboxes.'''
@@ -768,19 +810,22 @@ class InputWindow(tk.Toplevel):
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
         #First row is for select/deselect all buttons
-        ttk.Button(master, text='Select All', command=self._check_all).grid(row=0, 
-            column=0, padx=5, pady=5, sticky=tk.W)
-        ttk.Button(master, text='Deselect All', command=self._uncheck_all).grid( 
-            row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        ttk.Button(
+            master, text='Select All', command=self._check_all
+            ).grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Button(
+            master, text='Deselect All', command=self._uncheck_all
+            ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         #generate a grid with specified number of columns
         cols = 5
         rows = len(computers) // cols
         i = 0
         for row in range(1, rows + 2):
             for col in range(0, cols):
-                ttk.Checkbutton(master, text=computers[i], 
-                    variable=self.compvars[computers[i]]).grid(row=row, column=col,
-                    padx=5, pady=5, sticky=tk.W)
+                ttk.Checkbutton(
+                    master, text=computers[i], 
+                    variable=self.compvars[computers[i]]
+                    ).grid(row=row, column=col, padx=5, pady=5, sticky=tk.W)
                 i += 1
                 if i == len(computers): break
 
@@ -819,6 +864,10 @@ class InputWindow(tk.Toplevel):
         if self.tk_extraframes.get() != '':
             extraframes = self.tk_extraframes.get().split(',')
         render_engine = self.tk_render_engine.get()
+        #XXX BLABLA
+        if not path.endswith(render_engine):
+            Dialog('Incorrect render engine for file type.').warn()
+            return
         complist = []
         for computer in self.compvars:
             if self.compvars[computer].get() == 1:
@@ -826,16 +875,18 @@ class InputWindow(tk.Toplevel):
         self.destroy()
         kwargs = {'index':self.index}
         reply = ClientSocket().send_cmd('create_job', kwargs)
-        if reply == False:
+        if not reply:
             Dialog("Can't overwrite job while it's rendering.").warn()
             return
-        render_args = { 'index':self.index,
-                        'path':path, 
-                        'startframe':startframe,
-                        'endframe':endframe, 
-                        'extraframes':extraframes, 
-                        'render_engine':render_engine,
-                        'complist':complist }
+        render_args = {
+            'index':self.index,
+            'path':path, 
+            'startframe':startframe,
+            'endframe':endframe, 
+            'extraframes':extraframes, 
+            'render_engine':render_engine,
+            'complist':complist 
+            }
         reply = ClientSocket().send_cmd('enqueue', render_args)
         print(reply)
 
@@ -856,55 +907,70 @@ class MissingFramesWindow(tk.Toplevel):
         self.check_startframe = tk.StringVar()
         self.check_endframe = tk.StringVar()
         self.checked = False
-        ttk.Label(self, text='Compare the contents of a directory against a '
-            'generated file list to search for missing frames.').pack(padx=15, 
-            pady=(10, 0), anchor=tk.W)
+        ttk.Label(
+            self, text='Compare the contents of a directory against a '
+            'generated file list to search for missing frames.'
+            ).pack(padx=15, pady=(10, 0), anchor=tk.W)
         self._build_window()
 
     def _build_window(self):
         outerframe = ttk.LabelFrame(self)
         outerframe.pack(padx=15, pady=(0, 10))
         
-        ttk.Label(outerframe, text='Directory to check:').grid(row=0, column=0, 
-            sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(outerframe, width=50, textvariable=self.check_path).grid(row=0, 
-            column=1, columnspan=2, sticky=tk.W, padx=5, pady=5)
-        ttk.Button(outerframe, text='Browse').grid(row=0, column=3, padx=5, 
-            pady=5)
-        ttk.Label(outerframe, text='Start frame:').grid(row=1, column=0, 
-            sticky=tk.E, padx=5, pady=(20, 5))
-        ttk.Entry(outerframe, width=20, textvariable=self.check_startframe).grid(
-            row=1, column=1, sticky=tk.W, padx=5, pady=(20, 5))
-        ttk.Label(outerframe, text='End frame:').grid(row=2, column=0, 
-            sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(outerframe, width=20, textvariable=self.check_endframe).grid(
-            row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(
+            outerframe, text='Directory to check:'
+            ).grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(
+            outerframe, width=50, textvariable=self.check_path
+            ).grid(row=0, column=1, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Button(
+            outerframe, text='Browse'
+            ).grid(row=0, column=3, padx=5, pady=5)
+        ttk.Label(
+            outerframe, text='Start frame:'
+            ).grid(row=1, column=0, sticky=tk.E, padx=5, pady=(20, 5))
+        ttk.Entry(
+            outerframe, width=20, textvariable=self.check_startframe
+            ).grid(row=1, column=1, sticky=tk.W, padx=5, pady=(20, 5))
+        ttk.Label(
+            outerframe, text='End frame:'
+            ).grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(
+            outerframe, width=20, textvariable=self.check_endframe
+            ).grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
 
         sliderframe = ttk.LabelFrame(outerframe, text='Adjust filename parsing')
         sliderframe.grid(row=1, rowspan=3, column=2, columnspan=2, padx=5, 
-            pady=5, sticky=tk.W)
+                         pady=5, sticky=tk.W)
         self.nameleft = tk.Label(sliderframe, bg=LightBGColor)
         self.nameleft.grid(row=0, column=0, sticky=tk.E)
         self.nameseq = tk.Label(sliderframe, bg=LightBGColor)
         self.nameseq.grid(row=0, column=1)
         self.nameright = tk.Label(sliderframe, bg=LightBGColor)
         self.nameright.grid(row=0, column=2, sticky=tk.W)
-        self.slider_left = ttk.Scale(sliderframe, from_=0, to=100, 
-            orient=tk.HORIZONTAL, length=260, command=self._update_sliders)
+        self.slider_left = ttk.Scale(
+            sliderframe, from_=0, to=100, orient=tk.HORIZONTAL, 
+            length=260, command=self._update_sliders
+            )
         self.slider_left.grid(row=2, column=0, columnspan=3, padx=5)
-        self.slider_right = ttk.Scale(sliderframe, from_=0, to=100, 
-            orient=tk.HORIZONTAL, length=260, command=self._update_sliders)
+        self.slider_right = ttk.Scale(
+            sliderframe, from_=0, to=100, orient=tk.HORIZONTAL, 
+            length=260, command=self._update_sliders
+            )
         self.slider_right.grid(row=3, column=0, columnspan=3, padx=5)
-        ttk.Button(sliderframe, text='OK', command=self._recheck_directory).grid(
-            row=4, column=1, padx=5, pady=5)
+        ttk.Button(
+            sliderframe, text='OK', command=self._recheck_directory
+            ).grid(row=4, column=1, padx=5, pady=5)
 
-        ttk.Button(outerframe, text='Start', command=self._start).grid(row=3, 
-            column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Button(
+            outerframe, text='Start', command=self._start
+            ).grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
 
         outputframe = ttk.LabelFrame(outerframe)
         outputframe.grid(padx=5, pady=5, row=4, column=0, columnspan=4)
-        ttk.Label(outputframe, text='Directory contents:').grid(row=0, column=0, 
-            sticky=tk.W)
+        ttk.Label(
+            outputframe, text='Directory contents:'
+            ).grid(row=0, column=0, sticky=tk.W)
         self.dirconts = tk_st.ScrolledText(outputframe, width=35, height=15)
         self.dirconts.grid(row=1, column=0)
         ttk.Label(outputframe, text='Found:').grid(row=0, column=1, sticky=tk.W)
@@ -917,8 +983,9 @@ class MissingFramesWindow(tk.Toplevel):
         self.missingFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
         self.missingFrames.grid(row=1, column=3)
 
-        ttk.Button(self, text='Done', command=self.destroy, 
-            style='Toolbutton').pack(padx=15, pady=(0, 15), anchor=tk.W)
+        ttk.Button(
+            self, text='Done', command=self.destroy, style='Toolbutton'
+            ).pack(padx=15, pady=(0, 15), anchor=tk.W)
 
         #XXX some temp settings
         self.check_path.set('/Users/igp/test_render/render/')
@@ -966,7 +1033,7 @@ class MissingFramesWindow(tk.Toplevel):
         self.right = int(self.slider_right.get())
         self.nameleft.config(text=self.filename[0:self.left], bg=LightBGColor)
         self.nameseq.config(text=self.filename[self.left:self.right], 
-            bg='DodgerBlue')
+                            bg='DodgerBlue')
         self.nameright.config(text=self.filename[self.right:], bg=LightBGColor)
 
     def _put_text(self, lists):
@@ -984,7 +1051,7 @@ class MissingFramesWindow(tk.Toplevel):
         self.slider_right.set(self.right)
         self.nameleft.config(text=self.filename[0:self.left], bg=LightBGColor)
         self.nameseq.config(text=self.filename[self.left:self.right], 
-            bg='DodgerBlue')
+                            bg='DodgerBlue')
         self.nameright.config(text=self.filename[self.right:], bg=LightBGColor)
         #put text in the scrolled text fields
         for item in dir_contents:
@@ -1014,7 +1081,7 @@ class Dialog(object):
     def confirm(self):
         '''Displays a box with OK and Cancel buttons. Returns True if OK.'''
         if tk_msgbox.askokcancel('Confirm', self.msg, icon='warning', 
-            default='ok'):
+                                 default='ok'):
             return True
         else:
             return False
@@ -1028,7 +1095,7 @@ class Dialog(object):
         '''Displays a box with Yes, No, and Cancel buttons. Returns strings
         'yes', 'no', or 'cancel'.'''
         reply = tk_msgbox.askquestion('Confirm', self.msg, icon='info', 
-            type='yesnocancel')
+                                      type='yesnocancel')
         return reply
 
 
@@ -1045,7 +1112,7 @@ class StatusThread(threading.Thread):
 
     def _statusthread(self):
         while True:
-            if self.stop == True:
+            if self.stop:
                 break
             serverjobs = ClientSocket().send_cmd('get_all_attrs')
             masterwin.update(serverjobs)

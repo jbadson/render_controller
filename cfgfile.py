@@ -7,11 +7,11 @@ import os.path
 
 if __name__ == '__main__':
     print('This module contains methods to read and write simple JSON configuration'
-            + ' files.')
+           + ' files.')
     print('By default config files will be created in the same directory as this '
-            + 'file.')
+           + 'file.')
     print('Alternatively, a path (including filename) may be specified as an '
-            + 'optional argument.')
+           + 'optional argument.')
 
 #get current directory of this file, use this as default location for config files 
 default_dirpath = os.path.dirname(os.path.realpath(__file__))

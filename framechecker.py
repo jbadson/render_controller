@@ -12,7 +12,8 @@ class Framechecker(object):
     #an alternate list of extensions (including period) as an arg.
     default_exts = ['.jpg', '.jpeg', '.png', '.exr']
 
-    def __init__(self, path, startframe, endframe, allowed_extensions=default_exts):
+    def __init__(self, path, startframe, endframe, 
+                 allowed_extensions=default_exts):
         self.path = path
         self.startframe = startframe
         self.endframe = endframe

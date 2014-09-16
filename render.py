@@ -10,6 +10,7 @@ import ast
 import json
 import cfgfile
 
+illegal_characters = [' ', ';', '&'] #not allowed in paths
 class Job(object):
     '''Represents a render job.'''
 
@@ -17,7 +18,7 @@ class Job(object):
         #initialize all attrs for client updates
         self.status = 'Empty'
         self.queuetime = time.time()
-        self.priority = 0
+        self.priority = 'Normal'
         self.starttime = None #time render() called
         self.stoptime = None #time masterthread stopped
         self.complist = []
@@ -66,6 +67,9 @@ class Job(object):
                 extraframes=[]):
         '''Create a new job and place it in queue.'''
         self.path = path
+        for char in illegal_characters:
+            if char in path:
+                return False
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
@@ -517,6 +521,8 @@ class Job(object):
             return True
 
     def set_priority(self, priority):
+        if priority == self.priority:
+            return False
         self.priority = priority
         return True
 
@@ -661,16 +667,16 @@ def check_autostart():
     if renders >= maxglobalrenders:
         return False
     #check for high priority items
-    priorities = {}
+    #priorities = {}
     times = {}
     for index in renderjobs:
         if renderjobs[index].status == 'Waiting':
-            priority = renderjobs[index].priority
+            #priority = renderjobs[index].priority
             queuetime = renderjobs[index].queuetime
-            if priority > 0:
-                priorities[priority] = index
+            if renderjobs[index].priority == 'High':
+                #priorities[priority] = index
                 times[queuetime] = index
-    if len(priorities) > 0:
+    if len(times) > 0:
         index = times[min(times)]
         renderjobs[index].render()
         return True
@@ -742,8 +748,8 @@ def set_defaults():
     
     #allowed file extensions (last 3 chars only) for check_missing_files
     allowed_filetypes = [
-        'png', 'jpg', 'peg', 'gif', 'tif', 'iff', 'exr', 'PNG', 
-        'JPG', 'PEG', 'GIF', 'TIF', 'IFF', 'EXR'] 
+        '.png', '.jpg', '.peg', '.gif', '.tif', '.iff', '.exr', '.PNG', 
+        '.JPG', '.PEG', '.GIF', '.TIF', '.IFF', '.EXR'] 
     
     #timeout for failed machine in seconds
     timeout = 600
@@ -955,7 +961,7 @@ class ClientThread(threading.Thread):
             return
         else:
             self._sendmsg('True')
-            if not command == 'get_attrs': print('comamnd valid')
+            if not command == 'get_attrs': print('command valid')
         #now get the args
         kwargs = self._recvall()
         if not command == 'get_attrs': print('received kwargs', kwargs)
@@ -1012,26 +1018,25 @@ def job_exists(kwargs):
     else:
         return False
 
-def create_job(kwargs):
-    index = kwargs['index']
-    #overwriting is OK, but not while job is rendering
-    if index in renderjobs:
-        if renderjobs[index].status == 'Rendering':
-            return False
-    renderjobs[index] = Job()
-    return True
-
 def enqueue(kwargs):
     '''Enqueue a job from client.'''
     index = kwargs['index']
     path = kwargs['path']
+    for char in illegal_characters:
+        if char in path:
+            return 'Enqueue failed, illegal characters in path'
     startframe = kwargs['startframe']
     endframe = kwargs['endframe']
     extras = kwargs['extraframes']
     render_engine = kwargs['render_engine']
     complist = kwargs['complist']
     print('extraframes:', extras, type(extras))#debug
-
+    #create the job
+    if index in renderjobs:
+        if renderjobs[index].status == 'Rendering':
+            return 'Failed to create job'
+    renderjobs[index] = Job()
+    #place it in queue
     reply = renderjobs[index].enqueue(
         path, startframe, endframe, render_engine, complist, 
         extraframes=extras
@@ -1039,7 +1044,8 @@ def enqueue(kwargs):
     if reply:
         return (index + ' successfully placed in queue')
     else:
-        return 'Enqueue failed'
+        del renderjobs[index]
+        return 'Enqueue failed, job deleted'
 
 def start_render(kwargs):
     '''Start a render at the request of client.'''
@@ -1151,9 +1157,10 @@ def set_job_priority(kwargs):
     priority = kwargs['priority']
     if not index in renderjobs:
         return 'Index not found'
-    renderjobs[index].set_priority(priority)
-    return 'Priority of ' + index + ' set to ' + str(priority)
-    
+    if renderjobs[index].set_priority(priority):
+        return 'Priority of ' + index + ' set to ' + str(priority)
+    else:
+        return 'Priority not changed'
 
 
 

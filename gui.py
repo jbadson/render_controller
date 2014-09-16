@@ -17,7 +17,7 @@ import framechecker
 
 host = 'localhost'
 port = 2020
-
+illegal_characters = [' ', ';', '&'] #not allowed in path
 
 class ClientSocket(object):
     '''Wrapper for socket to handle command-response protocol for interacting 
@@ -236,7 +236,6 @@ class MasterWin(tk.Tk):
         for index in serverjobs:
             if not index in self.jobboxes:
                 self._create_job(index)
-                print('Created new job object at ', index)
         #delete any local jobs that are no longer on the server
         dellist = []
         for index in self.jobboxes:
@@ -339,7 +338,6 @@ class ComputerPanel(ttk.Frame):
         self.bigbox = BigBox(master=self, index=self.index)
         self.bigbox.pack(expand=True, fill=tk.X, padx=5)
         #Create job control buttons
-        self.priority = 0 #default priority
         buttonbox = ttk.Frame(self)
         buttonbox.pack(anchor=tk.W, padx=5, pady=5)
         ttk.Button(buttonbox, text='Edit', command=self._edit).pack(side=tk.LEFT)
@@ -350,12 +348,20 @@ class ComputerPanel(ttk.Frame):
         ttk.Button(
             buttonbox, text='Resume', command=self._resume_render
             ).pack(side=tk.LEFT)
+        '''
         self.primenu = ttk.Menubutton(buttonbox, text='Priority')
         self.menu = tk.Menu(self.primenu)
         self.primenu.config(menu=self.menu)
-        self.menu.add_command(label='High', command=self._raise_priority)
-        self.menu.add_command(label='Normal', command=self._norm_priority)
+        self.tk_priorityority = tk.IntVar()
+        self.tk_priorityority.set(0)
+        self.menu.add_checkbutton(label='High', command=self._raise_priority, variable=self.tk_priorityority, value=1)
+        self.menu.add_checkbutton(label='Normal', command=self._norm_priority, variable=self.tk_priorityority, value=0)
         self.primenu.pack(side=tk.LEFT)
+        '''
+        ttk.Label(buttonbox, text='Priority:').pack(side=tk.LEFT, padx=(5, 0))
+        self.tk_priority = tk.StringVar()
+        self.primenu = ttk.OptionMenu(buttonbox, self.tk_priority, 'Normal', 'Normal', 'High', command=self._set_priority)
+        self.primenu.pack(side=tk.LEFT, pady=(0, 2))
         #now create the main array of computer boxes
         self._create_computer_array()
 
@@ -397,7 +403,7 @@ class ComputerPanel(ttk.Frame):
         editjob = InputWindow(
             index=self.index, path=attrs['path'], start=attrs['startframe'],
             end=attrs['endframe'], extras=attrs['extraframes'],
-            engine=attrs['render_engine']
+            engine=attrs['render_engine'], complist=attrs['complist']
             )
 
     def _start(self):
@@ -442,24 +448,17 @@ class ComputerPanel(ttk.Frame):
         reply = ClientSocket().send_cmd('resume_render', kwargs)
         print(reply)
 
-    def _raise_priority(self):
-        if self.priority == 1:
-            return
-        kwargs = {'index':self.index, 'priority':1}
-        reply = ClientSocket().send_cmd('set_job_priority', kwargs)
-        print(reply)
-
-    def _norm_priority(self):
-        if self.priority == 0:
-            return
-        kwargs = {'index':self.index, 'priority':0}
+    def _set_priority(self, value='Normal'):
+        print('value:', value)
+        print('self.tk_priority', self.tk_priority.get())
+        kwargs = {'index':self.index, 'priority':value}
         reply = ClientSocket().send_cmd('set_job_priority', kwargs)
         print(reply)
 
     def update(self, attrdict):
         '''Calls the update methods for all child elements.'''
-        if attrdict['priority'] != self.priority:
-            self.priority = attrdict['priority']
+        if attrdict['priority'] != self.tk_priority.get():
+            self.tk_priority.set(attrdict['priority'])
         self.bigbox.update(
             attrdict['status'], attrdict['startframe'], 
             attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
@@ -777,7 +776,8 @@ class InputWindow(tk.Toplevel):
     If passed optional arguments, these will be used to populate the fields
     in the new window.'''
     def __init__(self, index=None, path=default_path, start=default_startframe,
-                 end=default_endframe, extras=None, engine=default_render_engine):
+                 end=default_endframe, extras=None, 
+                 engine=default_render_engine, complist=None):
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
@@ -791,7 +791,7 @@ class InputWindow(tk.Toplevel):
         self.tk_endframe = tk.StringVar()
         self.tk_extraframes = tk.StringVar()
         self.tk_render_engine = tk.StringVar()
-        self.tk_complist = tk.StringVar()
+        self.complist = complist
         #populate text fields
         self.tk_path.set(path)
         self.tk_startframe.set(start)
@@ -865,6 +865,9 @@ class InputWindow(tk.Toplevel):
         for computer in computers:
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
+        if self.complist:
+            for comp in self.complist:
+                self.compvars[comp].set(1)
         #First row is for select/deselect all buttons
         ttk.Button(
             master, text='Select All', command=self._check_all
@@ -908,6 +911,10 @@ class InputWindow(tk.Toplevel):
         if not self._path_exists(path):
             Dialog('Path is not accessible from the server.').warn()
             return
+        for char in illegal_characters:
+            if char in path:
+                Dialog('Illegal characters in path.').warn()
+                return
         #if this is a new job, create index based on filename
         if not self.index:
             self.index = os.path.basename(path)
@@ -915,6 +922,10 @@ class InputWindow(tk.Toplevel):
                 if not Dialog('Job with the same index already exists. '
                               'Overwrite?').yesno():
                     return
+                if get_job_status(self.index) == 'Rendering':
+                    Dialog("Can't overwrite a job while it's rendering.").warn()
+                    return
+
         startframe = int(self.tk_startframe.get())
         endframe = int(self.tk_endframe.get())
         extras = self.tk_extraframes.get()
@@ -948,11 +959,12 @@ class InputWindow(tk.Toplevel):
             if self.compvars[computer].get() == 1:
                 complist.append(computer)
         self.destroy()
-        kwargs = {'index':self.index}
-        reply = ClientSocket().send_cmd('create_job', kwargs)
-        if not reply:
-            Dialog("Can't overwrite job while it's rendering.").warn()
-            return
+        #NOTE: combined create_job and enqueue
+        #kwargs = {'index':self.index}
+        #reply = ClientSocket().send_cmd('create_job', kwargs)
+        #if not reply:
+        #    Dialog("Can't overwrite job while it's rendering.").warn()
+        #    return
         render_args = {
             'index':self.index,
             'path':path, 
@@ -1074,14 +1086,20 @@ class MissingFramesWindow(tk.Toplevel):
         if not os.path.exists(renderpath):
             print('path does not exist')#debug
             return
+        for char in illegal_characters:
+            if char in renderpath:
+                print('Illegal characters in path')#debug
+                return
         try:
             startframe = int(self.check_startframe.get())
             endframe = int(self.check_endframe.get())
         except ValueError:
             print('Start and end frames must be integers')#debug
             return
-        #XXX Need to format allowed_filetypes correctly, then pass those along too.
-        self.checker = framechecker.Framechecker(renderpath, startframe, endframe)
+        self.checker = framechecker.Framechecker(
+            renderpath, startframe, endframe,
+            allowed_extensions=allowed_filetypes
+            )
         self.left, self.right = self.checker.calculate_indices()
         lists = self.checker.generate_lists(self.left, self.right)
         self._put_text(lists)

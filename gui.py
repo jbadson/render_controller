@@ -62,18 +62,18 @@ class ClientSocket(object):
         Associated args should be supplied as a dict. Returns a string'''
         #send command first, wait for response, then send args
         #don't print anything if command is request for status update
-        if not command == 'get_all_attrs': print('sending command', command) #debug
+        if not command == 'get_attrs': print('sending command', command) #debug
         self._sendmsg(command)
         #check that the command was valid
         cmd_ok = ast.literal_eval(self._recvall())
         if not cmd_ok:
             return 'Invalid command'
         #if command was valid, send associated arguments
-        if not command == 'get_all_attrs': print('sending kwargs', str(kwargs))
+        if not command == 'get_attrs': print('sending kwargs', str(kwargs))
         self._sendmsg(kwargs)
         #collect the return string (True/False for success/fail or requested data)
         return_str = self._recvall()
-        if not command == 'get_all_attrs': print('received return_str', return_str)
+        if not command == 'get_attrs': print('received return_str', return_str)
         self.socket.close()
         return return_str
         
@@ -104,7 +104,7 @@ def get_config_vars():
     cfgvars = ClientSocket().send_cmd('get_config_vars')
     return cfgvars
 
-def quit():
+def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
     statthread.end()
     #masterwin.destroy()
@@ -126,7 +126,7 @@ def set_gui_defaults():
     default_path = '/mnt/data/test_render/test_render.blend'
     default_startframe = 1
     default_endframe = 4
-    default_render_engine = 'blender'
+    default_render_engine = 'blend'
     return (default_path, default_startframe, default_endframe, 
             default_render_engine)
 
@@ -142,6 +142,11 @@ else:
     except Exception:
         print('GUI config file corrupt or incorrect. Creating new')
         guisettings = gui_cfg.write(set_gui_defaults())
+
+(
+default_path, default_startframe, 
+default_endframe, default_render_engine
+) = guisettings
 
 #server-specific config variables    
 #most of these aren't directly used by the GUI, but are needed for the prefs window
@@ -169,10 +174,11 @@ HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
 class MasterWin(tk.Tk):
     def __init__(self):
         tk.Tk.__init__(self)
-        self.bind('<Command-q>', lambda x: quit()) 
-        self.bind('<Control-q>', lambda x: quit())
+        self.bind('<Command-q>', quit) 
+        self.bind('<Control-q>', quit)
         self.config(bg=LightBGColor)
-        self.geometry('1257x720')
+        #self.geometry('1257x740')
+        self.minsize(width=1257, height=730)
         self.verbosity = tk.IntVar()
         self.verbosity.set(verbose)
         self.autostart = tk.IntVar()
@@ -333,6 +339,7 @@ class ComputerPanel(ttk.Frame):
         self.bigbox = BigBox(master=self, index=self.index)
         self.bigbox.pack(expand=True, fill=tk.X, padx=5)
         #Create job control buttons
+        self.priority = 0 #default priority
         buttonbox = ttk.Frame(self)
         buttonbox.pack(anchor=tk.W, padx=5, pady=5)
         ttk.Button(buttonbox, text='Edit', command=self._edit).pack(side=tk.LEFT)
@@ -343,6 +350,12 @@ class ComputerPanel(ttk.Frame):
         ttk.Button(
             buttonbox, text='Resume', command=self._resume_render
             ).pack(side=tk.LEFT)
+        self.primenu = ttk.Menubutton(buttonbox, text='Priority')
+        self.menu = tk.Menu(self.primenu)
+        self.primenu.config(menu=self.menu)
+        self.menu.add_command(label='High', command=self._raise_priority)
+        self.menu.add_command(label='Normal', command=self._norm_priority)
+        self.primenu.pack(side=tk.LEFT)
         #now create the main array of computer boxes
         self._create_computer_array()
 
@@ -352,30 +365,40 @@ class ComputerPanel(ttk.Frame):
         self.compcubes = {}
         #changing the number of cols should automatically generate the rest
         #of the layout correctly. Put this in GUI config?
-        cols = 3
-        rows = len(computers) // cols
-        #extra rows are needed if the number of computers isn't evenly divisible
-        #by the number of columns
-        extra_rows = len(computers) % cols
-        end = len(computers)
-        i = 0
-        for col in range(0, cols):
-            for row in range(0, rows + extra_rows):
-                self.compcubes[computers[i]] = CompCube(
-                    master=self.compframe, computer=computers[i], 
-                    index=self.index
-                    )
-                self.compcubes[computers[i]].grid(row=row, column=col, padx=5)
-                i += 1
-                if i == end: break
+        self.cols = 3 
+        n = 0 #index of computer in computers list
+        row = 0 #starting position
+        while n < len(computers):
+            (x, y) = self._getcoords(n, row)
+            self.compcubes[computers[n]] = CompCube(
+                master=self.compframe, computer=computers[n], index=self.index
+                )
+            self.compcubes[computers[n]].grid(row=y, column=x, padx=5)
+            n += 1
+            if x == self.cols - 1:
+                row += 1
+
+    def _getcoords(self, n, row):
+        '''Returns coordinates (column, row) for computer box.
+        n = index of that computer in the list.
+        row = current row
+        cols = number of columns in layout'''
+        x = n - self.cols * row
+        y = n - n + row
+        return (x, y)
 
     def _edit(self):
         '''Edits job information.'''
-        status = get_job_status(self.index)
-        if status == 'Rendering' or status == 'Stopped':
+        kwargs = {'index':self.index}
+        attrs = ClientSocket().send_cmd('get_attrs', kwargs)
+        if attrs['status'] == 'Rendering' or attrs['status'] == 'Stopped':
             Dialog('Cannot edit job while it is rendering or stopped.').warn()
             return
-        editjob = InputWindow(self.index)
+        editjob = InputWindow(
+            index=self.index, path=attrs['path'], start=attrs['startframe'],
+            end=attrs['endframe'], extras=attrs['extraframes'],
+            engine=attrs['render_engine']
+            )
 
     def _start(self):
         '''Starts the render.'''
@@ -419,11 +442,29 @@ class ComputerPanel(ttk.Frame):
         reply = ClientSocket().send_cmd('resume_render', kwargs)
         print(reply)
 
+    def _raise_priority(self):
+        if self.priority == 1:
+            return
+        kwargs = {'index':self.index, 'priority':1}
+        reply = ClientSocket().send_cmd('set_job_priority', kwargs)
+        print(reply)
+
+    def _norm_priority(self):
+        if self.priority == 0:
+            return
+        kwargs = {'index':self.index, 'priority':0}
+        reply = ClientSocket().send_cmd('set_job_priority', kwargs)
+        print(reply)
+
     def update(self, attrdict):
         '''Calls the update methods for all child elements.'''
-        self.bigbox.update(attrdict['status'], attrdict['startframe'], 
-            attrdict['endframe'], attrdict['path'], attrdict['progress'], 
-            attrdict['times'])
+        if attrdict['priority'] != self.priority:
+            self.priority = attrdict['priority']
+        self.bigbox.update(
+            attrdict['status'], attrdict['startframe'], 
+            attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
+            attrdict['progress'], attrdict['times']
+            )
         for computer in computers:
             compstatus = attrdict['compstatus'][computer]
             self.compcubes[computer].update(
@@ -527,11 +568,18 @@ class BigBox(_statusbox, ttk.LabelFrame):
             bottomrow, font=self.font, text='Time remaining:'
             ).pack(side=tk.RIGHT)
 
-    def update(self, status, startframe, endframe, path, progress, times):
+    def update(self, status, startframe, endframe, extraframes, 
+               path, progress, times):
         self.statuslbl.config(text=status)
         self.startlabel.config(text=str(startframe))
         self.endlabel.config(text=str(endframe))
         self.pathlabel.config(text=path)
+        if extraframes:
+            extraframes.reverse()
+            extras = ', '.join(str(i) for i in extraframes)
+        else:
+            extras = 'None'
+        self.extraslabel.config(text=extras)
         self.progress.set(progress)
         self.proglabel.config(text=str(round(progress, 1)))
         elapsed_time = self.format_time(times[0])
@@ -725,8 +773,18 @@ class RectButton(tk.Frame):
 
 
 class InputWindow(tk.Toplevel):
-    '''New window to handle input for new job or edit an existing one.'''
-    def __init__(self, index=None):
+    '''New window to handle input for new job or edit an existing one.
+    If passed optional arguments, these will be used to populate the fields
+    in the new window.'''
+    def __init__(self, index=None, path=default_path, start=default_startframe,
+                 end=default_endframe, extras=None, engine=default_render_engine):
+        tk.Toplevel.__init__(self)
+        self.bind('<Command-q>', quit) 
+        self.bind('<Control-q>', quit)
+        self.bind('<Return>', self._enqueue)
+        self.bind('<KP_Enter>', self._enqueue)
+        self.bind('<Escape>', lambda x: self.destroy())
+        self.config(bg='gray90')
         self.index = index
         self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
@@ -734,15 +792,13 @@ class InputWindow(tk.Toplevel):
         self.tk_extraframes = tk.StringVar()
         self.tk_render_engine = tk.StringVar()
         self.tk_complist = tk.StringVar()
-        #put in default values
-        self.tk_path.set(guisettings[0])
-        self.tk_startframe.set(guisettings[1])
-        self.tk_endframe.set(guisettings[2])
-        self.tk_render_engine.set(guisettings[3])
-        tk.Toplevel.__init__(self)
-        self.bind('<Command-q>', lambda x: quit()) 
-        self.bind('<Control-q>', lambda x: quit())
-        self.config(bg='gray90')
+        #populate text fields
+        self.tk_path.set(path)
+        self.tk_startframe.set(start)
+        self.tk_endframe.set(end)
+        self.tk_render_engine.set(engine)
+        if extras:
+            self.tk_extraframes.set(' '.join(str(i) for i in extras))
         container = ttk.LabelFrame(self)
         container.pack(padx=10, pady=10)
         self._build(container)
@@ -844,7 +900,7 @@ class InputWindow(tk.Toplevel):
         path = tk_filedialog.askopenfilename(title='Open File')
         self.tk_path.set(path)
         
-    def _enqueue(self):
+    def _enqueue(self, event=None):
         '''Places a new job in queue.'''
 
         path = self.tk_path.get()
@@ -855,16 +911,35 @@ class InputWindow(tk.Toplevel):
         #if this is a new job, create index based on filename
         if not self.index:
             self.index = os.path.basename(path)
-        if job_exists(self.index):
-            if not Dialog('Job in queue with the same index. Overwrite?').yesno():
-                return
+            if job_exists(self.index):
+                if not Dialog('Job with the same index already exists. '
+                              'Overwrite?').yesno():
+                    return
         startframe = int(self.tk_startframe.get())
         endframe = int(self.tk_endframe.get())
-        extraframes = []
-        if self.tk_extraframes.get() != '':
-            extraframes = self.tk_extraframes.get().split(',')
+        extras = self.tk_extraframes.get()
+        if extras:
+            #check if list is comma-delimited
+            if ',' in extras:
+                extraframes = extras.split(',')
+            else:
+                extraframes = extras.split()
+            #make sure list contains only numbers
+            try:
+                extraframes = [int(i) for i in extraframes]
+            except ValueError:
+                Dialog('Extra frames must be integers in a space or '
+                       'comma-separated list.').warn()
+                return
+            #remove any duplicates and any frames inside the start-end range
+            extraframes = list(set(extraframes))
+            for i in range(startframe, endframe + 1):
+                if i in extraframes:
+                    extraframes.remove(i)
+            print('extraframes:', extraframes) #debug
+        else:
+            extraframes = []
         render_engine = self.tk_render_engine.get()
-        #XXX BLABLA
         if not path.endswith(render_engine):
             Dialog('Incorrect render engine for file type.').warn()
             return
@@ -887,6 +962,7 @@ class InputWindow(tk.Toplevel):
             'render_engine':render_engine,
             'complist':complist 
             }
+        print('extraframes:', extraframes, type(extraframes))#debug
         reply = ClientSocket().send_cmd('enqueue', render_args)
         print(reply)
 
@@ -900,8 +976,11 @@ class MissingFramesWindow(tk.Toplevel):
     def __init__(self):
         tk.Toplevel.__init__(self)
         self.config(bg=LightBGColor)
-        self.bind('<Command-q>', lambda x: quit()) 
-        self.bind('<Control-q>', lambda x: quit())
+        self.bind('<Command-q>', quit) 
+        self.bind('<Control-q>', quit)
+        self.bind('<Return>', self._start)
+        self.bind('<KP_Enter>', self._start)
+        self.bind('<Escape>', lambda x: self.destroy())
         self.checkjob = tk.IntVar()
         self.check_path = tk.StringVar()
         self.check_startframe = tk.StringVar()
@@ -916,7 +995,6 @@ class MissingFramesWindow(tk.Toplevel):
     def _build_window(self):
         outerframe = ttk.LabelFrame(self)
         outerframe.pack(padx=15, pady=(0, 10))
-        
         ttk.Label(
             outerframe, text='Directory to check:'
             ).grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
@@ -938,7 +1016,6 @@ class MissingFramesWindow(tk.Toplevel):
         ttk.Entry(
             outerframe, width=20, textvariable=self.check_endframe
             ).grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
-
         sliderframe = ttk.LabelFrame(outerframe, text='Adjust filename parsing')
         sliderframe.grid(row=1, rowspan=3, column=2, columnspan=2, padx=5, 
                          pady=5, sticky=tk.W)
@@ -965,7 +1042,6 @@ class MissingFramesWindow(tk.Toplevel):
         ttk.Button(
             outerframe, text='Start', command=self._start
             ).grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
-
         outputframe = ttk.LabelFrame(outerframe)
         outputframe.grid(padx=5, pady=5, row=4, column=0, columnspan=4)
         ttk.Label(
@@ -982,17 +1058,15 @@ class MissingFramesWindow(tk.Toplevel):
         ttk.Label(outputframe, text='Missing:').grid(row=0, column=3, sticky=tk.W)
         self.missingFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
         self.missingFrames.grid(row=1, column=3)
-
         ttk.Button(
             self, text='Done', command=self.destroy, style='Toolbutton'
             ).pack(padx=15, pady=(0, 15), anchor=tk.W)
-
         #XXX some temp settings
         self.check_path.set('/Users/igp/test_render/render/')
         self.check_startframe.set('1')
         self.check_endframe.set('15')
 
-    def _start(self):
+    def _start(self, event=None):
         renderpath = self.check_path.get()
         if not renderpath:
             print('no path')#debug
@@ -1012,8 +1086,11 @@ class MissingFramesWindow(tk.Toplevel):
         lists = self.checker.generate_lists(self.left, self.right)
         self._put_text(lists)
         self.checked = True
+        #change the key bindings so they do the contextually correct thing
+        self.bind('<Return>', self._recheck_directory)
+        self.bind('<KP_Enter>', self._recheck_directory)
 
-    def _recheck_directory(self):
+    def _recheck_directory(self, event=None):
         '''If the script didn't parse the filenames correctly, get new indices
         from the sliders the user has used to isolate the sequential numbers.'''
         if not self.checked:
@@ -1024,7 +1101,7 @@ class MissingFramesWindow(tk.Toplevel):
         lists = self.checker.generate_lists(self.left, self.right)
         self._put_text(lists)
 
-    def _update_sliders(self, callback=None):
+    def _update_sliders(self, event=None):
         '''Changes the text highlighting in the fields above the sliders in
         response to user input.'''
         if not self.checked:
@@ -1114,7 +1191,7 @@ class StatusThread(threading.Thread):
         while True:
             if self.stop:
                 break
-            serverjobs = ClientSocket().send_cmd('get_all_attrs')
+            serverjobs = ClientSocket().send_cmd('get_attrs')
             masterwin.update(serverjobs)
             #refresh interval in seconds
             time.sleep(0.5)

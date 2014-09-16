@@ -16,6 +16,8 @@ class Job(object):
     def __init__(self):
         #initialize all attrs for client updates
         self.status = 'Empty'
+        self.queuetime = time.time()
+        self.priority = 0
         self.starttime = None #time render() called
         self.stoptime = None #time masterthread stopped
         self.complist = []
@@ -67,6 +69,8 @@ class Job(object):
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
+        print('extraframes:', extraframes, type(extraframes))#debug
+
         self.render_engine = render_engine
         self.complist = complist
         for computer in self.complist:
@@ -78,23 +82,18 @@ class Job(object):
         self.totalframes = []
         for i in range(self.startframe, self.endframe + len(self.extraframes) + 1):
             self.totalframes.append(0)
-
         #create LifoQueue and put frames
         self.queue = queue.LifoQueue(0)
         framelist = list(range(self.startframe, self.endframe + 1))
         framelist.reverse()
         for frame in framelist:
             self.queue.put(frame)
-
-        #check for duplicates in start-end range
-        if len(self.extraframes) > 0:
-            for frame in self.extraframes:
-                if frame in framelist:
-                    self.extraframes.remove(i)
         #render extraframes first, lowest number first
         #check again to make sure there are still extraframes
-        if len(self.extraframes) > 0:
-            self.extraframes.sort().reverse()
+        if self.extraframes:
+            print('self.extraframes', self.extraframes, type(self.extraframes))
+            self.extraframes.sort()
+            self.extraframes.reverse()
             for frame in self.extraframes:
                 self.queue.put(frame)
         self.renderlog = RenderLog(self.path, self.startframe, self.endframe, 
@@ -408,6 +407,8 @@ class Job(object):
         '''Returns dict containing all status-related attributes and times.'''
         attrdict = {
             'status':self.status,
+            'queuetime':self.queuetime,
+            'priority':self.priority,
             'starttime':self.starttime,
             'stoptime':self.stoptime,
             'complist':self.complist,
@@ -514,6 +515,10 @@ class Job(object):
             return True
         else:
             return True
+
+    def set_priority(self, priority):
+        self.priority = priority
+        return True
 
 
 class RenderLog(Job):
@@ -645,6 +650,52 @@ class RenderLog(Job):
                        str(newtime[2])+'m '+str(newtime[3])+'s')
         return timestr
 
+
+def check_autostart():
+    '''Starts next job and returns true if global autostart is enabled 
+    and new job is ready.'''
+    renders = 0 #number of currently-running renders
+    for index in renderjobs:
+        if renderjobs[index].status == 'Rendering':
+            renders += 1
+    if renders >= maxglobalrenders:
+        return False
+    #check for high priority items
+    priorities = {}
+    times = {}
+    for index in renderjobs:
+        if renderjobs[index].status == 'Waiting':
+            priority = renderjobs[index].priority
+            queuetime = renderjobs[index].queuetime
+            if priority > 0:
+                priorities[priority] = index
+                times[queuetime] = index
+    if len(priorities) > 0:
+        index = times[min(times)]
+        renderjobs[index].render()
+        return True
+    #no high priority items found
+    times = {}
+    for index in renderjobs:
+        if renderjobs[index].status == 'Waiting':
+            queuetime = renderjobs[index].queuetime
+            times[queuetime] = index
+    if len(times) > 0:
+        index = times[min(times)]
+        renderjobs[index].render() 
+        return True
+    print('nothing found to start')#debug
+    return False
+
+
+def update_loop():
+    '''Handles miscellaneous tasks that need to be carried out on a regular
+    interval. Runs in separate thread to prevent blocking other processes.'''
+    while True:
+        print('checking autostart')
+        if autostart:
+            check_autostart()
+        time.sleep(30)
 
 
 #----------GLOBAL VARIABLES----------
@@ -896,20 +947,20 @@ class ClientThread(threading.Thread):
     def _clientthread(self):
         command = self._recvall()
         #don't print anything if request is for status update
-        if not command == 'get_all_attrs': print('received command', command)
+        if not command == 'get_attrs': print('received command', command)
         #validate command first
         if not command in allowed_commands:
             self._sendmsg('False')
-            if not command == 'get_all_attrs': print('command invalid')
+            if not command == 'get_attrs': print('command invalid')
             return
         else:
             self._sendmsg('True')
-            if not command == 'get_all_attrs': print('comamnd valid')
+            if not command == 'get_attrs': print('comamnd valid')
         #now get the args
         kwargs = self._recvall()
-        if not command == 'get_all_attrs': print('received kwargs', kwargs)
+        if not command == 'get_attrs': print('received kwargs', kwargs)
         return_str = eval(command)(kwargs)
-        if not command == 'get_all_attrs': print('sending return_str', return_str)
+        if not command == 'get_attrs': print('sending return_str', return_str)
         #send the return string (T/F for success or fail, or other requested data)
         self._sendmsg(return_str)
         self.clientsocket.close()
@@ -924,10 +975,10 @@ class ClientThread(threading.Thread):
 #list of permitted commands
 #must match function names exactly
 allowed_commands= [
-    'cmdtest', 'get_all_attrs', 'job_exists', 'enqueue',
+    'cmdtest', 'get_attrs', 'job_exists', 'enqueue',
     'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
     'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
-    'toggle_verbose', 'toggle_autostart', 'check_path_exists'
+    'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority'
     ]
 
 def cmdtest(kwargs):
@@ -937,8 +988,17 @@ def cmdtest(kwargs):
         print('arg:', arg, kwargs[arg])
     return 'cmdtest() success'
 
-def get_all_attrs(kwargs=None):
-    '''Returns dict of attributes for all Job instances.'''
+def get_attrs(kwargs=None):
+    '''Returns dict of attributes for all Job instances. If index is specified,
+    returns attributes for that job only.'''
+    if kwargs:
+        index = kwargs['index']
+        if not index in renderjobs:
+            return 'Index not found.'
+        else:
+            attrdict = renderjobs[index].get_attrs()
+            return attrdict
+    #if no index specified, send everything
     attrdict = {}
     for i in renderjobs:
         attrdict[i] = renderjobs[i].get_attrs()
@@ -956,7 +1016,7 @@ def create_job(kwargs):
     index = kwargs['index']
     #overwriting is OK, but not while job is rendering
     if index in renderjobs:
-        if renderjobs[index].status() == 'Rendering':
+        if renderjobs[index].status == 'Rendering':
             return False
     renderjobs[index] = Job()
     return True
@@ -970,6 +1030,7 @@ def enqueue(kwargs):
     extras = kwargs['extraframes']
     render_engine = kwargs['render_engine']
     complist = kwargs['complist']
+    print('extraframes:', extras, type(extras))#debug
 
     reply = renderjobs[index].enqueue(
         path, startframe, endframe, render_engine, complist, 
@@ -1083,6 +1144,15 @@ def check_path_exists(kwargs=None):
         return True
     else:
         return False
+
+def set_job_priority(kwargs):
+    '''Sets the render priority for a given index.'''
+    index = kwargs['index']
+    priority = kwargs['priority']
+    if not index in renderjobs:
+        return 'Index not found'
+    renderjobs[index].set_priority(priority)
+    return 'Priority of ' + index + ' set to ' + str(priority)
     
 
 
@@ -1091,6 +1161,8 @@ def check_path_exists(kwargs=None):
 
 if __name__ == '__main__':
     renderjobs = {}
+    updatethread = threading.Thread(target=update_loop)
+    updatethread.start()
 
     #socket server to handle interface interactions
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

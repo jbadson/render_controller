@@ -15,17 +15,19 @@ import json
 import cfgfile
 import framechecker
 
-host = 'localhost'
-port = 2020
+default_host = 'localhost'
+default_port = 2020
 illegal_characters = [' ', ';', '&'] #not allowed in path
 
 class ClientSocket(object):
     '''Wrapper for socket to handle command-response protocol for interacting 
     with the render controller server.'''
+    HOST = default_host
+    PORT = default_port
 
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((host, port))
+        self.socket.connect((ClientSocket.HOST, ClientSocket.PORT))
 
     def _recvall(self):
         '''Receives message of specified length, returns it as a string.'''
@@ -106,8 +108,9 @@ def get_config_vars():
 
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
-    statthread.end()
-    #masterwin.destroy()
+    #statthread.end()
+    #StatusThread.stop = True
+    masterwin.exit()
     raise SystemExit
 
 
@@ -187,7 +190,51 @@ class MasterWin(tk.Tk):
         #format is {'index':object}
         self.jobboxes = {}
         self.comppanels = {}
+        #at startup, display startup frame first
+        self._setup_panel()
+
+    def _setup_panel(self):
+        '''Gets server connection info from the user.'''
+        self.setupframe = ttk.Frame(self)
+        self.setupframe.pack(padx=50, pady=50)
+        self.tk_host = tk.StringVar()
+        self.tk_port = tk.StringVar()
+        self.statthread = StatusThread()
+        #put default values
+        self.tk_host.set(ClientSocket.HOST)
+        self.tk_port.set(ClientSocket.PORT)
+        ttk.Label(
+            self.setupframe, text='Connection Setup', font='TkCaptionFont'
+            ).grid(row=0, column=0, columnspan=2, pady=10)
+        ttk.Label(self.setupframe, text='Server address:').grid(
+            row=1, column=0, sticky=tk.E, pady=5
+            )
+        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_host).grid(
+            row=1, column=1, sticky=tk.W, padx=5, pady=5
+            )
+        ttk.Label(self.setupframe, text='Port:').grid(
+            row=2, column=0, sticky=tk.E, pady=5
+            )
+        ttk.Entry(self.setupframe, width=10, textvariable=self.tk_port).grid(
+            row=2, column=1, sticky=tk.W, padx=5, pady=5
+            )
+        ttk.Button(
+            self.setupframe, text='Connect', command=self._apply_setup
+            ).grid(row=3, column=0, columnspan=2, padx=10, pady=10)
+        self.bind('<Return>', self._apply_setup)
+        self.bind('<KP_Enter>', self._apply_setup)
+
+    def _apply_setup(self, event=None):
+        '''Apply server config info then build the main window.'''
+        print('setup done') #debug
+        self.setupframe.destroy()
+        #configure host and port class attributes
+        ClientSocket.HOST = self.tk_host.get()
+        ClientSocket.PORT = int(self.tk_port.get())
         self._build_main()
+        self.statthread.start()
+        self.unbind('<Return>')
+        self.unbind('<KP_Enter>')
 
     def _build_main(self):
         '''Creates the main window elements.'''
@@ -229,7 +276,7 @@ class MasterWin(tk.Tk):
         
         self.right_frame = ttk.LabelFrame(midblock, width=921)
         self.right_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.BOTH)
-        
+
     def update(self, serverjobs):
         '''Takes dict containing all server job info and updates 
         children based on that.'''
@@ -255,6 +302,10 @@ class MasterWin(tk.Tk):
             #update comp panel
             self.comppanels[index].update(attrdict)
 
+    def exit(self):
+        '''Shuts down the status thread cleanly before window closes.'''
+        self.statthread.end()
+
     def _new_job(self):
         '''Opens an instance of InputWindow to create a new job on the server.
 
@@ -269,7 +320,6 @@ class MasterWin(tk.Tk):
         GUI elements are not removed directly by this function. They are deleted
         by self.update() when called by the status thread to ensure that the GUI 
         state is only changed if the server state was successfully changed.'''
-        #XXX Need safety checking here
         for index in self.jobboxes:
             if self.jobboxes[index].selected:
                 break
@@ -348,19 +398,12 @@ class ComputerPanel(ttk.Frame):
         ttk.Button(
             buttonbox, text='Resume', command=self._resume_render
             ).pack(side=tk.LEFT)
-        '''
-        self.primenu = ttk.Menubutton(buttonbox, text='Priority')
-        self.menu = tk.Menu(self.primenu)
-        self.primenu.config(menu=self.menu)
-        self.tk_priorityority = tk.IntVar()
-        self.tk_priorityority.set(0)
-        self.menu.add_checkbutton(label='High', command=self._raise_priority, variable=self.tk_priorityority, value=1)
-        self.menu.add_checkbutton(label='Normal', command=self._norm_priority, variable=self.tk_priorityority, value=0)
-        self.primenu.pack(side=tk.LEFT)
-        '''
         ttk.Label(buttonbox, text='Priority:').pack(side=tk.LEFT, padx=(5, 0))
         self.tk_priority = tk.StringVar()
-        self.primenu = ttk.OptionMenu(buttonbox, self.tk_priority, 'Normal', 'Normal', 'High', command=self._set_priority)
+        self.primenu = ttk.OptionMenu(
+            buttonbox, self.tk_priority, 'Normal', 'Normal', 'High', 
+            command=self._set_priority
+            )
         self.primenu.pack(side=tk.LEFT, pady=(0, 2))
         #now create the main array of computer boxes
         self._create_computer_array()
@@ -659,7 +702,7 @@ class SmallBox(_statusbox, tk.Frame):
             try:
                 child.config(bg=color)
             except tk.TclError:
-                #ttk.Progressbar doesn't have a bg element & will raise exception
+                #ttk.Progressbar doesn't have a bg attr & will raise exception
                 pass
             if len(child.winfo_children()) > 0:
                 for babby in child.winfo_children():
@@ -1218,6 +1261,4 @@ class StatusThread(threading.Thread):
 
 if __name__ == '__main__':
     masterwin = MasterWin()
-    statthread = StatusThread()
-    statthread.start()
     masterwin.mainloop()

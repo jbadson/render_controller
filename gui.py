@@ -280,6 +280,12 @@ class MasterWin(tk.Tk):
     def update(self, serverjobs):
         '''Takes dict containing all server job info and updates 
         children based on that.'''
+        #get the extra stuff first
+        _extra_info = serverjobs['_EXTRA_']
+        self.verbosity.set(_extra_info['verbose'])
+        self.autostart.set(_extra_info['autostart'])
+        del serverjobs['_EXTRA_']
+        #create local job instances for any new jobs on server
         for index in serverjobs:
             if not index in self.jobboxes:
                 self._create_job(index)

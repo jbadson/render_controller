@@ -995,8 +995,14 @@ def cmdtest(kwargs):
     return 'cmdtest() success'
 
 def get_attrs(kwargs=None):
-    '''Returns dict of attributes for all Job instances. If index is specified,
-    returns attributes for that job only.'''
+    '''Returns dict of attributes for a given index. If no index is specified,
+    returns a dict containing key:dictionary pairs for every job instance
+    on the server where key is the job's index and the dict contains all of
+    its attributes.
+
+    Also if no index is specified, an entry called _EXTRA_ will be appended
+    that contains non-job-related information about the server state that
+    needs to be updated in client GUIs immediately.'''
     if kwargs:
         index = kwargs['index']
         if not index in renderjobs:
@@ -1008,6 +1014,8 @@ def get_attrs(kwargs=None):
     attrdict = {}
     for i in renderjobs:
         attrdict[i] = renderjobs[i].get_attrs()
+    #append non-job-related update info
+    attrdict['_EXTRA_'] = {'autostart':autostart, 'verbose':verbose}
     return attrdict
 
 def job_exists(kwargs):

@@ -188,7 +188,9 @@ class MasterWin(tk.Tk):
         self.autostart.set(autostart)
         #create dictionaries to hold job-specific GUI elements
         #format is {'index':object}
+        self.firstrun = True
         self.jobboxes = {}
+        self.boxlist = [] #ordered list of job boxes (for sorting)
         self.comppanels = {}
         #at startup, display startup frame first
         self._setup_panel()
@@ -303,10 +305,13 @@ class MasterWin(tk.Tk):
             #update job box
             self.jobboxes[index].update(
                 attrdict['status'], attrdict['startframe'], attrdict['endframe'], 
-                attrdict['path'], attrdict['progress'], attrdict['times']
+                attrdict['path'], attrdict['progress'], attrdict['times'],
+                attrdict['queuetime']
                 )
             #update comp panel
             self.comppanels[index].update(attrdict)
+        #attempt re-sorting job boxes
+        self.sort_jobboxes()
 
     def exit(self):
         '''Shuts down the status thread cleanly before window closes.'''
@@ -342,22 +347,78 @@ class MasterWin(tk.Tk):
         '''Creates GUI elements for a given index.'''
         #create job box
         self.jobboxes[index] = SmallBox(master=self.jobbox_frame, index=index)
+        self.jobboxes[index].pack()
+        #let sort_jobboxes pack everything in the correct place
+        #put box in list (at top for now)
+        self.boxlist.insert(0, self.jobboxes[index])
         #create comp panel
         self.comppanels[index] = ComputerPanel(master=self.right_frame, 
                                                index=index)
-        #select the most recently added job
-        #XXX This might be annoying or worse if another client adds a job while
-        #you're editing. Probably should have a different way of doing this.
-        #self.select_job(index)
 
     def _remove_job(self, index):
         '''Permanently removes GUI elements for a given index.'''
         #delete job box
         self.jobboxes[index].destroy()
+        self.boxlist.remove(self.jobboxes[index])
         del self.jobboxes[index]
         #delete comp panel
         self.comppanels[index].destroy()
         del self.comppanels[index]
+
+    def sort_jobboxes(self):
+        '''Sorts the job status boxes vertically according to sorting rules.
+        First sorts by status, then by queuetime.'''
+        boxlist = []
+        done, stopped, waiting, paused, rendering = [], [], [], [], []
+        #first sort boxes into categories by status
+        for i in self.jobboxes:
+            box = self.jobboxes[i]
+            if box.status == 'Rendering':
+                rendering.append(box)
+            elif box.status == 'Paused':
+                paused.append(box)
+            elif box.status == 'Waiting':
+                waiting.append(box)
+            elif box.status == 'Stopped':
+                stopped.append(box)
+            else:
+                done.append(box)
+        #sort boxes within each category chronologically
+        if len(rendering) > 1:
+            rendering = self.sort_chrono(rendering)
+        if len(paused) > 1:
+            paused = self.sort_chrono(paused)
+        if len(waiting) > 1:
+            waiting = self.sort_chrono(waiting)
+        if len(stopped) > 1:
+            stopped = self.sort_chrono(stopped)
+        if len(done) > 1:
+            done = self.sort_chrono(done)
+        boxlist = rendering + paused + waiting + stopped + done
+        if boxlist == self.boxlist:
+            return
+        else:
+            self.boxlist = boxlist
+        for index in self.jobboxes:
+            self.jobboxes[index].pack_forget()
+        for box in self.boxlist:
+            box.pack()
+        if self.firstrun:
+            self.select_job(self.boxlist[0].index)
+            self.firstrun = False
+
+    def sort_chrono(self, sortlist):
+        '''Takes a list of SmallBox instances in any order, returns the list
+        sorted chronologically by queue time.'''
+        boxes = {}
+        for box in sortlist:
+            boxes[box.queuetime] = box
+        qtimes = sorted(boxes.keys())
+        newlist = []
+        for time in qtimes:
+            newlist.append(boxes[time])
+        newlist.reverse()
+        return newlist
 
     def select_job(self, index):
         for i in self.jobboxes:
@@ -618,7 +679,18 @@ class BigBox(_statusbox, ttk.LabelFrame):
 
     def update(self, status, startframe, endframe, extraframes, 
                path, progress, times):
-        self.statuslbl.config(text=status)
+        self.status = status
+        if self.status == 'Rendering':
+            color = 'DarkGreen'
+        elif self.status == 'Waiting':
+            color = 'DarkGoldenrod'
+        elif self.status == 'Paused':
+            color = 'DarkOrchid'
+        elif self.status =='Stopped':
+            color = 'FireBrick'
+        elif self.status == 'Finished':
+            color = 'DarkGray'
+        self.statuslbl.config(text=status, fg=color)
         self.startlabel.config(text=str(startframe))
         self.endlabel.config(text=str(endframe))
         self.pathlabel.config(text=path)
@@ -642,12 +714,14 @@ class SmallBox(_statusbox, tk.Frame):
     '''Small job status box for the left window pane.'''
     def __init__(self, master=None, index='0'):
         self.index = index
+        self.status = 'Empty'
+        self.queuetime = 0
         self.selected = False
         self.bgcolor = 'white'
         self.progress = tk.IntVar()
         self.font='TkSmallCaptionFont'
         tk.Frame.__init__(self, master=master)
-        self.pack()
+        #self.pack()
         self._draw()
 
     def _draw(self):
@@ -714,9 +788,24 @@ class SmallBox(_statusbox, tk.Frame):
                 for babby in child.winfo_children():
                     babby.config(bg=color)
 
-    def update(self, status, startframe, endframe, path, progress, times):
+    def update(self, status, startframe, endframe, path, progress, times, 
+               queuetime):
+        #info needed for sorting boxes in GUI
+        self.status = status
+        if self.status == 'Rendering':
+            color = 'DarkGreen'
+        elif self.status == 'Waiting':
+            color = 'DarkGoldenrod'
+        elif self.status == 'Paused':
+            color = 'DarkOrchid'
+        elif self.status =='Stopped':
+            color = 'FireBrick'
+        elif self.status == 'Finished':
+            color = 'DarkGray'
+
+        self.queuetime = queuetime
         filename = os.path.basename(path)
-        self.statuslbl.config(text=status)
+        self.statuslbl.config(text=status, fg=color)
         self.namelabel.config(text=filename)
         self.progress.set(progress)
         self.proglabel.config(text=str(round(progress, 1)))

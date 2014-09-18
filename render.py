@@ -490,25 +490,28 @@ class Job(object):
                 pass
         return True
 
-    def kill_later(self):
+    def kill_later(self, finalstatus='Stopped'):
         '''Kills job but allows any currently rendering frames to finish.
         NOTE: Does not monitor progress of currently rendering frames, so if they
         do not finish there will be missing frames, or if job is immediately
         resumed there may be multiple render processes running on each computer
-        until the old frames finish.'''
+        until the old frames finish.
+
+        The finalstatus attribute can be used to pass a special status
+        (i.e. 'Paused') to be assigned when the function is complete.'''
         if not self.status == 'Rendering':
             return False
         self.killflag = True
         self._stop_timer()
         with threadlock:
             self.renderlog.stop(self.get_times())
-        self.status = 'Stopped'
+        self.status = finalstatus
         return True
 
     def resume(self, startnow):
         '''Resumes a render that was previously stopped. If startnow == False,
         render will be placed in queue with status 'Waiting' but not started.'''
-        if not self.status == 'Stopped':
+        if self.status != 'Stopped':
             return False
         self.killflag = False
         for computer in computers:
@@ -519,6 +522,16 @@ class Job(object):
             return True
         else:
             return True
+
+    def autostart(self):
+        '''Handles starting the current job from the check_autostart function.'''
+        if self.status == 'Waiting':
+            print('got to autostart() with status waiting')
+            self.render()
+        else:
+            self.status = 'Stopped'
+            print('got to autostart() with status not waiting')
+            self.resume(startnow=True)
 
     def set_priority(self, priority):
         if priority == self.priority:
@@ -660,35 +673,61 @@ class RenderLog(Job):
 def check_autostart():
     '''Starts next job and returns true if global autostart is enabled 
     and new job is ready.'''
+    print('entered check_autostart()')
+    proceed_statuses = ['Waiting', 'Paused']
+    #first check for high priority jobs
+    times = {}
+    #get list of all high priority jobs
+    for index in renderjobs:
+        print('loop 1:', index)
+        if renderjobs[index].priority == 'High':
+            print('high pri:', index)
+            #if high pri job is rendering, assume it's the oldest and move on
+            if renderjobs[index].status == 'Rendering':
+                print('High priority render in progress:', index)
+                return False
+            elif renderjobs[index].status in proceed_statuses:
+                print('high pri proceed', index)
+                queuetime = renderjobs[index].queuetime
+                times[queuetime] = index
+    #if ready high pri jobs were found but none were running, start the oldest
+    if times:
+        print('times  True')
+        index = times[min(times)]
+        print('index:', index)
+        #stop all other renders
+        for job in renderjobs:
+            print('loop 2:', job)
+            if renderjobs[job].status == 'Rendering':
+                print('killing ', job)
+                renderjobs[job].kill_later(finalstatus='Paused')
+        print('Found high priority job. Stopping all others, starting '
+              'render of ' + str(index))
+        print('starting', index)
+        renderjobs[index].autostart()
+        return True
+    #if no high priority renders, run the normal autostart algorithm
     renders = 0 #number of currently-running renders
     for index in renderjobs:
+        print('loop 3:', index)
         if renderjobs[index].status == 'Rendering':
+            print(index, 'rendering')
             renders += 1
     if renders >= maxglobalrenders:
+        print('renders >= maxglobalrenders', renders, maxglobalrenders)
         return False
-    #check for high priority items
-    #priorities = {}
     times = {}
     for index in renderjobs:
-        if renderjobs[index].status == 'Waiting':
-            #priority = renderjobs[index].priority
-            queuetime = renderjobs[index].queuetime
-            if renderjobs[index].priority == 'High':
-                #priorities[priority] = index
-                times[queuetime] = index
-    if len(times) > 0:
-        index = times[min(times)]
-        renderjobs[index].render()
-        return True
-    #no high priority items found
-    times = {}
-    for index in renderjobs:
-        if renderjobs[index].status == 'Waiting':
+        print('loop 4:', index)
+        if renderjobs[index].status in proceed_statuses:
+            print('proceed: ', index)
             queuetime = renderjobs[index].queuetime
             times[queuetime] = index
-    if len(times) > 0:
+    if times:
+        print('times = True')
         index = times[min(times)]
-        renderjobs[index].render() 
+        print('starting ', index)
+        renderjobs[index].autostart() 
         return True
     print('nothing found to start')#debug
     return False
@@ -698,7 +737,7 @@ def update_loop():
     '''Handles miscellaneous tasks that need to be carried out on a regular
     interval. Runs in separate thread to prevent blocking other processes.'''
     while True:
-        print('checking autostart')
+        print('checking autostart status')
         if autostart:
             check_autostart()
         time.sleep(30)

@@ -673,63 +673,48 @@ class RenderLog(Job):
 def check_autostart():
     '''Starts next job and returns true if global autostart is enabled 
     and new job is ready.'''
-    print('entered check_autostart()')
     proceed_statuses = ['Waiting', 'Paused']
     #first check for high priority jobs
     times = {}
     #get list of all high priority jobs
     for index in renderjobs:
-        print('loop 1:', index)
         if renderjobs[index].priority == 'High':
-            print('high pri:', index)
             #if high pri job is rendering, assume it's the oldest and move on
             if renderjobs[index].status == 'Rendering':
                 print('High priority render in progress:', index)
                 return False
             elif renderjobs[index].status in proceed_statuses:
-                print('high pri proceed', index)
                 queuetime = renderjobs[index].queuetime
                 times[queuetime] = index
     #if ready high pri jobs were found but none were running, start the oldest
     if times:
-        print('times  True')
         index = times[min(times)]
-        print('index:', index)
         #stop all other renders
         for job in renderjobs:
-            print('loop 2:', job)
             if renderjobs[job].status == 'Rendering':
                 print('killing ', job)
                 renderjobs[job].kill_later(finalstatus='Paused')
-        print('Found high priority job. Stopping all others, starting '
-              'render of ' + str(index))
-        print('starting', index)
+        print('Autostart found high priority job. Stopping all renders, '
+              'starting render of ' + str(index))
         renderjobs[index].autostart()
         return True
     #if no high priority renders, run the normal autostart algorithm
     renders = 0 #number of currently-running renders
     for index in renderjobs:
-        print('loop 3:', index)
         if renderjobs[index].status == 'Rendering':
-            print(index, 'rendering')
             renders += 1
     if renders >= maxglobalrenders:
-        print('renders >= maxglobalrenders', renders, maxglobalrenders)
         return False
     times = {}
     for index in renderjobs:
-        print('loop 4:', index)
         if renderjobs[index].status in proceed_statuses:
-            print('proceed: ', index)
             queuetime = renderjobs[index].queuetime
             times[queuetime] = index
     if times:
-        print('times = True')
         index = times[min(times)]
-        print('starting ', index)
+        print('Autostart: starting', index)
         renderjobs[index].autostart() 
         return True
-    print('nothing found to start')#debug
     return False
 
 
@@ -737,7 +722,6 @@ def update_loop():
     '''Handles miscellaneous tasks that need to be carried out on a regular
     interval. Runs in separate thread to prevent blocking other processes.'''
     while True:
-        print('checking autostart status')
         if autostart:
             check_autostart()
         time.sleep(30)
@@ -1221,11 +1205,12 @@ if __name__ == '__main__':
     #socket server to handle interface interactions
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    host = socket.gethostname()
+    host = '' #all interfaces
+    hostname = socket.gethostname()
     port = 2020
     s.bind((host, port))
     s.listen(5)
-    print('Server now running on ' + host + ' port ' + str(port))
+    print('Server now running on ' + hostname + ' port ' + str(port))
     print('Press Crtl + C to stop...')
     while True:
         try:

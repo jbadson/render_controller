@@ -117,48 +117,51 @@ def quit(event=None):
 
 
 #----------CONFIG VARIABLES----------
-#client-specific config settings
-#these do not affect the server
-gui_cfg = cfgfile.ConfigFile(filename='gui_config.json')
-print('GUI config file: ' + str(gui_cfg.filepath()))
+class Config(object):
+    '''Object to hold global configuration variables as attributes. There are
+    two divisions: local (GUI) and server. The local variables are stored
+    in gui_config.json and affect only GUI-related features. Server variables are
+    obtained from the server and changes to them will affect all users.'''
+    def __init__(self):
+        self.cfg = cfgfile.ConfigFile(filename='gui_config.json')
+        if not self.cfg.exists():
+            print('No GUI config file found, creating one from defaults.')
+            guisettings = self.cfg.write(self.defaults())
+        else:
+            print('GUI config file found, reading...')
+            try:
+                guisettings = self.cfg.read()
+                if not len(guisettings) == len(self.defaults()):
+                    raise IndexError
+            except Exception:
+                print('GUI config file corrupt or incorrect. Creating new')
+                guisettings = self.cfg.write(self.defaults())
+        (
+        self.default_path, self.default_startframe, 
+        self.default_endframe, self.default_render_engine
+        ) = guisettings
 
-def set_gui_defaults():
-    '''Restores GUI config file variables to default values. Also use for creating
-    the initial config file.'''
-    #default values for fields in the input window
-    default_path = '/mnt/data/test_render/test_render.blend'
-    default_startframe = 1
-    default_endframe = 4
-    default_render_engine = 'blend'
-    return (default_path, default_startframe, default_endframe, 
-            default_render_engine)
+    def defaults(self):
+        '''Restores GUI config file variables to default values. Also used 
+        for creating the initial config file.'''
+        #default values for fields in the input window
+        default_path = '/mnt/data/test_render/test_render.blend'
+        default_startframe = 1
+        default_endframe = 4
+        default_render_engine = 'blend'
+        return (default_path, default_startframe, default_endframe, 
+                default_render_engine)
 
-if not gui_cfg.exists():
-    print('No GUI config file found, creating one from defaults.')
-    guisettings = gui_cfg.write(set_gui_defaults())
-else:
-    print('GUI config file found, reading...')
-    try:
-        guisettings = gui_cfg.read()
-        if not len(guisettings) == len(set_gui_defaults()):
-            raise IndexError
-    except Exception:
-        print('GUI config file corrupt or incorrect. Creating new')
-        guisettings = gui_cfg.write(set_gui_defaults())
-
-(
-default_path, default_startframe, 
-default_endframe, default_render_engine
-) = guisettings
-
-#server-specific config variables    
-#most of these aren't directly used by the GUI, but are needed for the prefs window
-(
-computers, fast, farm, renice_list, macs, blenderpath_mac, 
-blenderpath_linux, terragenpath_mac, terragenpath_linux, 
-allowed_filetypes, timeout, autostart, maxglobalrenders, 
-verbose, log_basepath 
-) = get_config_vars()
+    def get_server_cfg(self):
+        '''Gets config info from the server. Most of these aren't directly
+        used by the GUI, but are here for the preferences window.'''
+        servercfg = ClientSocket().send_cmd('get_config_vars')
+        (
+        self.computers, self.fast, self.farm, self.renice_list, self.macs, 
+        self.blenderpath_mac, self.blenderpath_linux, self.terragenpath_mac, 
+        self.terragenpath_linux, self.allowed_filetypes, self.timeout, 
+        self.autostart, self.maxglobalrenders, self.verbose, self.log_basepath 
+        ) = servercfg
 
 
 #XXX Some additional config stuff, decide where to put it later
@@ -182,10 +185,6 @@ class MasterWin(tk.Tk):
         self.config(bg=LightBGColor)
         #self.geometry('1257x740')
         self.minsize(width=1257, height=730)
-        self.verbosity = tk.IntVar()
-        self.verbosity.set(verbose)
-        self.autostart = tk.IntVar()
-        self.autostart.set(autostart)
         #create dictionaries to hold job-specific GUI elements
         #format is {'index':object}
         self.firstrun = True
@@ -233,6 +232,12 @@ class MasterWin(tk.Tk):
         #configure host and port class attributes
         ClientSocket.HOST = self.tk_host.get()
         ClientSocket.PORT = int(self.tk_port.get())
+        #get the server config variables
+        cfg.get_server_cfg()
+        self.verbosity = tk.IntVar()
+        self.verbosity.set(cfg.verbose)
+        self.autostart = tk.IntVar()
+        self.autostart.set(cfg.autostart)
         self._build_main()
         self.statthread.start()
         self.unbind('<Return>')
@@ -484,12 +489,12 @@ class ComputerPanel(ttk.Frame):
         self.cols = 3 
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(computers):
+        while n < len(cfg.computers):
             (x, y) = self._getcoords(n, row)
-            self.compcubes[computers[n]] = CompCube(
-                master=self.compframe, computer=computers[n], index=self.index
+            self.compcubes[cfg.computers[n]] = CompCube(
+                master=self.compframe, computer=cfg.computers[n], index=self.index
                 )
-            self.compcubes[computers[n]].grid(row=y, column=x, padx=5)
+            self.compcubes[cfg.computers[n]].grid(row=y, column=x, padx=5)
             n += 1
             if x == self.cols - 1:
                 row += 1
@@ -574,7 +579,7 @@ class ComputerPanel(ttk.Frame):
             attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
             attrdict['progress'], attrdict['times']
             )
-        for computer in computers:
+        for computer in cfg.computers:
             compstatus = attrdict['compstatus'][computer]
             self.compcubes[computer].update(
                 compstatus['frame'], compstatus['progress'], compstatus['pool']
@@ -913,9 +918,9 @@ class InputWindow(tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.
     If passed optional arguments, these will be used to populate the fields
     in the new window.'''
-    def __init__(self, index=None, path=default_path, start=default_startframe,
-                 end=default_endframe, extras=None, 
-                 engine=default_render_engine, complist=None):
+    def __init__(self, index=None, path=None, start=None,
+                 end=None, extras=None, 
+                 engine=None, complist=None):
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
@@ -1000,7 +1005,7 @@ class InputWindow(tk.Toplevel):
         '''Generates grid of computer checkboxes.'''
         #create variables for computer buttons
         self.compvars = {}
-        for computer in computers:
+        for computer in cfg.computers:
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
         if self.complist:
@@ -1015,26 +1020,26 @@ class InputWindow(tk.Toplevel):
             ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         #generate a grid with specified number of columns
         cols = 5
-        rows = len(computers) // cols
+        rows = len(cfg.computers) // cols
         i = 0
         for row in range(1, rows + 2):
             for col in range(0, cols):
                 ttk.Checkbutton(
-                    master, text=computers[i], 
-                    variable=self.compvars[computers[i]]
+                    master, text=cfg.computers[i], 
+                    variable=self.compvars[cfg.computers[i]]
                     ).grid(row=row, column=col, padx=5, pady=5, sticky=tk.W)
                 i += 1
-                if i == len(computers): break
+                if i == len(cfg.computers): break
 
     def _check_all(self):
         '''Sets all computer buttons to the checked state.'''
         self._uncheck_all()
-        for computer in computers:
+        for computer in cfg.computers:
             self.compvars[computer].set(1)
 
     def _uncheck_all(self):
         '''Sets all computer buttons to the unchecked state.'''
-        for computer in computers:
+        for computer in cfg.computers:
             self.compvars[computer].set(0)
 
     def _get_path(self):
@@ -1236,7 +1241,7 @@ class MissingFramesWindow(tk.Toplevel):
             return
         self.checker = framechecker.Framechecker(
             renderpath, startframe, endframe,
-            allowed_extensions=allowed_filetypes
+            allowed_extensions=cfg.allowed_filetypes
             )
         self.left, self.right = self.checker.calculate_indices()
         lists = self.checker.generate_lists(self.left, self.right)
@@ -1355,5 +1360,6 @@ class StatusThread(threading.Thread):
 
 
 if __name__ == '__main__':
+    cfg = Config()
     masterwin = MasterWin()
     masterwin.mainloop()

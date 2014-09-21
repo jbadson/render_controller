@@ -288,6 +288,7 @@ class MasterWin(tk.Tk):
         '''Takes dict containing all server job info and updates 
         children based on that.'''
         #get the extra stuff first
+        self.serverjobs = serverjobs
         _extra_info = serverjobs['_EXTRA_']
         self.verbosity.set(_extra_info['verbose'])
         self.autostart.set(_extra_info['autostart'])
@@ -437,7 +438,17 @@ class MasterWin(tk.Tk):
         self.comppanels[index].pack_forget()
 
     def _checkframes(self):
-        '''Opens check missing frames window.'''
+        '''Opens check missing frames window. If a job is currently selected,
+        data for that job will be put into the corresponding fields in the
+        new window.'''
+        for index in self.jobboxes:
+            if self.jobboxes[index].selected:
+                print(index, 'selected, populating checkframes fields')
+                job = self.serverjobs[index]
+                self.checkwin = MissingFramesWindow(
+                    job['path'], job['startframe'], job['endframe']
+                    )
+                return
         self.checkwin = MissingFramesWindow()
 
     def _toggle_verbose(self):
@@ -918,8 +929,7 @@ class InputWindow(tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.
     If passed optional arguments, these will be used to populate the fields
     in the new window.'''
-    def __init__(self, index=None, path=None, start=None,
-                 end=None, extras=None, 
+    def __init__(self, index=None, path=None, start=None, end=None, extras=None, 
                  engine=None, complist=None):
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
@@ -929,6 +939,11 @@ class InputWindow(tk.Toplevel):
         self.bind('<Escape>', lambda x: self.destroy())
         self.config(bg='gray90')
         self.index = index
+        if not self.index:
+            path = cfg.default_path
+            start = cfg.default_startframe
+            end = cfg.default_endframe
+            engine = cfg.default_render_engine
         self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
@@ -1128,7 +1143,7 @@ class InputWindow(tk.Toplevel):
 
 
 class MissingFramesWindow(tk.Toplevel):
-    def __init__(self):
+    def __init__(self, renderpath=None, startframe=None, endframe=None):
         tk.Toplevel.__init__(self)
         self.config(bg=LightBGColor)
         self.bind('<Command-q>', quit) 
@@ -1136,6 +1151,9 @@ class MissingFramesWindow(tk.Toplevel):
         self.bind('<Return>', self._start)
         self.bind('<KP_Enter>', self._start)
         self.bind('<Escape>', lambda x: self.destroy())
+        self.renderpath = renderpath
+        self.startframe = startframe
+        self.endframe = endframe
         self.checkjob = tk.IntVar()
         self.check_path = tk.StringVar()
         self.check_startframe = tk.StringVar()
@@ -1157,7 +1175,7 @@ class MissingFramesWindow(tk.Toplevel):
             outerframe, width=50, textvariable=self.check_path
             ).grid(row=0, column=1, columnspan=2, sticky=tk.W, padx=5, pady=5)
         ttk.Button(
-            outerframe, text='Browse'
+            outerframe, text='Browse', command=self._browse_path
             ).grid(row=0, column=3, padx=5, pady=5)
         ttk.Label(
             outerframe, text='Start frame:'
@@ -1216,10 +1234,20 @@ class MissingFramesWindow(tk.Toplevel):
         ttk.Button(
             self, text='Done', command=self.destroy, style='Toolbutton'
             ).pack(padx=15, pady=(0, 15), anchor=tk.W)
-        #XXX some temp settings
-        self.check_path.set('/Users/igp/test_render/render/')
-        self.check_startframe.set('1')
-        self.check_endframe.set('15')
+        #Insert initial text field values
+        self.check_path.set(self.renderpath)
+        self.check_startframe.set(self.startframe)
+        self.check_endframe.set(self.endframe)
+
+    def _browse_path(self):
+        path = tk_filedialog.askdirectory()
+        #put original contents back into entry field if user cancels dialog
+        if not path:
+            path = self.check_path.get()
+        #search for a 'render' directory one directory below
+        #XXX use pathlib.PurePath to recursively search for render/ dir
+        self.check_path.set(path)
+    
 
     def _start(self, event=None):
         renderpath = self.check_path.get()

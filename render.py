@@ -461,9 +461,11 @@ class Job(object):
                 raise RuntimeError
         except Exception:
             return False
+        #XXX Do NOT remove computer from pool here b/c it will take computers
+        #out of service permanently if frame times out
         #remove computer from pool unless render is being stopped
-        if self.compstatus[computer]['pool'] and self.status != 'Stopped':
-            self.remove_computer(computer)
+        #if self.compstatus[computer]['pool'] and self.status != 'Stopped':
+        #    self.remove_computer(computer)
         with threadlock:
             self.queue.put(frame)
         subprocess.call('ssh igp@'+computer+' "kill '+str(pid)+'"', shell=True)
@@ -1101,7 +1103,12 @@ def toggle_comp(kwargs):
 def kill_single_thread(kwargs):
     index = kwargs['index']
     computer = kwargs['computer']
+    #first remove computer from the pool
+    reply = renderjobs[index].remove_computer(computer)
+    if not reply:
+        return 'Failed to kill thread, unable to remove computer from pool.'
     reply = renderjobs[index].kill_thread(computer)
+    #remove computer
     if reply:
         pid = reply
         return 'Sent kill signal for pid '+str(pid)+' on '+computer

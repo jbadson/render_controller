@@ -1069,15 +1069,15 @@ class Server(object):
                      'jobs? (Y/n)') == 'Y':
                 print('Ignoring saved state file')
                 return
-        jobs = savedstate.read()
-        for index in jobs:
-            self.renderjobs[index] = Job()
-            reply = self.renderjobs[index].set_attrs(jobs[index])
-            if reply:
-                print('Restored job ', index)
-            else:
-                print('Unable to restore job ', index)
-        print('Server state restored.')
+            jobs = savedstate.read()
+            for index in jobs:
+                self.renderjobs[index] = Job()
+                reply = self.renderjobs[index].set_attrs(jobs[index])
+                if reply:
+                    print('Restored job ', index)
+                else:
+                    print('Unable to restore job ', index)
+            print('Server state restored.')
 
     def cmdtest(self, kwargs):
         '''a basic test of client-server command-response protocol'''

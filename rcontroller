@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/python3
 
 '''IGP Render Controller Version 5'''
 import sys

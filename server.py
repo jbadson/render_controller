@@ -24,8 +24,9 @@ class Job(object):
         self.complist = []
         #generate dict of computer statuses
         self.compstatus = dict()
-        for computer in computers:
-            self.compstatus[computer] = self._reset_compstatus(computer)
+        for computer in Config.computers:
+            self._reset_compstatus(computer)
+            #self.compstatus[computer] = self._reset_compstatus(computer)
         self.path = None
         self.startframe = None
         self.endframe = None
@@ -40,10 +41,14 @@ class Job(object):
             pool = True
         else:
             pool = False
-        return {
+        self.compstatus[computer] = {
             'active':False, 'frame':None, 'pid':None, 'timer':None, 
             'progress':0.0, 'error':None, 'pool':pool
             }
+        #return {
+        #    'active':False, 'frame':None, 'pid':None, 'timer':None, 
+        #    'progress':0.0, 'error':None, 'pool':pool
+        #    }
 
     def get_job_progress(self):
         '''Returns the percent complete for the job.'''
@@ -87,6 +92,8 @@ class Job(object):
         for i in range(self.startframe, self.endframe + len(self.extraframes) + 1):
             self.totalframes.append(0)
         #create LifoQueue and put frames
+        #using Lifo (last-in-first-out) so that frames returned to queue b/c
+        #of problems during render are reassigned first
         self.queue = queue.LifoQueue(0)
         framelist = list(range(self.startframe, self.endframe + 1))
         framelist.reverse()
@@ -146,7 +153,7 @@ class Job(object):
                 self.renderlog.finished(self.get_times())
                 break
     
-            for computer in computers:
+            for computer in Config.computers:
                 time.sleep(0.01)
                 if not self.compstatus[computer]['pool']:
                     continue
@@ -171,7 +178,7 @@ class Job(object):
                 elif computer in self.skiplist:
                     continue
                 #if computer is active, check its timeout status
-                elif time.time() - self.compstatus[computer]['timer'] > timeout:
+                elif time.time() - self.compstatus[computer]['timer'] > Config.timeout:
                     frame = self.compstatus[computer]['frame']
                     print('Frame ' + str(frame) + ' on ' + computer + 
                           ' timed out in render loop. Adding to skiplist')
@@ -199,10 +206,10 @@ class Job(object):
         parse output from Blender's internal engine correctly.'''
 
         print('started _renderthread()', frame, computer ) #debug
-        if computer in macs:
-            renderpath = blenderpath_mac
+        if computer in Config.macs:
+            renderpath = Config.blenderpath_mac
         else:
-            renderpath = blenderpath_linux
+            renderpath = Config.blenderpath_linux
         command = subprocess.Popen(
             'ssh igp@' + computer + ' "' + renderpath +
              ' -b ' + self.path + ' -f ' + str(frame) + 
@@ -219,7 +226,7 @@ class Job(object):
             #reset timeout timer every time an update is received
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
-            if verbose:
+            if Config.verbose:
                 with threadlock:
                     print(line)
             #calculate progress based on tiles
@@ -233,16 +240,17 @@ class Job(object):
                 print('PID detected: ', pid)#debug
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
-                if computer in renice_list:
+                if computer in Config.renice_list:
                     subprocess.call('ssh igp@' + computer + ' "renice 20 -p ' + 
                                      str(pid) + '"', shell=True)
                 #remove oldest item from skiplist if render started successfully
                 with threadlock:
                     if len(self.skiplist) > 0:
                         skipcomp = self.skiplist.pop(0)
-                        self.compstatus[skipcomp] = (
-                            self._reset_compstatus(skipcomp)
-                            )
+                        self._reset_compstatus(skipcomp)
+                        #self.compstatus[skipcomp] = (
+                        #    self._reset_compstatus(skipcomp)
+                        #    )
             #detect if frame has finished rendering
             elif line.find('Saved:') >= 0 and line.find('Time') >= 0:
                 self.totalframes.append(frame)
@@ -250,7 +258,8 @@ class Job(object):
                     self.totalframes.remove(0)
                 framequeue.task_done()
                 with threadlock:
-                    self.compstatus[computer] = self._reset_compstatus(computer)
+                    self._reset_compstatus(computer)
+                    #self.compstatus[computer] = self._reset_compstatus(computer)
 
                 #get final rendertime from blender's output
                 rendertime = str(line[line.find('Time'):].split(' ')[1])
@@ -268,12 +277,12 @@ class Job(object):
 
         print('started _renderthread_tgn()') #debug
         #pgrep string is different btw OSX and Linux so using whole cmd strings
-        if computer in macs:
-            cmd_string = ('ssh igp@'+computer+' "'+terragenpath_mac+' -p '
+        if computer in Config.macs:
+            cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_mac+' -p '
                           +self.path+' -hide -exit -r -f '+str(frame)
                           +' & pgrep -n Terragen&wait"')
         else:
-            cmd_string = ('ssh igp@'+computer+' "'+terragenpath_linux+' -p '
+            cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_linux+' -p '
                           +self.path+' -hide -exit -r -f '+str(frame)
                           +' & pgrep -n terragen&wait"')
 
@@ -289,7 +298,7 @@ class Job(object):
             #reset timer
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
-            if verbose:
+            if Config.verbose:
                 with threadlock:
                     print(line)
 
@@ -307,7 +316,7 @@ class Job(object):
                     with threadlock:
                         self.compstatus[computer]['pid'] = pid
                     #renice process to lowest priority on specified comps 
-                    if computer in renice_list: 
+                    if computer in Config.renice_list: 
                         subprocess.call('ssh igp@'+computer+' "renice 20 -p '
                                         +str(pid)+'"', shell=True)
                         print('reniced PID '+str(pid)+' to pri 20 on '+computer)
@@ -315,9 +324,10 @@ class Job(object):
                     with threadlock:
                         if len(self.skiplist) > 0:
                             skipcomp = self.skiplist.pop(0)
-                            self.compstatus[skipcomp] = (
-                                self._reset_compstatus(skipcomp)
-                                )
+                            self._reset_compstatus(skipcomp)
+                            #self.compstatus[skipcomp] = (
+                            #    self._reset_compstatus(skipcomp)
+                            #    )
             #starting a new render pass
             elif line.find('Starting') >= 0:
                 ellipsis = line.find('...')
@@ -356,7 +366,8 @@ class Job(object):
                     self.totalframes.remove(0)
                 framequeue.task_done()
                 with threadlock:
-                    self.compstatus[computer] = self._reset_compstatus(computer)
+                    self._reset_compstatus(computer)
+                    #self.compstatus[computer] = self._reset_compstatus(computer)
                 rendertime = str(line.split()[2][:-1])
                 print('Frame ' + str(frame) + ' finished after ' + rendertime)
                 with threadlock:
@@ -484,7 +495,7 @@ class Job(object):
         with threadlock:
             self.renderlog.stop(self.get_times())
         self.status = 'Stopped'
-        for computer in computers:
+        for computer in Config.computers:
             try:
                 if self.compstatus[computer]['active']:
                     self.kill_thread(computer)
@@ -510,13 +521,13 @@ class Job(object):
         self.status = finalstatus
         return True
 
-    def resume(self, startnow):
+    def resume(self, startnow=True):
         '''Resumes a render that was previously stopped. If startnow == False,
         render will be placed in queue with status 'Waiting' but not started.'''
         if self.status != 'Stopped':
             return False
         self.killflag = False
-        for computer in computers:
+        for computer in Config.computers:
             self._reset_compstatus(computer)
         self.status = 'Waiting'
         if startnow:
@@ -541,6 +552,47 @@ class Job(object):
         self.priority = priority
         return True
 
+    def set_attrs(self, attrdict):
+        '''Sets all attributes for an instance of Job. Used for restoring
+        a session following a server restart or crash.'''
+        self.status = attrdict['status']
+        self.queuetime = attrdict['queuetime']
+        self.priority = attrdict['priority']
+        self.starttime = attrdict['starttime']
+        self.stoptime = attrdict['stoptime']
+        self.complist = attrdict['complist']
+        self.compstatus = attrdict['compstatus']
+        self.path = attrdict['path']
+        self.startframe = attrdict['startframe']
+        self.endframe = attrdict['endframe']
+        self.render_engine = attrdict['render_engine']
+        self.totalframes = attrdict['totalframes']
+        if not self.status == 'Finished':
+            self.queue = queue.LifoQueue(0)
+            framelist = list(range(self.startframe, self.endframe + 1))
+            framelist.reverse()
+            if self.extraframes:
+                framelist.extend(extraframes)
+            for frame in framelist:
+                if frame in self.totalframes:
+                    framelist.remove(frame)
+                else:
+                    self.queue.put(frame)
+            print('restoring ', self.path , ' with framelist ', framelist)
+            self.renderlog = RenderLog(
+                self.path, self.startframe, self.endframe, 
+                self.extraframes, self.complist
+                )
+
+        if self.status == 'Rendering':
+            print('attempting to start ', self.path)
+            for computer in Config.computers:
+                print('attempting to reset ', computer)
+                self._reset_compstatus(computer)
+            self.status = 'Waiting'
+            self.render()
+        return True
+
 
 class RenderLog(Job):
     '''Logs render progress for a given job.  Log instance is created when
@@ -553,7 +605,7 @@ class RenderLog(Job):
         self.endframe = endframe
         self.extraframes = extraframes
         self.complist = complist
-        self.log_basepath = log_basepath
+        self.log_basepath = Config.log_basepath
         self.filename, ext = os.path.splitext(os.path.basename(self.path))
         self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
         self.logpath = (self.log_basepath + self.filename + '.' 
@@ -672,232 +724,94 @@ class RenderLog(Job):
         return timestr
 
 
-def check_autostart():
-    '''Starts next job and returns true if global autostart is enabled 
-    and new job is ready.'''
-    proceed_statuses = ['Waiting', 'Paused']
-    #first check for high priority jobs
-    times = {}
-    #get list of all high priority jobs
-    for index in renderjobs:
-        if renderjobs[index].priority == 'High':
-            #if high pri job is rendering, assume it's the oldest and move on
-            if renderjobs[index].status == 'Rendering':
-                print('High priority render in progress:', index)
-                return False
-            elif renderjobs[index].status in proceed_statuses:
-                queuetime = renderjobs[index].queuetime
-                times[queuetime] = index
-    #if ready high pri jobs were found but none were running, start the oldest
-    if times:
-        index = times[min(times)]
-        #stop all other renders
-        for job in renderjobs:
-            if renderjobs[job].status == 'Rendering':
-                print('killing ', job)
-                renderjobs[job].kill_later(finalstatus='Paused')
-        print('Autostart found high priority job. Stopping all renders, '
-              'starting render of ' + str(index))
-        renderjobs[index].autostart()
-        return True
-    #if no high priority renders, run the normal autostart algorithm
-    renders = 0 #number of currently-running renders
-    for index in renderjobs:
-        if renderjobs[index].status == 'Rendering':
-            renders += 1
-    if renders >= maxglobalrenders:
-        return False
-    times = {}
-    for index in renderjobs:
-        if renderjobs[index].status in proceed_statuses:
-            queuetime = renderjobs[index].queuetime
-            times[queuetime] = index
-    if times:
-        index = times[min(times)]
-        print('Autostart: starting', index)
-        renderjobs[index].autostart() 
-        return True
-    return False
-
-
-def update_loop():
-    '''Handles miscellaneous tasks that need to be carried out on a regular
-    interval. Runs in separate thread to prevent blocking other processes.'''
-    while True:
-        if autostart:
-            check_autostart()
-        time.sleep(30)
+def quit():
+    '''Forces immediate exit without waiting for loops to terminate.'''
+    os._exit(1)
 
 
 #----------GLOBAL VARIABLES----------
 threadlock = threading.RLock()
 
-
-
 #----------DEFAULTS / CONFIG FILE----------
-def set_defaults():
-    '''Restores all config settings to default values. Used for creating
-            initial config file or restoring it if corrupted.'''
+class Config(object):
+    '''Object to hold global configuration variables as class attributes.'''
+    def __init__(self):
+        self.cfg = cfgfile.ConfigFile()
+        if not self.cfg.exists():
+            print('No config file found, creating one from default values.')
+            cfgsettings = self.cfg.write(self.defaults())
+        else:
+            print('Config file found, reading...')
+            try:
+                cfgsettings = self.cfg.read()
+                if not len(cfgsettings) == len(self.defaults()):
+                    raise IndexError
+            #any exception should result in creation of new config file
+            except Exception:
+                print('Config file corrupt or incorrect. Creating new')
+                cfgsettings = self.cfg.write(self.defaults())
+        (
+        Config.computers, Config.renice_list, Config.macs, 
+        Config.blenderpath_mac, Config.blenderpath_linux, 
+        Config.terragenpath_mac, Config.terragenpath_linux, 
+        Config.allowed_filetypes, Config.timeout, Config.autostart, 
+        Config.maxglobalrenders, Config.verbose, Config.log_basepath
+        ) = cfgsettings 
+        print(self.getall())
 
-    #create list of all computers available for rendering
-    computers = [ 
-        'bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-        'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 
-        'tabeguache', 'smaug', 'conundrum', 'paradox'
-        ] 
+    def getall(self):
+        '''Returns tuple of all config variables.'''
+        return (Config.computers, Config.renice_list, Config.macs, 
+                Config.blenderpath_mac, Config.blenderpath_linux, 
+                Config.terragenpath_mac, Config.terragenpath_linux, 
+                Config.allowed_filetypes, Config.timeout, Config.autostart, 
+                Config.maxglobalrenders, Config.verbose, Config.log_basepath)
+
+
+    def defaults(self):
+        '''Restores all config file variables to default values. Also used
+        for creating the initial config file.'''
+        #create list of all computers available for rendering
+        computers = [ 
+            'bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
+            'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 
+            'tabeguache', 'smaug', 'conundrum', 'paradox'
+            ] 
+        #list of computer to renice processes to lowest priority. 
+        renice_list = ['conundrum', 'paradox', 'sherman'] 
+        #computers running OSX. Needed because blender uses different path
+        macs = ['conundrum', 'paradox', 'sherman'] 
+        blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' 
+        blenderpath_linux = '/usr/local/bin/blender' 
+        terragenpath_mac = (
+            '/mnt/data/software/terragen_rendernode/osx/terragen3.app'                         '/Contents/MacOS/Terragen_3'
+            )
+        terragenpath_linux = (
+            '/mnt/data/software/terragen_rendernode/linux/terragen'
+            )
+        #allowed file extensions (last 3 chars only) for check_missing_files
+        allowed_filetypes = [
+            '.png', '.jpg', '.peg', '.gif', '.tif', '.iff', '.exr', '.PNG', 
+            '.JPG', '.PEG', '.GIF', '.TIF', '.IFF', '.EXR'] 
+        #timeout for failed machine in seconds
+        timeout = 600
+        #start next job when current one finishes.
+        autostart = 1 
+        #maximum number of simultaneous renders for the autostart function
+        maxglobalrenders = 1 
+        verbose = 0
+        #default directory to hold render log files
+        log_basepath = '/mnt/data/renderlogs/'
     
-    #list of computers in the 'fast' group
-    fast = [
-        'bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-        'eldiente'
-        ] 
-    #list of computers in the 'farm' group
-    farm = ['lindsey', 'wetterhorn', 'lincoln', 'humberto', 'tabeguache'] 
-    
-    #list of computer to renice processes to lowest priority. 
-    #Can be changed from prefs window.
-    renice_list = ['conundrum', 'paradox', 'sherman'] 
-    
-    #computers running OSX. Needed because blender uses different path
-    macs = ['conundrum', 'paradox', 'sherman'] 
-
-    #path to blender executable on OSX computers
-    blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' 
-    
-    #path to blender executable on Linux computers
-    blenderpath_linux = '/usr/local/bin/blender' 
-    
-    terragenpath_mac = ('/mnt/data/software/terragen_rendernode/osx/terragen3.app'                         '/Contents/MacOS/Terragen_3')
-    
-    terragenpath_linux = '/mnt/data/software/terragen_rendernode/linux/terragen'
-    
-    #allowed file extensions (last 3 chars only) for check_missing_files
-    allowed_filetypes = [
-        '.png', '.jpg', '.peg', '.gif', '.tif', '.iff', '.exr', '.PNG', 
-        '.JPG', '.PEG', '.GIF', '.TIF', '.IFF', '.EXR'] 
-    
-    #timeout for failed machine in seconds
-    timeout = 600
-    
-    #start next job when current one finishes. 1=yes, 0=no, on by default
-    autostart = 1 
-    
-    #maximum number of simultaneous renders for the start_next_job() function
-    maxglobalrenders = 1 
-
-    #terminal output verbose. 0 = normal, 1 = write everything from render 
-    #stdout to terminal
-    verbose = 0
-
-    #default directory to hold render log files
-    log_basepath = '/mnt/data/renderlogs/'
-
-    defaults = [
-        computers, fast, farm, renice_list, macs,
-        blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-        terragenpath_linux, allowed_filetypes, timeout, autostart, 
-        maxglobalrenders, verbose, log_basepath
-        ]
-
-    return defaults
-
-def define_global_config_vars(settings):
-    '''Defines/updates global variables from config settings.'''
-    global cfgsettings
-    global computers
-    global fast
-    global farm
-    global renice_list
-    global macs
-    global blenderpath_mac
-    global blenderpath_linux
-    global terragenpath_mac
-    global terragenpath_linux
-    global allowed_filetypes
-    global timeout
-    global autostart
-    global maxglobalrenders
-    global verbose
-    global log_basepath
-
-    print('Global config variables updated.')
-    cfgsettings = settings
-    '''
-    computers = settings[0]
-    fast = settings[1]
-    farm = settings[2]
-    renice_list = settings[3]
-    macs = settings[4]
-    blenderpath_mac = settings[5]
-    blenderpath_linux = settings[6]
-    terragenpath_mac = settings[7]
-    terragenpath_linux = settings[8]
-    allowed_filetypes = settings[9]
-    timeout = settings[10]
-    autostart = settings[11]
-    maxglobalrenders = settings[12]
-    verbose = settings[13]
-    log_basepath = settings[14]
-    '''
-    (
-    computers, fast, farm, renice_list, macs, blenderpath_mac,
-    blenderpath_linux, terragenpath_mac, terragenpath_linux,
-    allowed_filetypes, timeout, autostart, maxglobalrenders,
-    verbose, log_basepath
-    ) = settings
-
-#Create ConfigFile instance with default path & filename
-#file will be stored in same directory as this file and called config.json
-config_file = cfgfile.ConfigFile()
-#if file already exists and is valid, load config vars. Otherwise make new file.
-if not config_file.exists():
-    print('No config file found, creating one from defaults.')
-    cfgsettings = config_file.write(set_defaults())
-else:
-    print('Config file found, reading...')
-    try:
-        cfgsettings = config_file.read()
-        if not len(cfgsettings) == len(set_defaults()):
-            raise IndexError
-    except Exception:
-        print('Config file corrupt or incorrect. Creating new')
-        cfgsettings = config_file.write(set_defaults())
+        return (computers, renice_list, macs, blenderpath_mac, blenderpath_linux, 
+                terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, 
+                autostart, maxglobalrenders, verbose, log_basepath) 
 
 
-#now define variables in main based on cfgsettings
-define_global_config_vars(cfgsettings)
 
-def update_cfgfile():
-    cfgsettings = [
-        computers, fast, farm, renice_list, macs,  
-        blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-        terragenpath_linux, allowed_filetypes, timeout, autostart, 
-        maxglobalrenders, verbose, log_basepath
-        ]
-    print('Updating config file.')
-    config_file.write(cfgsettings)
 
-def quit():
-    '''Forces immediate exit without waiting for loops to terminate.'''
-    os._exit(1)
 
-#verify that renderlog path is accessible
-if not os.path.exists(log_basepath):
-    print('WARNING: Path to renderlog directory: "'+log_basepath
-            +'" could not be found.')
-    if input('Do you want to specify a new path now? (Y/n)') == 'Y':
-        log_basepath = input('Path:')
-        if not os.path.exists(log_basepath):
-            print('Path does not exist, shutting down server.')
-            quit()
-        elif log_basepath[-1] != '/':
-            log_basepath = log_basepath + '/'
-        print('Render logs will be stored in ' + log_basepath + '.\n' + 
-              'To permanently change the log path, use the Preferences window ' + 
-              'in the client GUI or edit the server config file.')
-    else:
-        print('Server start failed, no renderlog path.')
-        quit()
+
 
 
 #----------SERVER INTERFACE----------
@@ -938,11 +852,19 @@ requests from client threads:
 
 '''
 
+allowed_commands= [
+'cmdtest', 'get_attrs', 'job_exists', 'enqueue',
+'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
+'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
+'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority'
+]
+
 
 class ClientThread(threading.Thread):
-    '''Subclass of threading.Thread to encapsulate client connections'''
+    '''Subclass of threading.Thread to handle client connections'''
 
-    def __init__(self, clientsocket):
+    def __init__(self, server, clientsocket):
+        self.server = server
         self.clientsocket = clientsocket
         threading.Thread.__init__(self, target=self._clientthread)
 
@@ -990,7 +912,9 @@ class ClientThread(threading.Thread):
         #now get the args
         kwargs = self._recvall()
         if not command == 'get_attrs': print('received kwargs', kwargs)
-        return_str = eval(command)(kwargs)
+        #return_str = eval(command)(kwargs)
+        #return_str = self.server.execute(command, kwargs)
+        return_str = eval('self.server.' + command)(kwargs)
         if not command == 'get_attrs': print('sending return_str', return_str)
         #send the return string (T/F for success or fail, or other requested data)
         self._sendmsg(return_str)
@@ -999,237 +923,350 @@ class ClientThread(threading.Thread):
 
 
 
+class Server(object):
+    '''This is the master class for this module. Instantiate this class to
+    start a server. The Job class and its methods can be used directly without
+    a Server instance, however an instance of Config MUST be created first to 
+    define the global configuration variables on which Job's methods depend.'''
+    def __init__(self):
+        #read config file & set up config variables
+        self.conf = Config()
+        if not self._check_logpath():
+            return
+        self.renderjobs = {}
+        self._check_restore_state()
+        self.updatethread = threading.Thread(target=self.update_loop)
+        self.updatethread.start()
+        self._start_server()
+    
 
-
-#---Functions to carry out command requests from clients---
-
-#list of permitted commands
-#must match function names exactly
-allowed_commands= [
-    'cmdtest', 'get_attrs', 'job_exists', 'enqueue',
-    'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
-    'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
-    'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority'
-    ]
-
-def cmdtest(kwargs):
-    '''a basic test of client-server command-response protocol'''
-    print('cmdtest() called')
-    for arg in kwargs:
-        print('arg:', arg, kwargs[arg])
-    return 'cmdtest() success'
-
-def get_attrs(kwargs=None):
-    '''Returns dict of attributes for a given index. If no index is specified,
-    returns a dict containing key:dictionary pairs for every job instance
-    on the server where key is the job's index and the dict contains all of
-    its attributes.
-
-    Also if no index is specified, an entry called _EXTRA_ will be appended
-    that contains non-job-related information about the server state that
-    needs to be updated in client GUIs immediately.'''
-    if kwargs:
-        index = kwargs['index']
-        if not index in renderjobs:
-            return 'Index not found.'
+    def _check_logpath(self):
+        #look for the renderlog base path and verify it's accessible
+        if not os.path.exists(Config.log_basepath):
+            print('WARNING: Path to renderlog directory: "'+Config.log_basepath
+                    +'" could not be found.')
+            if input('Do you want to specify a new path now? (Y/n)') == 'Y':
+                Config.log_basepath = input('Path:')
+                if not os.path.exists(Config.log_basepath):
+                    print('Path does not exist, shutting down server.')
+                    quit()
+                elif Config.log_basepath[-1] != '/':
+                    Config.log_basepath = Config.log_basepath + '/'
+                print('Render logs will be stored in ' + Config.log_basepath + 
+                      '.\nTo permanently change the log path, use the '
+                      'Preferences window in the client GUI or edit the '
+                      'server config file.')
+                return True
+            else:
+                print('Server start failed, no renderlog path.')
+                return False
         else:
-            attrdict = renderjobs[index].get_attrs()
-            return attrdict
-    #if no index specified, send everything
-    attrdict = {}
-    for i in renderjobs:
-        attrdict[i] = renderjobs[i].get_attrs()
-    #append non-job-related update info
-    attrdict['_EXTRA_'] = {'autostart':autostart, 'verbose':verbose}
-    return attrdict
+            print('Renderlog directory found')
+            return True
 
-def job_exists(kwargs):
-    '''Returns True if index is in renderjobs.'''
-    index = kwargs['index']
-    if index in renderjobs:
-        return True
-    else:
+    def _start_server(self):
+        #socket server to handle interface interactions
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        host = '' #all interfaces
+        hostname = socket.gethostname()
+        port = 2020
+        s.bind((host, port))
+        s.listen(5)
+        print('Server now running on ' + hostname + ' port ' + str(port))
+        print('Press Crtl + C to stop...')
+        while True:
+            try:
+                clientsocket, address = s.accept()
+                #print('Client connected from ', address)
+                client_thread = ClientThread(self, clientsocket)
+                client_thread.start()
+            except KeyboardInterrupt:
+                #close the server socket cleanly if user interrupts the loop
+                print('Shutting down server')
+                s.close()
+                quit()
+        s.close()
+
+    def update_loop(self):
+        '''Handles miscellaneous tasks that need to be carried out on a regular
+        interval. Runs in separate thread to prevent blocking other processes.'''
+        while True:
+            self.dump_state()
+            if Config.autostart:
+                self.check_autostart()
+            time.sleep(30)
+
+    def check_autostart(self):
+        '''Starts next job and returns true if global autostart is enabled 
+        and new job is ready.'''
+        proceed_statuses = ['Waiting', 'Paused']
+        #first check for high priority jobs
+        times = {}
+        #get list of all high priority jobs
+        for index in self.renderjobs:
+            if self.renderjobs[index].priority == 'High':
+                #if high pri job is rendering, assume it's the oldest and move on
+                if self.renderjobs[index].status == 'Rendering':
+                    print('High priority render in progress:', index)
+                    return False
+                elif self.renderjobs[index].status in proceed_statuses:
+                    queuetime = self.renderjobs[index].queuetime
+                    times[queuetime] = index
+        #if ready high pri jobs were found but none were running, start the oldest
+        if times:
+            index = times[min(times)]
+            #stop all other renders
+            for job in self.renderjobs:
+                if self.renderjobs[job].status == 'Rendering':
+                    print('killing ', job)
+                    self.renderjobs[job].kill_later(finalstatus='Paused')
+            print('Autostart found high priority job. Stopping all renders, '
+                  'starting render of ' + str(index))
+            self.renderjobs[index].autostart()
+            return True
+        #if no high priority renders, run the normal autostart algorithm
+        renders = 0 #number of currently-running renders
+        for index in self.renderjobs:
+            if self.renderjobs[index].status == 'Rendering':
+                renders += 1
+        if renders >= Config.maxglobalrenders:
+            return False
+        times = {}
+        for index in self.renderjobs:
+            if self.renderjobs[index].status in proceed_statuses:
+                queuetime = self.renderjobs[index].queuetime
+                times[queuetime] = index
+        if times:
+            index = times[min(times)]
+            print('Autostart: starting', index)
+            self.renderjobs[index].autostart() 
+            return True
         return False
 
-def enqueue(kwargs):
-    '''Enqueue a job from client.'''
-    index = kwargs['index']
-    path = kwargs['path']
-    for char in illegal_characters:
-        if char in path:
-            return 'Enqueue failed, illegal characters in path'
-    startframe = kwargs['startframe']
-    endframe = kwargs['endframe']
-    extras = kwargs['extraframes']
-    render_engine = kwargs['render_engine']
-    complist = kwargs['complist']
-    print('extraframes:', extras, type(extras))#debug
-    #create the job
-    if index in renderjobs:
-        if renderjobs[index].status == 'Rendering':
-            return 'Failed to create job'
-    renderjobs[index] = Job()
-    #place it in queue
-    reply = renderjobs[index].enqueue(
-        path, startframe, endframe, render_engine, complist, 
-        extraframes=extras
-        )
-    if reply:
-        return (index + ' successfully placed in queue')
-    else:
-        del renderjobs[index]
-        return 'Enqueue failed, job deleted'
+    def dump_state(self):
+        '''Writes the current state of all Job instances on the server
+        to a file. Used for restoring queue contents and server state in
+        case the server crashes or needs to be restarted.  The update_loop
+        method periodically calls this function whenever the server is running.'''
+        jobs = {}
+        for index in self.renderjobs:
+            jobs[index] = self.renderjobs[index].get_attrs()
+        serverstate = cfgfile.ConfigFile(filename='serverstate.json')
+        serverstate.write(jobs)
+        print('Wrote server state to file')
+        print(jobs)
+    
+    def _check_restore_state(self):
+        '''Checks for an existing serverstate.json file in the same directory
+        as this file. If found, prompts the user to restore the server state
+        from the file. If yes, loads the file contents and attempts to
+        create new Job instances with attributes from the file. Can only
+        be called at startup to avoid overwriting exiting Job instances.'''
+        savedstate = cfgfile.ConfigFile(filename='serverstate.json')
+        if savedstate.exists():
+            if not input('Saved state file found. Restore all previously enqueued '
+                     'jobs? (Y/n)') == 'Y':
+                print('Ignoring saved state file')
+                return
+        jobs = savedstate.read()
+        for index in jobs:
+            self.renderjobs[index] = Job()
+            reply = self.renderjobs[index].set_attrs(jobs[index])
+            if reply:
+                print('Restored job ', index)
+            else:
+                print('Unable to restore job ', index)
+        print('Server state restored.')
 
-def start_render(kwargs):
-    '''Start a render at the request of client.'''
-    index = kwargs['index']
-    reply = renderjobs[index].render()
-    if reply:
-        return index + ' render started'
-    else:
-        return 'Failed to start render.'
-
-def toggle_comp(kwargs):
-    index = kwargs['index']
-    computer = kwargs['computer']
-    if renderjobs[index].get_comp_status(computer)['pool']:
-        reply = renderjobs[index].remove_computer(computer)
-        if reply: return computer+' removed from render pool for '+str(index)
-    else:
-        reply = renderjobs[index].add_computer(computer)
-        if reply: return computer+ ' added to render pool for '+str(index)
-    return 'Failed to toggle computer status.'
-
-def kill_single_thread(kwargs):
-    index = kwargs['index']
-    computer = kwargs['computer']
-    #first remove computer from the pool
-    reply = renderjobs[index].remove_computer(computer)
-    if not reply:
-        return 'Failed to kill thread, unable to remove computer from pool.'
-    reply = renderjobs[index].kill_thread(computer)
-    #remove computer
-    if reply:
-        pid = reply
-        return 'Sent kill signal for pid '+str(pid)+' on '+computer
-    else:
-        return 'Failed to kill thread.'
-
-def kill_render(kwargs):
-    index = kwargs['index']
-    kill_now = kwargs['kill_now']
-    if kill_now:
-        reply = renderjobs[index].kill_now()
+    def cmdtest(self, kwargs):
+        '''a basic test of client-server command-response protocol'''
+        print('cmdtest() called')
+        for arg in kwargs:
+            print('arg:', arg, kwargs[arg])
+        return 'cmdtest() success'
+    
+    def get_attrs(self, kwargs=None):
+        '''Returns dict of attributes for a given index. If no index is specified,
+        returns a dict containing key:dictionary pairs for every job instance
+        on the server where key is the job's index and the dict contains all of
+        its attributes.
+    
+        Also if no index is specified, an entry called _EXTRA_ will be appended
+        that contains non-job-related information about the server state that
+        needs to be updated in client GUIs immediately.'''
+        if kwargs:
+            index = kwargs['index']
+            if not index in self.renderjobs:
+                return 'Index not found.'
+            else:
+                attrdict = self.renderjobs[index].get_attrs()
+                return attrdict
+        #if no index specified, send everything
+        attrdict = {}
+        for i in self.renderjobs:
+            attrdict[i] = self.renderjobs[i].get_attrs()
+        #append non-job-related update info
+        attrdict['_EXTRA_'] = {'autostart':Config.autostart, 
+                               'verbose':Config.verbose}
+        return attrdict
+    
+    def job_exists(self, kwargs):
+        '''Returns True if index is in self.renderjobs.'''
+        index = kwargs['index']
+        if index in self.renderjobs:
+            return True
+        else:
+            return False
+    
+    def enqueue(self, kwargs):
+        '''Enqueue a job from client.'''
+        index = kwargs['index']
+        path = kwargs['path']
+        for char in illegal_characters:
+            if char in path:
+                return 'Enqueue failed, illegal characters in path'
+        startframe = kwargs['startframe']
+        endframe = kwargs['endframe']
+        extras = kwargs['extraframes']
+        render_engine = kwargs['render_engine']
+        complist = kwargs['complist']
+        print('extraframes:', extras, type(extras))#debug
+        #create the job
+        if index in self.renderjobs:
+            if self.renderjobs[index].status == 'Rendering':
+                return 'Failed to create job'
+        self.renderjobs[index] = Job()
+        #place it in queue
+        reply = self.renderjobs[index].enqueue(
+            path, startframe, endframe, render_engine, complist, 
+            extraframes=extras
+            )
         if reply:
-            return 'Killed render and all associated processes for '+str(index)
-    else:
-        reply = renderjobs[index].kill_later()
+            return (index + ' successfully placed in queue')
+        else:
+            del self.renderjobs[index]
+            return 'Enqueue failed, job deleted'
+    
+    def start_render(self, kwargs):
+        '''Start a render at the request of client.'''
+        index = kwargs['index']
+        reply = self.renderjobs[index].render()
         if reply:
-            return ('Killed render of '+str(index)+' but all '
-                    'currently-rendering processes will be allowed to finish.')
-    return 'Failed to kill render for job '+str(index)
+            return index + ' render started'
+        else:
+            return 'Failed to start render.'
+    
+    def toggle_comp(self, kwargs):
+        index = kwargs['index']
+        computer = kwargs['computer']
+        if self.renderjobs[index].get_comp_status(computer)['pool']:
+            reply = self.renderjobs[index].remove_computer(computer)
+            if reply: return computer+' removed from render pool for '+str(index)
+        else:
+            reply = self.renderjobs[index].add_computer(computer)
+            if reply: return computer+ ' added to render pool for '+str(index)
+        return 'Failed to toggle computer status.'
+    
+    def kill_single_thread(self, kwargs):
+        index = kwargs['index']
+        computer = kwargs['computer']
+        #first remove computer from the pool
+        reply = self.renderjobs[index].remove_computer(computer)
+        if not reply:
+            return 'Failed to kill thread, unable to remove computer from pool.'
+        reply = self.renderjobs[index].kill_thread(computer)
+        #remove computer
+        if reply:
+            pid = reply
+            return 'Sent kill signal for pid '+str(pid)+' on '+computer
+        else:
+            return 'Failed to kill thread.'
+    
+    def kill_render(self, kwargs):
+        index = kwargs['index']
+        kill_now = kwargs['kill_now']
+        if kill_now:
+            reply = self.renderjobs[index].kill_now()
+            if reply:
+                return 'Killed render and all associated processes for '+str(index)
+        else:
+            reply = self.renderjobs[index].kill_later()
+            if reply:
+                return ('Killed render of '+str(index)+' but all '
+                        'currently-rendering processes will be allowed '
+                        'to finish.')
+        return 'Failed to kill render for job '+str(index)
+    
+    def resume_render(self, kwargs):
+        index = kwargs['index']
+        startnow = kwargs['startnow']
+        reply = self.renderjobs[index].resume(startnow)
+        if reply:
+            return 'Resumed render of ' + str(index)
+        else:
+            return 'Failed to resume render of ' + str(index)
+    
+    def get_status(self, kwargs):
+        '''Returns status string for a given job.'''
+        index = kwargs['index']
+        status = self.renderjobs[index].status
+        return status
+    
+    def clear_job(self, kwargs):
+        '''Clears an existing job from a queue slot.'''
+        index = kwargs['index']
+        del self.renderjobs[index]
+        return index + ' deleted.'
+    
+    def get_config_vars(self, kwargs=None):
+        '''Gets server-side configuration variables and returns them as a list.'''
+        cfgvars = self.conf.getall()
+        print('requested vars:', cfgvars)
+        return cfgvars
+    
+    def toggle_verbose(self, kwargs=None):
+        '''Toggles the state of the verbose variable.'''
+        if Config.verbose == 0:
+            Config.verbose = 1
+            return 'verbose reporting enabled'
+        else:
+            Config.verbose = 0
+            return 'verbose reporting disabled'
+    
+    def toggle_autostart(self, kwargs=None):
+        '''Toggles the state of the autostart variable.'''
+        if Config.autostart == 0:
+            Config.autostart = 1
+            return 'autostart enabled'
+        else:
+            Config.autostart = 0
+            return 'autostart disabled'
+    
+    def check_path_exists(self, kwargs=None):
+        '''Checks if a path is accessible from the server (exists) and that 
+        it's an regular file. Returns True if yes.'''
+        path = kwargs['path']
+        if os.path.exists(path) and os.path.isfile(path):
+            return True
+        else:
+            return False
+    
+    def set_job_priority(self, kwargs):
+        '''Sets the render priority for a given index.'''
+        index = kwargs['index']
+        priority = kwargs['priority']
+        if not index in self.renderjobs:
+            return 'Index not found'
+        if self.renderjobs[index].set_priority(priority):
+            return 'Priority of ' + index + ' set to ' + str(priority)
+        else:
+            return 'Priority not changed'
+    
 
-def resume_render(kwargs):
-    index = kwargs['index']
-    startnow = kwargs['startnow']
-    reply = renderjobs[index].resume(startnow)
-    if reply:
-        return 'Resumed render of ' + str(index)
-    else:
-        return 'Failed to resume render of ' + str(index)
 
-def get_status(kwargs):
-    '''Returns status string for a given job.'''
-    index = kwargs['index']
-    status = renderjobs[index].status
-    return status
-
-def clear_job(kwargs):
-    '''Clears an existing job from a queue slot.'''
-    index = kwargs['index']
-    del renderjobs[index]
-    return index + ' deleted.'
-
-def get_config_vars(kwargs=None):
-    '''Gets server-side configuration variables and returns them as a list.'''
-    cfgsettings = [
-        computers, fast, farm, renice_list, macs,  
-        blenderpath_mac, blenderpath_linux, terragenpath_mac, 
-        terragenpath_linux, allowed_filetypes, timeout, autostart, 
-        maxglobalrenders, verbose, log_basepath
-        ]
-    return cfgsettings
-
-def toggle_verbose(kwargs=None):
-    '''Toggles the state of the verbose variable.'''
-    global verbose
-    if verbose == 0:
-        verbose = 1
-        return 'verbose reporting enabled'
-    else:
-        verbose = 0
-        return 'verbose reporting disabled'
-
-def toggle_autostart(kwargs=None):
-    '''Toggles the state of the autostart variable.'''
-    global autostart
-    if autostart == 0:
-        autostart = 1
-        return 'autostart enabled'
-    else:
-        autostart = 0
-        return 'autostart disabled'
-
-def check_path_exists(kwargs=None):
-    '''Checks if a path is accessible from the server (exists) and that it's an 
-    regular file. Returns True if yes.'''
-    path = kwargs['path']
-    if os.path.exists(path) and os.path.isfile(path):
-        return True
-    else:
-        return False
-
-def set_job_priority(kwargs):
-    '''Sets the render priority for a given index.'''
-    index = kwargs['index']
-    priority = kwargs['priority']
-    if not index in renderjobs:
-        return 'Index not found'
-    if renderjobs[index].set_priority(priority):
-        return 'Priority of ' + index + ' set to ' + str(priority)
-    else:
-        return 'Priority not changed'
-
-
-
+        
 
 
 if __name__ == '__main__':
-    renderjobs = {}
-    updatethread = threading.Thread(target=update_loop)
-    updatethread.start()
-
-    #socket server to handle interface interactions
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    host = '' #all interfaces
-    hostname = socket.gethostname()
-    port = 2020
-    s.bind((host, port))
-    s.listen(5)
-    print('Server now running on ' + hostname + ' port ' + str(port))
-    print('Press Crtl + C to stop...')
-    while True:
-        try:
-            clientsocket, address = s.accept()
-            #print('Client connected from ', address)
-            client_thread = ClientThread(clientsocket)
-            client_thread.start()
-        except KeyboardInterrupt:
-            print('Shutting down server')
-            #close the server socket cleanly if user interrupts the loop
-            s.close()
-            quit()
-    s.close()
-
-
+    server = Server()

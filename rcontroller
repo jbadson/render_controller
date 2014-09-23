@@ -20,4 +20,3 @@ else:
     masterwin = gui.MasterWin()
     masterwin.mainloop()
 
-

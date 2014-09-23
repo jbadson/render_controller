@@ -110,7 +110,8 @@ def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
     #statthread.end()
     #StatusThread.stop = True
-    masterwin.exit()
+    #MasterWin.exit()
+    StatusThread.stop = True
     raise SystemExit
 
 
@@ -118,10 +119,11 @@ def quit(event=None):
 
 #----------CONFIG VARIABLES----------
 class Config(object):
-    '''Object to hold global configuration variables as attributes. There are
-    two divisions: local (GUI) and server. The local variables are stored
-    in gui_config.json and affect only GUI-related features. Server variables are
-    obtained from the server and changes to them will affect all users.'''
+    '''Object to hold global configuration variables as class attributes. 
+    There are two divisions: local (GUI) and server. The local variables are 
+    stored in gui_config.json and affect only GUI-related features. Server 
+    variables are obtained from the server and changes to them will affect 
+    all users.'''
     def __init__(self):
         self.cfg = cfgfile.ConfigFile(filename='gui_config.json')
         if not self.cfg.exists():
@@ -137,8 +139,8 @@ class Config(object):
                 print('GUI config file corrupt or incorrect. Creating new')
                 guisettings = self.cfg.write(self.defaults())
         (
-        self.default_path, self.default_startframe, 
-        self.default_endframe, self.default_render_engine
+        Config.default_path, Config.default_startframe, 
+        Config.default_endframe, Config.default_render_engine
         ) = guisettings
 
     def defaults(self):
@@ -157,10 +159,11 @@ class Config(object):
         used by the GUI, but are here for the preferences window.'''
         servercfg = ClientSocket().send_cmd('get_config_vars')
         (
-        self.computers, self.fast, self.farm, self.renice_list, self.macs, 
-        self.blenderpath_mac, self.blenderpath_linux, self.terragenpath_mac, 
-        self.terragenpath_linux, self.allowed_filetypes, self.timeout, 
-        self.autostart, self.maxglobalrenders, self.verbose, self.log_basepath 
+        Config.computers, Config.renice_list, 
+        Config.macs, Config.blenderpath_mac, Config.blenderpath_linux, 
+        Config.terragenpath_mac, Config.terragenpath_linux, 
+        Config.allowed_filetypes, Config.timeout, Config.autostart, 
+        Config.maxglobalrenders, Config.verbose, Config.log_basepath 
         ) = servercfg
 
 
@@ -178,6 +181,10 @@ HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
 #----------GUI----------
 
 class MasterWin(tk.Tk):
+    '''This is the master class for this module. To create a new GUI,
+    create an instance of this class then call the mainloop() method on it.
+    Other classes and methods within this module are not intended to be used
+    without an instance of MasterWin and will probably break if you try.'''
     def __init__(self):
         tk.Tk.__init__(self)
         self.bind('<Command-q>', quit) 
@@ -200,7 +207,7 @@ class MasterWin(tk.Tk):
         self.setupframe.pack(padx=50, pady=50)
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
-        self.statthread = StatusThread()
+        self.statthread = StatusThread(masterwin=self)
         #put default values
         self.tk_host.set(ClientSocket.HOST)
         self.tk_port.set(ClientSocket.PORT)
@@ -233,11 +240,11 @@ class MasterWin(tk.Tk):
         ClientSocket.HOST = self.tk_host.get()
         ClientSocket.PORT = int(self.tk_port.get())
         #get the server config variables
-        cfg.get_server_cfg()
+        Config().get_server_cfg()
         self.verbosity = tk.IntVar()
-        self.verbosity.set(cfg.verbose)
+        self.verbosity.set(Config.verbose)
         self.autostart = tk.IntVar()
-        self.autostart.set(cfg.autostart)
+        self.autostart.set(Config.autostart)
         self._build_main()
         self.statthread.start()
         self.unbind('<Return>')
@@ -319,9 +326,9 @@ class MasterWin(tk.Tk):
         #attempt re-sorting job boxes
         self.sort_jobboxes()
 
-    def exit(self):
-        '''Shuts down the status thread cleanly before window closes.'''
-        self.statthread.end()
+    #def exit(self):
+    #    '''Shuts down the status thread cleanly before window closes.'''
+    #    self.statthread.end()
 
     def _new_job(self):
         '''Opens an instance of InputWindow to create a new job on the server.
@@ -352,7 +359,8 @@ class MasterWin(tk.Tk):
     def _create_job(self, index):
         '''Creates GUI elements for a given index.'''
         #create job box
-        self.jobboxes[index] = SmallBox(master=self.jobbox_frame, index=index)
+        self.jobboxes[index] = SmallBox(masterwin=self, master=self.jobbox_frame, 
+                                        index=index)
         self.jobboxes[index].pack()
         #let sort_jobboxes pack everything in the correct place
         #put box in list (at top for now)
@@ -500,12 +508,12 @@ class ComputerPanel(ttk.Frame):
         self.cols = 3 
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(cfg.computers):
+        while n < len(Config.computers):
             (x, y) = self._getcoords(n, row)
-            self.compcubes[cfg.computers[n]] = CompCube(
-                master=self.compframe, computer=cfg.computers[n], index=self.index
+            self.compcubes[Config.computers[n]] = CompCube(
+                master=self.compframe, computer=Config.computers[n], index=self.index
                 )
-            self.compcubes[cfg.computers[n]].grid(row=y, column=x, padx=5)
+            self.compcubes[Config.computers[n]].grid(row=y, column=x, padx=5)
             n += 1
             if x == self.cols - 1:
                 row += 1
@@ -590,7 +598,7 @@ class ComputerPanel(ttk.Frame):
             attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
             attrdict['progress'], attrdict['times']
             )
-        for computer in cfg.computers:
+        for computer in Config.computers:
             compstatus = attrdict['compstatus'][computer]
             self.compcubes[computer].update(
                 compstatus['frame'], compstatus['progress'], compstatus['pool']
@@ -728,7 +736,8 @@ class BigBox(_statusbox, ttk.LabelFrame):
 
 class SmallBox(_statusbox, tk.Frame):
     '''Small job status box for the left window pane.'''
-    def __init__(self, master=None, index='0'):
+    def __init__(self, masterwin, master=None, index='0'):
+        self.masterwin = masterwin
         self.index = index
         self.status = 'Empty'
         self.queuetime = 0
@@ -777,9 +786,9 @@ class SmallBox(_statusbox, tk.Frame):
     def toggle(self, event=None):
         '''Switches between selected and deselected state.'''
         if not self.selected:
-            masterwin.select_job(self.index)
+            self.masterwin.select_job(self.index)
         else:
-            masterwin.deselect_job(self.index)
+            self.masterwin.deselect_job(self.index)
 
     def select(self):
         '''Changes background colors to selected state.'''
@@ -940,10 +949,10 @@ class InputWindow(tk.Toplevel):
         self.config(bg='gray90')
         self.index = index
         if not self.index:
-            path = cfg.default_path
-            start = cfg.default_startframe
-            end = cfg.default_endframe
-            engine = cfg.default_render_engine
+            path = Config.default_path
+            start = Config.default_startframe
+            end = Config.default_endframe
+            engine = Config.default_render_engine
         self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
@@ -1020,7 +1029,7 @@ class InputWindow(tk.Toplevel):
         '''Generates grid of computer checkboxes.'''
         #create variables for computer buttons
         self.compvars = {}
-        for computer in cfg.computers:
+        for computer in Config.computers:
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
         if self.complist:
@@ -1035,26 +1044,26 @@ class InputWindow(tk.Toplevel):
             ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         #generate a grid with specified number of columns
         cols = 5
-        rows = len(cfg.computers) // cols
+        rows = len(Config.computers) // cols
         i = 0
         for row in range(1, rows + 2):
             for col in range(0, cols):
                 ttk.Checkbutton(
-                    master, text=cfg.computers[i], 
-                    variable=self.compvars[cfg.computers[i]]
+                    master, text=Config.computers[i], 
+                    variable=self.compvars[Config.computers[i]]
                     ).grid(row=row, column=col, padx=5, pady=5, sticky=tk.W)
                 i += 1
-                if i == len(cfg.computers): break
+                if i == len(Config.computers): break
 
     def _check_all(self):
         '''Sets all computer buttons to the checked state.'''
         self._uncheck_all()
-        for computer in cfg.computers:
+        for computer in Config.computers:
             self.compvars[computer].set(1)
 
     def _uncheck_all(self):
         '''Sets all computer buttons to the unchecked state.'''
-        for computer in cfg.computers:
+        for computer in Config.computers:
             self.compvars[computer].set(0)
 
     def _get_path(self):
@@ -1269,7 +1278,7 @@ class MissingFramesWindow(tk.Toplevel):
             return
         self.checker = framechecker.Framechecker(
             renderpath, startframe, endframe,
-            allowed_extensions=cfg.allowed_filetypes
+            allowed_extensions=Config.allowed_filetypes
             )
         self.left, self.right = self.checker.calculate_indices()
         lists = self.checker.generate_lists(self.left, self.right)
@@ -1368,26 +1377,26 @@ class Dialog(object):
 class StatusThread(threading.Thread):
     '''Obtains current status info from all queue slots on server and updates
     GUI accordingly.'''
-    def __init__(self):
-        self.stop = False
+    stop = False
+    def __init__(self, masterwin):
+        self.masterwin = masterwin
         threading.Thread.__init__(self, target=self._statusthread)
 
-    def end(self):
-        '''Terminates the status thread cleanly.'''
-        self.stop = True
+    #def end(self):
+    #    '''Terminates the status thread cleanly.'''
+    #    StatusThread.stop = True
 
     def _statusthread(self):
         while True:
-            if self.stop:
+            if StatusThread.stop:
                 break
             serverjobs = ClientSocket().send_cmd('get_attrs')
-            masterwin.update(serverjobs)
+            self.masterwin.update(serverjobs)
             #refresh interval in seconds
             time.sleep(0.5)
 
 
 
 if __name__ == '__main__':
-    cfg = Config()
     masterwin = MasterWin()
     masterwin.mainloop()

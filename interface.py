@@ -1,5 +1,9 @@
 #command line interface for IGP Render Controller
 #must run in python 3
+
+'''THIS MODULE IS NOT CURRENTLY WORKING. I'LL UPDATE IT TO USE THE CURRENT
+CLIENT-SERVER PROTOCOL AS SOON AS I GET THE GUI SQUARED AWAY.'''
+
 import sys
 import socket
 

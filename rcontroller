@@ -1,15 +1,21 @@
 #!/usr/bin/python3
 
-'''IGP Render Controller Version 5'''
+'''IGP Render Controller Version 5
+
+This file simplifies starting the controller by allowing the user to choose
+which mode (server, GUI client, etc) to run by appending the appropriate
+arguments.'''
+
 import sys
 import server
 import gui
+
 
 helptext = (
 'IGP Render Controller\n'
 'Execute with no options to start the GUI client.\n'
 '-s --server\tStart the server.\n'
-'-s --help\tDisplay this help message.\n'
+'-h --help\tDisplay this help message.'
 )
 
 if '--server' in sys.argv or '-s' in sys.argv:
@@ -19,4 +25,3 @@ elif '-h' in sys.argv or '--help' in sys.argv:
 else:
     masterwin = gui.MasterWin()
     masterwin.mainloop()
-

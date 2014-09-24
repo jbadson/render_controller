@@ -45,14 +45,11 @@ class Job(object):
             'active':False, 'frame':None, 'pid':None, 'timer':None, 
             'progress':0.0, 'error':None, 'pool':pool
             }
-        #return {
-        #    'active':False, 'frame':None, 'pid':None, 'timer':None, 
-        #    'progress':0.0, 'error':None, 'pool':pool
-        #    }
 
     def get_job_progress(self):
         '''Returns the percent complete for the job.'''
-        if self.status == 'Rendering' or self.status == 'Stopped':
+        calcstatuses = ['Rendering', 'Stopped', 'Paused']
+        if self.status in calcstatuses:
             n = 0
             for i in self.totalframes:
                 if i != 0:
@@ -78,14 +75,11 @@ class Job(object):
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
-        print('extraframes:', extraframes, type(extraframes))#debug
 
         self.render_engine = render_engine
         self.complist = complist
         for computer in self.complist:
             self.compstatus[computer]['pool'] = True
-
-        print('enqueued')
         #Fill list of total frames with zeros
         #used for tracking percent complete
         self.totalframes = []
@@ -102,7 +96,6 @@ class Job(object):
         #render extraframes first, lowest number first
         #check again to make sure there are still extraframes
         if self.extraframes:
-            print('self.extraframes', self.extraframes, type(self.extraframes))
             self.extraframes.sort()
             self.extraframes.reverse()
             for frame in self.extraframes:
@@ -116,7 +109,6 @@ class Job(object):
         '''Starts a render for a given job.'''
         print('entered render()') #debug
         if self.status != 'Waiting':
-            print('Job status is not "Waiting". Aborting render.')
             return False
         self.status = 'Rendering'
         self._start_timer()
@@ -386,7 +378,7 @@ class Job(object):
 
     def _start_timer(self):
         '''Starts the render timer for the job.'''
-        if self.status == 'Stopped':
+        if self.status == 'Stopped' or self.status == 'Paused':
             #account for time elapsed since render was stopped
             self.starttime = time.time() - (self.stoptime - self.starttime)
         else:
@@ -539,11 +531,9 @@ class Job(object):
     def autostart(self):
         '''Handles starting the current job from the check_autostart function.'''
         if self.status == 'Waiting':
-            print('got to autostart() with status waiting')
             self.render()
         else:
             self.status = 'Stopped'
-            print('got to autostart() with status not waiting')
             self.resume(startnow=True)
 
     def set_priority(self, priority):
@@ -587,7 +577,6 @@ class Job(object):
         if self.status == 'Rendering':
             print('attempting to start ', self.path)
             for computer in Config.computers:
-                print('attempting to reset ', computer)
                 self._reset_compstatus(computer)
             self.status = 'Waiting'
             self.render()
@@ -614,7 +603,7 @@ class RenderLog(Job):
 
     def _gettime(self):
         '''Returns current time as string formatted for timestamps.'''
-        timestamp = time.strftime('%H:%M:%S %Y/%m/%d', time.localtime())
+        timestamp = time.strftime('%H:%M:%S on %Y/%m/%d', time.localtime())
         return timestamp
 
     def start(self):
@@ -757,7 +746,6 @@ class Config(object):
         Config.allowed_filetypes, Config.timeout, Config.autostart, 
         Config.maxglobalrenders, Config.verbose, Config.log_basepath
         ) = cfgsettings 
-        print(self.getall())
 
     def getall(self):
         '''Returns tuple of all config variables.'''
@@ -794,7 +782,7 @@ class Config(object):
             '.png', '.jpg', '.peg', '.gif', '.tif', '.iff', '.exr', '.PNG', 
             '.JPG', '.PEG', '.GIF', '.TIF', '.IFF', '.EXR'] 
         #timeout for failed machine in seconds
-        timeout = 600
+        timeout = 1000
         #start next job when current one finishes.
         autostart = 1 
         #maximum number of simultaneous renders for the autostart function
@@ -945,7 +933,7 @@ class Server(object):
         if not os.path.exists(Config.log_basepath):
             print('WARNING: Path to renderlog directory: "'+Config.log_basepath
                     +'" could not be found.')
-            if input('Do you want to specify a new path now? (Y/n)') == 'Y':
+            if input('Do you want to specify a new path now? (Y/n): ') == 'Y':
                 Config.log_basepath = input('Path:')
                 if not os.path.exists(Config.log_basepath):
                     print('Path does not exist, shutting down server.')
@@ -978,7 +966,6 @@ class Server(object):
         while True:
             try:
                 clientsocket, address = s.accept()
-                #print('Client connected from ', address)
                 client_thread = ClientThread(self, clientsocket)
                 client_thread.start()
             except KeyboardInterrupt:
@@ -1054,8 +1041,6 @@ class Server(object):
             jobs[index] = self.renderjobs[index].get_attrs()
         serverstate = cfgfile.ConfigFile(filename='serverstate.json')
         serverstate.write(jobs)
-        print('Wrote server state to file')
-        print(jobs)
     
     def _check_restore_state(self):
         '''Checks for an existing serverstate.json file in the same directory
@@ -1065,9 +1050,9 @@ class Server(object):
         be called at startup to avoid overwriting exiting Job instances.'''
         savedstate = cfgfile.ConfigFile(filename='serverstate.json')
         if savedstate.exists():
-            if not input('Saved state file found. Restore all previously enqueued '
-                     'jobs? (Y/n)') == 'Y':
-                print('Ignoring saved state file')
+            if not input('Saved state file found. Restore previous server '
+                         'state? (Y/n): ') == 'Y':
+                print('Discarding previous server state')
                 return
             jobs = savedstate.read()
             for index in jobs:
@@ -1077,7 +1062,7 @@ class Server(object):
                     print('Restored job ', index)
                 else:
                     print('Unable to restore job ', index)
-            print('Server state restored.')
+            print('Server state restored')
 
     def cmdtest(self, kwargs):
         '''a basic test of client-server command-response protocol'''
@@ -1131,7 +1116,6 @@ class Server(object):
         extras = kwargs['extraframes']
         render_engine = kwargs['render_engine']
         complist = kwargs['complist']
-        print('extraframes:', extras, type(extras))#debug
         #create the job
         if index in self.renderjobs:
             if self.renderjobs[index].status == 'Rendering':
@@ -1222,7 +1206,6 @@ class Server(object):
     def get_config_vars(self, kwargs=None):
         '''Gets server-side configuration variables and returns them as a list.'''
         cfgvars = self.conf.getall()
-        print('requested vars:', cfgvars)
         return cfgvars
     
     def toggle_verbose(self, kwargs=None):

@@ -9,7 +9,7 @@ helptext = (
 'IGP Render Controller\n'
 'Execute with no options to start the GUI client.\n'
 '-s --server\tStart the server.\n'
-'-s --help\tDisplay this help message.\n'
+'-h --help\tDisplay this help message.\n'
 )
 
 if '--server' in sys.argv or '-s' in sys.argv:

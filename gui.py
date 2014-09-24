@@ -15,15 +15,17 @@ import json
 import cfgfile
 import framechecker
 
-default_host = 'localhost'
-default_port = 2020
 illegal_characters = [' ', ';', '&'] #not allowed in path
 
 class ClientSocket(object):
     '''Wrapper for socket to handle command-response protocol for interacting 
     with the render controller server.'''
-    HOST = default_host
-    PORT = default_port
+    HOST = 'localhost'
+    PORT = 2020
+
+    def setup(host, port):
+        ClientSocket.HOST = host
+        ClientSocket.PORT = port
 
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -78,7 +80,6 @@ class ClientSocket(object):
         if not command == 'get_attrs': print('received return_str', return_str)
         self.socket.close()
         return return_str
-        
 
 
 def cmdtest():
@@ -101,20 +102,11 @@ def get_job_status(index):
     status = ClientSocket().send_cmd('get_status', kwargs)
     return status
 
-def get_config_vars():
-    '''Gets current values for global config variables from server.'''
-    cfgvars = ClientSocket().send_cmd('get_config_vars')
-    return cfgvars
 
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
-    #statthread.end()
-    #StatusThread.stop = True
-    #MasterWin.exit()
     StatusThread.stop = True
     raise SystemExit
-
-
 
 
 #----------CONFIG VARIABLES----------
@@ -140,7 +132,9 @@ class Config(object):
                 guisettings = self.cfg.write(self.defaults())
         (
         Config.default_path, Config.default_startframe, 
-        Config.default_endframe, Config.default_render_engine
+        Config.default_endframe, Config.default_render_engine,
+        Config.input_win_cols, Config.comp_status_panel_cols,
+        Config.default_host, Config.default_port, Config.refresh_interval
         ) = guisettings
 
     def defaults(self):
@@ -151,13 +145,24 @@ class Config(object):
         default_startframe = 1
         default_endframe = 4
         default_render_engine = 'blend'
+        #numbers of colums for widget arrays
+        input_win_cols = 5
+        comp_status_panel_cols = 3
+        #default server setup info
+        default_host = 'localhost'
+        default_port = 2020
+        refresh_interval = 0.5 #StatusThread update freq. in seconds
         return (default_path, default_startframe, default_endframe, 
-                default_render_engine)
+                default_render_engine, input_win_cols, comp_status_panel_cols,
+                default_host, default_port, refresh_interval)
 
     def get_server_cfg(self):
         '''Gets config info from the server. Most of these aren't directly
         used by the GUI, but are here for the preferences window.'''
-        servercfg = ClientSocket().send_cmd('get_config_vars')
+        try:
+            servercfg = ClientSocket().send_cmd('get_config_vars')
+        except:
+            return False
         (
         Config.computers, Config.renice_list, 
         Config.macs, Config.blenderpath_mac, Config.blenderpath_linux, 
@@ -165,8 +170,12 @@ class Config(object):
         Config.allowed_filetypes, Config.timeout, Config.autostart, 
         Config.maxglobalrenders, Config.verbose, Config.log_basepath 
         ) = servercfg
+        return True
 
 
+
+
+#----------GUI----------
 #XXX Some additional config stuff, decide where to put it later
 #XXX Get rid of LightBlueBGColor if you're not going to use it.
 LightBlueBGColor = 'white'
@@ -175,10 +184,6 @@ LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
 #DarkBGColor = '#%02x%02x%02x' % (50, 50, 50)
 HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
 
-
-
-
-#----------GUI----------
 
 class MasterWin(tk.Tk):
     '''This is the master class for this module. To create a new GUI,
@@ -190,7 +195,6 @@ class MasterWin(tk.Tk):
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
         self.config(bg=LightBGColor)
-        #self.geometry('1257x740')
         self.minsize(width=1257, height=730)
         #create dictionaries to hold job-specific GUI elements
         #format is {'index':object}
@@ -208,7 +212,10 @@ class MasterWin(tk.Tk):
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
         self.statthread = StatusThread(masterwin=self)
-        #put default values
+        #initialize local config variables
+        Config()
+        #put default values where they go
+        ClientSocket.setup(host=Config.default_host, port=Config.default_port)
         self.tk_host.set(ClientSocket.HOST)
         self.tk_port.set(ClientSocket.PORT)
         ttk.Label(
@@ -235,16 +242,17 @@ class MasterWin(tk.Tk):
     def _apply_setup(self, event=None):
         '''Apply server config info then build the main window.'''
         print('setup done') #debug
-        self.setupframe.destroy()
         #configure host and port class attributes
-        ClientSocket.HOST = self.tk_host.get()
-        ClientSocket.PORT = int(self.tk_port.get())
+        ClientSocket.setup(host=self.tk_host.get(), port=int(self.tk_port.get()))
         #get the server config variables
-        Config().get_server_cfg()
+        if not Config().get_server_cfg():
+            print('Config().get_server_cfg() failed')
+            return
         self.verbosity = tk.IntVar()
         self.verbosity.set(Config.verbose)
         self.autostart = tk.IntVar()
         self.autostart.set(Config.autostart)
+        self.setupframe.destroy()
         self._build_main()
         self.statthread.start()
         self.unbind('<Return>')
@@ -326,9 +334,6 @@ class MasterWin(tk.Tk):
         #attempt re-sorting job boxes
         self.sort_jobboxes()
 
-    #def exit(self):
-    #    '''Shuts down the status thread cleanly before window closes.'''
-    #    self.statthread.end()
 
     def _new_job(self):
         '''Opens an instance of InputWindow to create a new job on the server.
@@ -496,7 +501,6 @@ class ComputerPanel(ttk.Frame):
             command=self._set_priority
             )
         self.primenu.pack(side=tk.LEFT, pady=(0, 2))
-        #now create the main array of computer boxes
         self._create_computer_array()
 
     def _create_computer_array(self):
@@ -504,14 +508,15 @@ class ComputerPanel(ttk.Frame):
         self.compframe.pack()
         self.compcubes = {}
         #changing the number of cols should automatically generate the rest
-        #of the layout correctly. Put this in GUI config?
-        self.cols = 3 
+        #of the layout correctly. 
+        self.cols = Config.comp_status_panel_cols
         n = 0 #index of computer in computers list
         row = 0 #starting position
         while n < len(Config.computers):
             (x, y) = self._getcoords(n, row)
             self.compcubes[Config.computers[n]] = CompCube(
-                master=self.compframe, computer=Config.computers[n], index=self.index
+                master=self.compframe, computer=Config.computers[n], 
+                index=self.index
                 )
             self.compcubes[Config.computers[n]].grid(row=y, column=x, padx=5)
             n += 1
@@ -531,8 +536,9 @@ class ComputerPanel(ttk.Frame):
         '''Edits job information.'''
         kwargs = {'index':self.index}
         attrs = ClientSocket().send_cmd('get_attrs', kwargs)
-        if attrs['status'] == 'Rendering' or attrs['status'] == 'Stopped':
-            Dialog('Cannot edit job while it is rendering or stopped.').warn()
+        denystatuses = ['Rendering', 'Stopped', 'Paused']
+        if attrs['status'] in denystatuses:
+            Dialog('Job cannot be edited.').warn()
             return
         editjob = InputWindow(
             index=self.index, path=attrs['path'], start=attrs['startframe'],
@@ -567,8 +573,10 @@ class ComputerPanel(ttk.Frame):
         print(reply)
 
     def _resume_render(self):
-        if get_job_status(self.index) != 'Stopped':
-            Dialog('Cannot resume a render unless its status is "Stopped"').warn()
+        resumestatuses = ['Stopped', 'Paused']
+        if get_job_status(self.index) not in resumestatuses:
+            Dialog('Can only resume renders that have been stopped or '
+                   'paused.').warn()
             return
         reply = Dialog('Start render now? Otherwise job will be placed in '
             'queue to render later.').yesnocancel()
@@ -746,7 +754,6 @@ class SmallBox(_statusbox, tk.Frame):
         self.progress = tk.IntVar()
         self.font='TkSmallCaptionFont'
         tk.Frame.__init__(self, master=master)
-        #self.pack()
         self._draw()
 
     def _draw(self):
@@ -953,6 +960,7 @@ class InputWindow(tk.Toplevel):
             start = Config.default_startframe
             end = Config.default_endframe
             engine = Config.default_render_engine
+        #initialize tkinter variables
         self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
@@ -1043,17 +1051,27 @@ class InputWindow(tk.Toplevel):
             master, text='Deselect All', command=self._uncheck_all
             ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         #generate a grid with specified number of columns
-        cols = 5
-        rows = len(Config.computers) // cols
-        i = 0
-        for row in range(1, rows + 2):
-            for col in range(0, cols):
-                ttk.Checkbutton(
-                    master, text=Config.computers[i], 
-                    variable=self.compvars[Config.computers[i]]
-                    ).grid(row=row, column=col, padx=5, pady=5, sticky=tk.W)
-                i += 1
-                if i == len(Config.computers): break
+        self.cols = Config.input_win_cols
+        n = 0 #index of computer in computers list
+        row = 0 #starting position
+        while n < len(Config.computers):
+            (x, y) = self._getcoords(n, row)
+            ttk.Checkbutton(
+                master, text=Config.computers[n], 
+                variable=self.compvars[Config.computers[n]]
+                ).grid(row=y+1, column=x, padx=5, pady=5, sticky=tk.W)
+            n += 1
+            if x == self.cols - 1:
+                row += 1
+            
+    def _getcoords(self, n, row):
+        '''Returns coordinates (column, row) for complist checkbox.
+        n = index of that computer in the list.
+        row = current row
+        cols = number of columns in layout'''
+        x = n - self.cols * row
+        y = n - n + row 
+        return (x, y)
 
     def _check_all(self):
         '''Sets all computer buttons to the checked state.'''
@@ -1072,7 +1090,6 @@ class InputWindow(tk.Toplevel):
         
     def _enqueue(self, event=None):
         '''Places a new job in queue.'''
-
         path = self.tk_path.get()
         #verify that path exists and is accessible from the server
         if not self._path_exists(path):
@@ -1092,7 +1109,6 @@ class InputWindow(tk.Toplevel):
                 if get_job_status(self.index) == 'Rendering':
                     Dialog("Can't overwrite a job while it's rendering.").warn()
                     return
-
         startframe = int(self.tk_startframe.get())
         endframe = int(self.tk_endframe.get())
         extras = self.tk_extraframes.get()
@@ -1126,12 +1142,6 @@ class InputWindow(tk.Toplevel):
             if self.compvars[computer].get() == 1:
                 complist.append(computer)
         self.destroy()
-        #NOTE: combined create_job and enqueue
-        #kwargs = {'index':self.index}
-        #reply = ClientSocket().send_cmd('create_job', kwargs)
-        #if not reply:
-        #    Dialog("Can't overwrite job while it's rendering.").warn()
-        #    return
         render_args = {
             'index':self.index,
             'path':path, 
@@ -1256,7 +1266,6 @@ class MissingFramesWindow(tk.Toplevel):
         #search for a 'render' directory one directory below
         #XXX use pathlib.PurePath to recursively search for render/ dir
         self.check_path.set(path)
-    
 
     def _start(self, event=None):
         renderpath = self.check_path.get()
@@ -1382,18 +1391,18 @@ class StatusThread(threading.Thread):
         self.masterwin = masterwin
         threading.Thread.__init__(self, target=self._statusthread)
 
-    #def end(self):
-    #    '''Terminates the status thread cleanly.'''
-    #    StatusThread.stop = True
-
     def _statusthread(self):
         while True:
             if StatusThread.stop:
+                print('stopping statusthread')
                 break
-            serverjobs = ClientSocket().send_cmd('get_attrs')
-            self.masterwin.update(serverjobs)
+            try:
+                serverjobs = ClientSocket().send_cmd('get_attrs')
+                self.masterwin.update(serverjobs)
+            except:
+                print('Could not connect to server. Retrying')
             #refresh interval in seconds
-            time.sleep(0.5)
+            time.sleep(Config.refresh_interval)
 
 
 

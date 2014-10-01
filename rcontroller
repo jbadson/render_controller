@@ -13,15 +13,26 @@ import gui
 
 helptext = (
 'IGP Render Controller\n'
+'Usage: rcontroller [-s] [-h] [-p] [port#]\n'
 'Execute with no options to start the GUI client.\n'
 '-s --server\tStart the server.\n'
+'-p --port\tUse the specified port when starting the server.\n'
+'\t\tMust be used with -s or --server.\n'
 '-h --help\tDisplay this help message.'
 )
 
-if '--server' in sys.argv or '-s' in sys.argv:
-    renderserver = server.Server()
+port = None
+
+if '-s' in sys.argv or '--server' in sys.argv:
+    if '-p' in sys.argv or '--port' in sys.argv:
+        for i in sys.argv:
+            if i.isdigit(): #assume any number in args is the port number
+                port = int(i)
+                break
+    renderserver = server.Server(port=port)
 elif '-h' in sys.argv or '--help' in sys.argv:
     print(helptext)
+    
 else:
     masterwin = gui.MasterWin()
     masterwin.mainloop()

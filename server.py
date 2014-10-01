@@ -916,9 +916,13 @@ class Server(object):
     start a server. The Job class and its methods can be used directly without
     a Server instance, however an instance of Config MUST be created first to 
     define the global configuration variables on which Job's methods depend.'''
-    def __init__(self):
+    def __init__(self, port=None):
         #read config file & set up config variables
         self.conf = Config()
+        if port:
+            self.port = port
+        else:
+            self.port = 2020
         if not self._check_logpath():
             return
         self.renderjobs = {}
@@ -958,10 +962,9 @@ class Server(object):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         host = '' #all interfaces
         hostname = socket.gethostname()
-        port = 2020
-        s.bind((host, port))
+        s.bind((host, self.port))
         s.listen(5)
-        print('Server now running on ' + hostname + ' port ' + str(port))
+        print('Server now running on ' + hostname + ' port ' + str(self.port))
         print('Press Crtl + C to stop...')
         while True:
             try:

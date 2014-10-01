@@ -14,6 +14,7 @@ import ast
 import json
 import cfgfile
 import framechecker
+import tk_extensions as tkx
 
 illegal_characters = [' ', ';', '&'] #not allowed in path
 
@@ -161,8 +162,8 @@ class Config(object):
         used by the GUI, but are here for the preferences window.'''
         try:
             servercfg = ClientSocket().send_cmd('get_config_vars')
-        except:
-            return False
+        except Exception as e:
+            return e
         (
         Config.computers, Config.renice_list, 
         Config.macs, Config.blenderpath_mac, Config.blenderpath_linux, 
@@ -170,7 +171,17 @@ class Config(object):
         Config.allowed_filetypes, Config.timeout, Config.autostart, 
         Config.maxglobalrenders, Config.verbose, Config.log_basepath 
         ) = servercfg
-        return True
+        return False
+    
+    #def get_gui_vars(self):
+        '''Returns an n-tuple of all current GUI config vars.'''
+        '''
+        return (
+            Config.default_path, Config.default_startframe, 
+            Config.default_endframe, Config.default_render_engine,
+            Config.input_win_cols, Config.comp_status_panel_cols,
+            Config.default_host, Config.default_port, Config.refresh_interval
+            )'''
 
 
 
@@ -180,6 +191,7 @@ class Config(object):
 #XXX Get rid of LightBlueBGColor if you're not going to use it.
 LightBlueBGColor = 'white'
 MidBGColor = '#%02x%02x%02x' % (190, 190, 190)
+ttkNtbkBGColor = '#%02x%02x%02x' % (223, 223, 223)
 LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
 #DarkBGColor = '#%02x%02x%02x' % (50, 50, 50)
 HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
@@ -245,8 +257,12 @@ class MasterWin(tk.Tk):
         #configure host and port class attributes
         ClientSocket.setup(host=self.tk_host.get(), port=int(self.tk_port.get()))
         #get the server config variables
-        if not Config().get_server_cfg():
-            print('Config().get_server_cfg() failed')
+        msg = Config().get_server_cfg()
+        if msg:
+            print('Could not retrieve config vars form server:', msg)
+            ttk.Label(
+                self, text='Server connection failed: ' + str(msg)
+                ).pack()
             return
         self.verbosity = tk.IntVar()
         self.verbosity.set(Config.verbose)
@@ -273,6 +289,9 @@ class MasterWin(tk.Tk):
         ttk.Button(
             topbar, text='Check Missing Frames', command=self._checkframes, 
             style='Toolbutton'
+            ).pack(padx=5, side=tk.LEFT)
+        ttk.Button(
+            topbar, text='Preferences', command=PrefsWin, style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
@@ -333,6 +352,9 @@ class MasterWin(tk.Tk):
             self.comppanels[index].update(attrdict)
         #attempt re-sorting job boxes
         self.sort_jobboxes()
+        #XXX testing for prog bars
+        #this does seem to fix the issue of lagging updates
+        #self.update_idletasks()
 
 
     def _new_job(self):
@@ -645,6 +667,26 @@ class _statusbox(object):
                        str(newtime[2])+'m '+str(newtime[3])+'s')
         return timestr
 
+    def getcolor(self, status):
+        if status == 'Rendering':
+            color = 'DarkGreen'
+            barcolor = '#00E600'
+        elif status == 'Waiting':
+            color = 'DarkGoldenrod'
+            barcolor = '#F5DC00'
+        elif status == 'Paused':
+            color = 'DarkOrchid'
+            barcolor = '#9932CC'
+        elif status =='Stopped':
+            color = 'FireBrick'
+            barcolor = '#F01E1E'
+        elif status == 'Finished':
+            color = 'DarkGray'
+            barcolor = '#646464'
+        #barcolor = None
+        return (color, barcolor)
+
+
 
 class BigBox(_statusbox, ttk.LabelFrame):
     '''Large status box for top of comp panel.'''
@@ -683,10 +725,12 @@ class BigBox(_statusbox, ttk.LabelFrame):
 
         middlerow = tk.Frame(container)
         middlerow.pack(padx=5, expand=True, fill=tk.X)
-        ttk.Progressbar(
-            middlerow, length=810, mode='determinate', 
-            orient=tk.HORIZONTAL, variable=self.progress
-            ).pack(side=tk.LEFT)
+        #ttk.Progressbar(
+        #    middlerow, length=810, mode='determinate', 
+        #    orient=tk.HORIZONTAL, variable=self.progress
+        #    ).pack(side=tk.LEFT)
+        self.pbar = tkx.Progressbar(middlerow, length=810)
+        self.pbar.pack(side=tk.LEFT)
         tk.Label(middlerow, font=self.font, text='%').pack(side=tk.RIGHT)
         self.proglabel = tk.Label(middlerow, font=self.font, text='0.0')
         self.proglabel.pack(side=tk.RIGHT)
@@ -712,16 +756,7 @@ class BigBox(_statusbox, ttk.LabelFrame):
     def update(self, status, startframe, endframe, extraframes, 
                path, progress, times):
         self.status = status
-        if self.status == 'Rendering':
-            color = 'DarkGreen'
-        elif self.status == 'Waiting':
-            color = 'DarkGoldenrod'
-        elif self.status == 'Paused':
-            color = 'DarkOrchid'
-        elif self.status =='Stopped':
-            color = 'FireBrick'
-        elif self.status == 'Finished':
-            color = 'DarkGray'
+        color, barcolor = self.getcolor(status)
         self.statuslbl.config(text=status, fg=color)
         self.startlabel.config(text=str(startframe))
         self.endlabel.config(text=str(endframe))
@@ -732,7 +767,8 @@ class BigBox(_statusbox, ttk.LabelFrame):
         else:
             extras = 'None'
         self.extraslabel.config(text=extras)
-        self.progress.set(progress)
+        #self.progress.set(progress)
+        self.pbar.set(progress, barcolor)
         self.proglabel.config(text=str(round(progress, 1)))
         elapsed_time = self.format_time(times[0])
         avg_time = self.format_time(times[1])
@@ -767,10 +803,13 @@ class SmallBox(_statusbox, tk.Frame):
                                   bg=self.bgcolor)
         self.statuslbl.pack(side=tk.RIGHT)
 
-        ttk.Progressbar(
-            self, length=250, mode='determinate', 
-            orient=tk.HORIZONTAL, variable=self.progress
-            ).pack(padx=5)
+        #ttk.Progressbar(
+        #    self, length=250, mode='determinate', 
+        #    orient=tk.HORIZONTAL, variable=self.progress
+        #    ).pack(padx=5)
+
+        self.pbar = tkx.Progressbar(self, length=250)
+        self.pbar.pack(padx=5)
 
         bottomrow = tk.Frame(self, bg=self.bgcolor)
         bottomrow.pack(padx=5, expand=True, fill=tk.X)
@@ -824,22 +863,13 @@ class SmallBox(_statusbox, tk.Frame):
                queuetime):
         #info needed for sorting boxes in GUI
         self.status = status
-        if self.status == 'Rendering':
-            color = 'DarkGreen'
-        elif self.status == 'Waiting':
-            color = 'DarkGoldenrod'
-        elif self.status == 'Paused':
-            color = 'DarkOrchid'
-        elif self.status =='Stopped':
-            color = 'FireBrick'
-        elif self.status == 'Finished':
-            color = 'DarkGray'
-
+        color, barcolor = self.getcolor(self.status)
         self.queuetime = queuetime
         filename = os.path.basename(path)
         self.statuslbl.config(text=status, fg=color)
         self.namelabel.config(text=filename)
-        self.progress.set(progress)
+        #self.progress.set(progress)
+        self.pbar.set(progress, barcolor)
         self.proglabel.config(text=str(round(progress, 1)))
         time_rem = self.format_time(times[2])
         self.rem_time_lbl.config(text=time_rem)
@@ -862,6 +892,8 @@ class CompCube(_statusbox, tk.LabelFrame):
             mainblock, length=230, mode='determinate',
             orient=tk.HORIZONTAL, variable=self.progress
             ).pack(padx=5, pady=5)
+        #self.pbar = tkx.Progressbar(mainblock, length=230)
+        #self.pbar.pack(padx=5, pady=5)
         bottomrow = tk.Frame(mainblock, bg=self.bgcolor)
         bottomrow.pack(expand=True, fill=tk.X)
         tk.Label(
@@ -896,6 +928,7 @@ class CompCube(_statusbox, tk.LabelFrame):
 
     def update(self, frame, progress, pool):
         self.progress.set(progress)
+        #self.pbar.set(progress)
         self.frameno.config(text=str(frame))
         self.frameprog.config(text=str(round(progress, 1)))
         self.pool.set(pool)
@@ -1347,6 +1380,240 @@ class MissingFramesWindow(tk.Toplevel):
         for frame in missing:
             self.missingFrames.insert(tk.END, str(frame) + '\n')
 
+class PrefsWin(tk.Toplevel):
+    def __init__(self):
+        tk.Toplevel.__init__(self)
+        self.bind('<Command-q>', quit) 
+        self.bind('<Control-q>', quit)
+        self.bind('<Return>', self._apply)
+        self.bind('<KP_Enter>', self._apply)
+        self.bind('<Escape>', lambda x: self.destroy())
+        self._get_local_vars()
+        #create window elements
+        self.nb = ttk.Notebook(self)
+        self.nb.pack()
+        self.nb.add(self._local_pane(), text='Local Settings', sticky=tk.N)
+        self.nb.add(self._server_pane(), text='Server Settings')
+        btnbar = ttk.Frame(self)
+        btnbar.pack(anchor=tk.W, expand=True, fill=tk.X)
+        ttk.Button(
+            btnbar, text='Ok', command=self._apply, style='Toolbutton'
+            ).pack(side=tk.LEFT, padx=(15, 5), pady=(0, 15))
+        ttk.Button(
+            btnbar, text='Cancel', command=self.destroy, style='Toolbutton'
+            ).pack(side=tk.LEFT, padx=5, pady=(0, 15))
+        ttk.Button(
+            btnbar, text='Restore Defaults', command=self._restore_defaults, 
+            style='Toolbutton'
+            ).pack(side=tk.LEFT, padx=5, pady=(0, 15))
+
+    def _get_local_vars(self):
+        '''Sets tkinter variables to the current global values.'''
+        #initialize tkinter variables
+        self.path = tk.StringVar()
+        self.startframe = tk.StringVar()
+        self.endframe = tk.StringVar()
+        self.render_engine = tk.StringVar()
+        self.comppanel_cols = tk.IntVar()
+        self.input_cols = tk.IntVar()
+        self.host = tk.StringVar()
+        self.port = tk.StringVar()
+        self.refresh_interval = tk.DoubleVar()
+        self.path.set(Config.default_path)
+        self.startframe.set(Config.default_startframe)
+        self.endframe.set(Config.default_endframe)
+        self.render_engine.set(Config.default_render_engine)
+        self.input_cols.set(Config.input_win_cols)
+        self.comppanel_cols.set(Config.comp_status_panel_cols)
+        self.host.set(Config.default_host)
+        self.port.set(Config.default_port)
+        #convert refresh_interval in sec. to frequency (Hz) for display
+        self.refresh_interval.set(1 / Config.refresh_interval)
+
+    def _get_server_vars(self):
+        '''Gets current server vars and sets tkinter vars from them.'''
+        msg = Config().get_server_cfg()
+        if msg:
+            print('Failed to get latest server config. Using previous '
+                  'values.', msg)
+        self.renice = {}
+        self.macs = {}
+        for comp in Config.computers:
+            self.renice[comp] = tk.IntVar()
+            if comp in Config.renice_list:
+                self.renice[comp].set(1)
+            self.macs[comp] = tk.IntVar()
+            if comp in Config.macs:
+                self.macs[comp].set(1)
+        self.blenderpath_mac = tk.StringVar()
+        self.blenderpath_linux = tk.StringVar()
+        self.terragenpath_mac = tk.StringVar()
+        self.terragenpath_linux = tk.StringVar()
+        self.allowed_filetypes = tk.StringVar()
+        self.timeout = tk.StringVar()
+        self.autostart = tk.IntVar()
+        self.maxglobalrenders = tk.StringVar()
+        self.verbose = tk.IntVar()
+        self.log_basepath = tk.StringVar()
+
+        self.blenderpath_mac.set(Config.blenderpath_mac)
+        self.blenderpath_linux.set(Config.blenderpath_linux)
+        self.terragenpath_mac.set(Config.terragenpath_mac)
+        self.terragenpath_linux.set(Config.terragenpath_linux)
+        self.allowed_filetypes.set(Config.allowed_filetypes)
+        self.timeout.set(Config.timeout)
+        #XXX this autostart is runtime-changeable, need DEFAULT
+        #maybe just need to pass this to server to update cfgfile without
+        #updating runtime state
+        self.autostart.set(Config.autostart)
+        self.maxglobalrenders.set(Config.maxglobalrenders)
+        #XXX same as autostart above
+        self.verbose.set(Config.verbose)
+        self.log_basepath.set(Config.log_basepath)
+
+
+    def _local_pane(self):
+        '''Pane for local preferences (does not affect server).'''
+        #self.lpane = tk.LabelFrame(self.nb, bg=LightBGColor)
+        lpane = ttk.Frame(self.nb)
+        fr1 = ttk.LabelFrame(lpane, text='Connection Defaults')
+        fr1.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        ttk.Label(fr1, text='Update Frequency (Hz)'
+            ).grid(row=0, column=0, padx=5, pady=5)
+        self.freqscale = ttk.Scale(
+            fr1, from_=1, to=10, orient=tk.HORIZONTAL, 
+            variable=self.refresh_interval
+            )
+        self.freqscale.grid(row=1, column=0, padx=5, pady=5)
+        ttk.Separator(fr1, orient=tk.VERTICAL
+            ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=20)
+        ttk.Label(fr1, text='Host:'
+            ).grid(row=0, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(fr1, width=15, textvariable=self.host
+            ).grid(row=0, column=3, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(fr1, text='Port:'
+            ).grid(row=1, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(fr1, width=15, textvariable=self.port
+            ).grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
+
+        fr2 = ttk.LabelFrame(lpane, text='New / Edit Job Window Defaults')
+        fr2.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        ttk.Label(fr2, text='Start frame:'
+            ).grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(fr2, width=15, textvariable=self.startframe
+            ).grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(fr2, text='End frame:'
+            ).grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(fr2, width=15, textvariable=self.endframe
+            ).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(fr2, text='Path:'
+            ).grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Entry(fr2, width=30, textvariable=self.path
+            ).grid(row=2, column=1, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(fr2, text='Render engine:'
+            ).grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Radiobutton(
+            fr2, text='Blender', variable=self.render_engine, value='blend'
+            ).grid(row=3, column=1, padx=5, pady=5)
+        ttk.Radiobutton(
+            fr2, text='Terragen', variable=self.render_engine, value='tgd'
+            ).grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
+
+        fr3 = ttk.LabelFrame(lpane, text='GUI Layout: Columns')
+        fr3.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        ttk.Label(fr3, text='Main Status Panel'
+            ).grid(row=0, column=0, padx=5, pady=5)
+        compcol_scale = ttk.Scale(
+            fr3, from_=1, to=10, orient=tk.HORIZONTAL, 
+            variable=self.comppanel_cols
+            )
+        compcol_scale.grid(row=1, column=0, padx=5, pady=5)
+        ttk.Separator(fr3, orient=tk.VERTICAL
+            ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=5)
+        ttk.Label(fr3, text='New Job Checkboxes'
+            ).grid(row=0, column=2, padx=5, pady=5)
+        inputcol_scale = ttk.Scale(
+            fr3, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.input_cols
+            )
+        inputcol_scale.grid(row=1, column=2, padx=5, pady=5)
+        
+        return lpane
+
+    def _server_pane(self):
+        '''Pane for server-specific preferences.'''
+        #self.spane = tk.LabelFrame(self.nb, bg=LightBGColor)
+        self._get_server_vars()
+        spane = ttk.Frame(self.nb)
+        #ttk.Label(spane, text='Server settings').pack()
+        self._complist_frame(spane
+            ).grid(row=0, rowspan=3, column=0, padx=10, pady=5)
+        fr1 = ttk.Frame(spane)
+        fr1.grid(row=0, column=1, padx=10, pady=5)
+        ttk.Label(fr1, text='Render Timeout'
+            ).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Entry(fr1, width=5, textvariable=self.timeout
+            ).grid(row=1, column=0, padx=5, pady=5)
+        ttk.Separator(fr1, orient=tk.VERTICAL
+            ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=20)
+        ttk.Label(
+            fr1, text='Concurrent Renders'
+            ).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Entry(fr1, width=5, textvariable=self.maxglobalrenders
+            ).grid(row=1, column=2, padx=5, pady=5)
+
+        fr2 = ttk.LabelFrame(spane, text='Server Startup Settings')
+        fr2.grid(row=1, column=1, padx=10, pady=5, sticky=tk.EW)
+        ttk.Checkbutton(fr2, text='Autostart enabled', variable=self.autostart
+            ).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Checkbutton(fr2, text='Verbose enabled', variable=self.verbose
+            ).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Label(fr2, text='Render log directory:'
+            ).grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        ttk.Entry(fr2, width=30, textvariable=self.log_basepath
+            ).grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        pathspane = ttk.LabelFrame(spane, text='Render Engine Paths')
+        pathspane.grid(row=2, column=1, padx=10, pady=5)
+        ttk.Label(pathspane, text='Blender OSX'
+            ).grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        ttk.Entry(pathspane, width=40, textvariable=self.blenderpath_mac
+            ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(pathspane, text='Blender Linux'
+            ).grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        ttk.Entry(pathspane, width=40, textvariable=self.blenderpath_linux
+            ).grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(pathspane, text='Terragen OSX'
+            ).grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        ttk.Entry(pathspane, width=40, textvariable=self.terragenpath_mac
+            ).grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(pathspane, text='Terragen Linux'
+            ).grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
+        ttk.Entry(pathspane, width=40, textvariable=self.terragenpath_linux
+            ).grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+        return spane
+
+    def _complist_frame(self, master):
+        cframe = ttk.LabelFrame(master, text='Computers')
+        ttk.Label(cframe, text='Computer').grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(cframe, text='OSX').grid(row=0, column=1)
+        ttk.Label(cframe, text='Renice').grid(row=0, column=2)
+        for i in range(len(Config.computers)):
+            ttk.Label(
+                cframe, text=Config.computers[i]
+                ).grid(row=i+1, column=0, sticky=tk.W, padx=5)
+            ttk.Checkbutton(cframe, variable=self.macs[Config.computers[i]]
+                ).grid(row=i+1, column=1)
+            ttk.Checkbutton(cframe, variable=self.renice[Config.computers[i]]
+                ).grid(row=i+1, column=2)
+
+        return cframe
+
+    def _apply(self, event=None):
+        print("_apply() called, this doesn't exist yet")
+        self.destroy()
+
+    def _restore_defaults(self):
+        print("_restore_defaults() called, doesn't exist yet")
+
 
 class HRule(ttk.Separator):
     '''Preconfigured subclass of ttk.Separator'''
@@ -1398,9 +1665,14 @@ class StatusThread(threading.Thread):
                 break
             try:
                 serverjobs = ClientSocket().send_cmd('get_attrs')
+            except Exception as e:
+                print('Could not connect to server:', e)
+                time.sleep(Config.refresh_interval)
+                continue
+            try:
                 self.masterwin.update(serverjobs)
-            except:
-                print('Could not connect to server. Retrying')
+            except Exception as e:
+                print('MasterWin.update() failed:', e.__class__.__name__+':', e)
             #refresh interval in seconds
             time.sleep(Config.refresh_interval)
 

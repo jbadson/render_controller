@@ -312,8 +312,10 @@ class MasterWin(tk.Tk):
         jobbtns = tk.Frame(left_frame_inner, bg=LightBGColor)
         jobbtns.pack(fill=tk.X)
         ttk.Separator(jobbtns).pack(fill=tk.X)
-        RectButton(jobbtns, text='+', command=self._new_job).pack(side=tk.LEFT)
-        RectButton(jobbtns, text='-', command=self._delete_job).pack(side=tk.LEFT)
+        tkx.RectButton(jobbtns, text='+', command=self._new_job
+            ).pack(side=tk.LEFT)
+        tkx.RectButton(jobbtns, text='-', command=self._delete_job
+            ).pack(side=tk.LEFT)
         
         self.right_frame = ttk.LabelFrame(midblock, width=921)
         self.right_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.BOTH)
@@ -371,9 +373,13 @@ class MasterWin(tk.Tk):
         GUI elements are not removed directly by this function. They are deleted
         by self.update() when called by the status thread to ensure that the GUI 
         state is only changed if the server state was successfully changed.'''
+        nojobs = True
         for index in self.jobboxes:
             if self.jobboxes[index].selected:
+                nojobs = False
                 break
+        if nojobs: #do nothing if no job is selected
+            return
         if get_job_status(index) == 'Rendering':
             Dialog("Can't delete a job while it's rendering.").warn()
             return
@@ -934,46 +940,6 @@ class CompCube(_statusbox, tk.LabelFrame):
         self.pool.set(pool)
 
 
-class RectButton(tk.Frame):
-    '''Subclass of tkinter Frame that looks and behaves like a rectangular 
-    button.'''
-    BGCOLOR = '#%02x%02x%02x' % (235, 235, 235)
-    HIGHLIGHT = '#%02x%02x%02x' % (74, 139, 222)
-
-    def __init__(self, master, text='Button', command=None, bg=BGCOLOR):
-        self.bgcolor = bg
-        self.command = command
-        tk.LabelFrame.__init__(self, master, borderwidth=1, relief=tk.GROOVE, 
-                               bg=self.bgcolor)
-        self.lbl = tk.Label(self, text=text, bg=self.bgcolor)
-        self.lbl.pack(expand=True, fill=tk.BOTH, padx=3)
-        self.bind('<Button-1>', self._select)
-        self.lbl.bind('<Button-1>', self._select)
-        self.bind('<ButtonRelease-1>', self._execute)
-        self.lbl.bind('<ButtonRelease-1>', self._execute)
-        self.bind('<Leave>', self._deselect)
-        self.lbl.bind('<Leave>', self._deselect)
-
-    def _select(self, event=None):
-        '''Changes the background color to the highlight color'''
-        self.selected = True
-        self.config(bg=self.HIGHLIGHT)
-        self.lbl.config(bg=self.HIGHLIGHT)
-        self.update_idletasks()
-
-    def _deselect(self, event=None):
-        self.selected = False
-        self.config(bg=self.bgcolor)
-        self.lbl.config(bg=self.bgcolor)
-        return
-
-    def _execute(self, event=None):
-        '''Returns the button bgcolor to it's original state.'''
-        if self.command and self.selected:
-            self.command()
-        self._deselect()
-
-
 class InputWindow(tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.
     If passed optional arguments, these will be used to populate the fields
@@ -1480,11 +1446,13 @@ class PrefsWin(tk.Toplevel):
         fr1.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
         ttk.Label(fr1, text='Update Frequency (Hz)'
             ).grid(row=0, column=0, padx=5, pady=5)
-        self.freqscale = ttk.Scale(
-            fr1, from_=1, to=10, orient=tk.HORIZONTAL, 
-            variable=self.refresh_interval
-            )
-        self.freqscale.grid(row=1, column=0, padx=5, pady=5)
+        #self.freqscale = ttk.Scale(
+        #    fr1, from_=1, to=10, orient=tk.HORIZONTAL, 
+        #    variable=self.refresh_interval
+        #    )
+        #self.freqscale.grid(row=1, column=0, padx=5, pady=5)
+        tkx.MarkedScale(fr1, start=1, end=10, variable=self.refresh_interval
+            ).grid(row=1, column=0, padx=5, pady=5)
         ttk.Separator(fr1, orient=tk.VERTICAL
             ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=20)
         ttk.Label(fr1, text='Host:'
@@ -1523,19 +1491,23 @@ class PrefsWin(tk.Toplevel):
         fr3.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
         ttk.Label(fr3, text='Main Status Panel'
             ).grid(row=0, column=0, padx=5, pady=5)
-        compcol_scale = ttk.Scale(
-            fr3, from_=1, to=10, orient=tk.HORIZONTAL, 
-            variable=self.comppanel_cols
-            )
-        compcol_scale.grid(row=1, column=0, padx=5, pady=5)
+        #compcol_scale = ttk.Scale(
+        #    fr3, from_=1, to=10, orient=tk.HORIZONTAL, 
+        #    variable=self.comppanel_cols
+        #    )
+        #compcol_scale.grid(row=1, column=0, padx=5, pady=5)
+        tkx.MarkedScale(fr3, start=1, end=10, variable=self.comppanel_cols
+            ).grid(row=1, column=0, padx=5, pady=5)
         ttk.Separator(fr3, orient=tk.VERTICAL
             ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=5)
         ttk.Label(fr3, text='New Job Checkboxes'
             ).grid(row=0, column=2, padx=5, pady=5)
-        inputcol_scale = ttk.Scale(
-            fr3, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.input_cols
-            )
-        inputcol_scale.grid(row=1, column=2, padx=5, pady=5)
+        #inputcol_scale = ttk.Scale(
+        #    fr3, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.input_cols
+        #    )
+        #inputcol_scale.grid(row=1, column=2, padx=5, pady=5)
+        tkx.MarkedScale(fr3, start=1, end=10, variable=self.input_cols
+            ).grid(row=1, column=2, padx=5, pady=5)
         
         return lpane
 

@@ -1,6 +1,7 @@
 import tkinter as tk
+import tkinter.ttk as ttk
 
-'''Some customized tkinter widget subclasses by James Adson. Still very
+'''Some customized tkinter and ttk widget subclasses. Still very
 experimental. Written for Python 3.4'''
 
 class Progressbar(tk.Canvas):
@@ -8,8 +9,7 @@ class Progressbar(tk.Canvas):
     colors.
 
     If a large number of these are used in a single window, it may be helpful to
-    manually call the update_idletasks() method on the window to force more
-    frequent updates.'''
+    manually call the update_idletasks() method on the window to force updates.'''
 
     BGCOLOR = '#%02x%02x%02x' %(212, 212, 212)
     OUTLINECOLOR = '#%02x%02x%02x' %(122, 122, 122)
@@ -89,8 +89,8 @@ class Progressbar(tk.Canvas):
 
 
 class RectButton(tk.Frame):
-    '''Subclass of tkinter Frame that looks and behaves like a rectangular 
-    button.'''
+    '''Subclass of tkinter Frame that looks and behaves (kind of) like a 
+    rectangular button in the OSX Aqua interface.'''
     BGCOLOR = '#%02x%02x%02x' % (235, 235, 235)
     HIGHLIGHT = '#%02x%02x%02x' % (74, 139, 222)
 
@@ -122,10 +122,41 @@ class RectButton(tk.Frame):
         return
 
     def _execute(self, event=None):
-        '''Returns the button bgcolor to it's original state.'''
+        '''Returns the button bgcolor to it's original state and executes
+        the button's command attribute.'''
         if self.command and self.selected:
             self.command()
         self._deselect()
+
+
+class MarkedScale(ttk.Frame):
+    '''Version of ttk Scale that includes tickmarks below the
+    horizontal scale bar.'''
+    def __init__(self, master=None, start=0, end=10, length=100, variable=None, 
+                 command=None, font='TkSmallCaptionFont'):
+        self.start = start
+        self.end = end
+        self.length = length
+        self.var = variable #must be a tkinter variable
+        self.font = font
+        ttk.Frame.__init__(self, master=master)
+        self.scale = ttk.Scale(self, from_=start, to=end, variable=self.var, 
+                               command=command)
+        self.scale.pack(expand=True, fill=tk.X)
+        self.ticks().pack(padx=4, expand=True, fill=tk.X)
+
+    def ticks(self):
+        tickframe = ttk.Frame(self)
+        ttk.Label(tickframe, text=self.start, font=self.font).pack(side=tk.LEFT)
+        for i in range(self.start + 1, self.end):
+            ttk.Label(tickframe, text='.', font=self.font
+                ).pack(side=tk.LEFT, expand=True, fill=tk.X)
+        ttk.Label(tickframe, text=self.end, font=self.font).pack(side=tk.RIGHT)
+        return tickframe
+
+    def set(self, value):
+        '''Sets the value of the progress bar.'''
+        self.scale.set(value)
             
 
 
@@ -134,16 +165,7 @@ if __name__ == '__main__':
     '''Show a demo of widgets'''
 
     root = tk.Tk()
-    tk.Label(
-        root, text='Progressbar colorscheme defaults to blue. '
-        'Can be configured by passing a color argument at construction or '
-        'with the set() method.'
-        ).pack()
-    i = 10
-    for color in Progressbar.Colorschemes:
-        tk.Label(root, text='color: '+color).pack(padx=100, pady=(1,3))
-        pb = Progressbar(root, length=300)
-        pb.pack(padx=100, pady=(1, 5))
-        pb.set(i, color=color)
-        i += 10
+    root.geometry=('640x480')
+    a = MarkedScale(root, start=10, end=100)
+    a.pack(padx=100, pady=100)
     root.mainloop()

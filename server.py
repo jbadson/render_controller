@@ -926,6 +926,7 @@ class Server(object):
         if not self._check_logpath():
             return
         self.renderjobs = {}
+        self.waitlist = [] #ordered list of jobs waiting to be rendered
         self._check_restore_state()
         self.updatethread = threading.Thread(target=self.update_loop)
         self.updatethread.start()
@@ -988,51 +989,57 @@ class Server(object):
             time.sleep(30)
 
     def check_autostart(self):
-        '''Starts next job and returns true if global autostart is enabled 
-        and new job is ready.'''
-        proceed_statuses = ['Waiting', 'Paused']
-        #first check for high priority jobs
+        #handle high priority renders
         times = {}
-        #get list of all high priority jobs
-        for index in self.renderjobs:
-            if self.renderjobs[index].priority == 'High':
-                #if high pri job is rendering, assume it's the oldest and move on
-                if self.renderjobs[index].status == 'Rendering':
-                    print('High priority render in progress:', index)
-                    return False
-                elif self.renderjobs[index].status in proceed_statuses:
-                    queuetime = self.renderjobs[index].queuetime
-                    times[queuetime] = index
-        #if ready high pri jobs were found but none were running, start the oldest
+        for i in self.renderjobs:
+            job = self.renderjobs[i]
+            if job.priority == 'High':
+                if job.status == 'Rendering':
+                    #nothing else needs to be done on this pass
+                    return
+                elif job.status == 'Waiting':
+                    times[job.queuetime] = job
         if times:
-            index = times[min(times)]
-            #stop all other renders
-            for job in self.renderjobs:
-                if self.renderjobs[job].status == 'Rendering':
-                    print('killing ', job)
-                    self.renderjobs[job].kill_later(finalstatus='Paused')
-            print('Autostart found high priority job. Stopping all renders, '
-                  'starting render of ' + str(index))
-            self.renderjobs[index].autostart()
-            return True
-        #if no high priority renders, run the normal autostart algorithm
-        renders = 0 #number of currently-running renders
-        for index in self.renderjobs:
-            if self.renderjobs[index].status == 'Rendering':
-                renders += 1
-        if renders >= Config.maxglobalrenders:
-            return False
-        times = {}
-        for index in self.renderjobs:
-            if self.renderjobs[index].status in proceed_statuses:
-                queuetime = self.renderjobs[index].queuetime
-                times[queuetime] = index
-        if times:
-            index = times[min(times)]
-            print('Autostart: starting', index)
-            self.renderjobs[index].autostart() 
-            return True
-        return False
+            print('High priority render detected.')
+            #kill all active renders
+            for i in self.renderjobs:
+                job = self.renderjobs[i]
+                if job.status == 'Rendering':
+                    print('Pausing', job.path)
+                    job.kill_later(finalstatus='Paused')
+                    self.waitlist.insert(0, job)
+            newjob = times[min(times)]
+            newjob.autostart()
+            print('Started', newjob.path)
+            return
+
+        #if there are no waiting jobs, no reason to continue
+        if not self.waitlist:
+            return
+        
+        #if no high priority jobs, handle the normal ones
+        for i in self.renderjobs:
+            job = self.renderjobs[i]
+            if job.status == 'Rendering':
+                '''Loop should terminate with either rendering condition. Either 
+                something is running or something is about to finish.'''
+                if not job.queue.empty():
+                    #job is currently rendering, nothing else needs to be done
+                    return
+                else:
+                    '''All frames have been distributed, just waiting for last 
+                    set to finish. Starting next job here b/c sometimes the last 
+                    frame takes an inordinately long time.'''
+                    newjob = self.waitlist.pop(0)
+                    newjob.autostart()
+                    print('Autostart started', newjob.path)
+                    return
+        
+        #finally, no high-priority renders and nothing rendering. 
+        #Start the oldest thing that's waiting
+        newjob = self.waitlist.pop(0)
+        newjob.autostart()
+        print('Autostart started', newjob.path)
 
     def dump_state(self):
         '''Writes the current state of all Job instances on the server
@@ -1063,6 +1070,9 @@ class Server(object):
                 reply = self.renderjobs[index].set_attrs(jobs[index])
                 if reply:
                     print('Restored job ', index)
+                    #add job to waitlist if necessary
+                    if self.renderjobs[index].status == 'Waiting' or self.renderjobs[index].status == 'Paused':
+                        self.waitlist.append(self.renderjobs[index])
                 else:
                     print('Unable to restore job ', index)
             print('Server state restored')
@@ -1123,8 +1133,10 @@ class Server(object):
         if index in self.renderjobs:
             if self.renderjobs[index].status == 'Rendering':
                 return 'Failed to create job'
-        self.renderjobs[index] = Job()
         #place it in queue
+        self.renderjobs[index] = Job()
+        #put it in ordered list of waiting jobs
+        self.waitlist.append(self.renderjobs[index])
         reply = self.renderjobs[index].enqueue(
             path, startframe, endframe, render_engine, complist, 
             extraframes=extras
@@ -1139,6 +1151,8 @@ class Server(object):
         '''Start a render at the request of client.'''
         index = kwargs['index']
         reply = self.renderjobs[index].render()
+        #remove job from waitlist
+        self.waitlist.remove(self.renderjobs[index])
         if reply:
             return index + ' render started'
         else:
@@ -1189,6 +1203,8 @@ class Server(object):
         index = kwargs['index']
         startnow = kwargs['startnow']
         reply = self.renderjobs[index].resume(startnow)
+        #remove from waitlist
+        #self.waitlist.remove(self.renderjobs[index])
         if reply:
             return 'Resumed render of ' + str(index)
         else:

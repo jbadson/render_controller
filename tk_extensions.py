@@ -13,26 +13,25 @@ class Progressbar(tk.Canvas):
 
     BGCOLOR = '#%02x%02x%02x' %(212, 212, 212)
     OUTLINECOLOR = '#%02x%02x%02x' %(122, 122, 122)
+    AQUABGCOLOR = '#%02x%02x%02x' %(232, 232, 232)
     BLUE = '#1E90FF'
-    GREEN = '#00E600'
-    RED = '#F01E1E'
-    GOLD = '#F5DC00'
-    GRAY = '#646464'
-    PURPLE = '#9932CC'
 
-    def __init__(self, master=None, length=100, color='blue', *args, **kwargs):
+    def __init__(self, master=None, length=100, color=None, bgcolor=None, 
+                 *args, **kwargs):
         self.barlength = length - 5 #length of inner bar adjusted for padding
         self.height=17
+        if not bgcolor:
+            bgcolor = Progressbar.AQUABGCOLOR
         tk.Canvas.__init__(
             self, master=master, height=20, width=length, 
-            highlightthickness=0, *args, **kwargs
+            borderwidth=0, highlightthickness=0, bg=bgcolor, *args, **kwargs
             )
         base = self._base_rect(
             length=length, height=self.height, 
             outline=Progressbar.OUTLINECOLOR, fill=Progressbar.BGCOLOR
             )
         #draw prog bar
-        self.pbar = self._innerbar(0)
+        self.pbar = self._innerbar(0, color=color)
 
     def _base_rect(self, length, height, outline, fill):
         '''Basic rectangle shape.'''
@@ -132,6 +131,9 @@ class RectButton(tk.Frame):
 class MarkedScale(ttk.Frame):
     '''Version of ttk Scale that includes tickmarks below the
     horizontal scale bar.'''
+
+    #XXX Need to adjust number of ticks to compensate for length, esp. if
+    #XXX length is different from end-start
     def __init__(self, master=None, start=0, end=10, length=100, variable=None, 
                  command=None, font='TkSmallCaptionFont'):
         self.start = start
@@ -157,7 +159,52 @@ class MarkedScale(ttk.Frame):
     def set(self, value):
         '''Sets the value of the progress bar.'''
         self.scale.set(value)
-            
+
+
+class Tooltip(object):
+    '''Accepts a tkinter or ttk object and binds a tooltip action to it. 
+
+    Creates a hovering window that can be used as a tool tip or other info 
+    box, and creates bindings to open the tooltip when the cursor enters the 
+    object's bounding box and destroy the tooltip when the cursor leaves the 
+    object or the tooltip's bounding box.
+
+    Font, text color, and background color can be specified using the normal
+    tkinter/ttk color and font identifiers.
+    '''
+    def __init__(self, tk_object, text='Tooltip', font='TkTooltipFont',
+                 bgcolor=None, textcolor=None):
+        self.text = text
+        self.font = font
+        self.bg = bgcolor
+        self.fg = textcolor
+        self.tk_object = tk_object
+        tk_object.bind('<Enter>', self.tipbox)
+
+    def tipbox(self, event=None):
+        t = tk.Toplevel()
+        t.overrideredirect(True)
+        t.geometry(self.safecoords(event))
+        t.bind('<Leave>', lambda x: t.destroy())
+        self.tk_object.bind('<Leave>', lambda x: t.destroy())
+        tk.Label(
+            t, text=self.text, font=self.font, bg=self.bg, fg=self.fg
+            ).pack(expand=True, fill=tk.BOTH)
+
+    def safecoords(self, event):
+        '''Prevents crashes if multiple monitors cause x/y root values to 
+        be negative. In this case, the tooltip will open in the nearest safe 
+        location, which might be a little odd but at least it won't throw 
+        an exception.'''
+        if event.x_root < 0:
+            x = '+0'
+        else:
+            x = '+' + str(event.x_root)
+        if event.y_root < 0:
+            y = '+0'
+        else:
+            y = '+' + str(event.y_root)
+        return x + y
 
 
 
@@ -166,6 +213,31 @@ if __name__ == '__main__':
 
     root = tk.Tk()
     root.geometry=('640x480')
-    a = MarkedScale(root, start=10, end=100)
-    a.pack(padx=100, pady=100)
+
+    pbars = ttk.LabelFrame(root, text='Progressbar')
+    pbars.pack(padx=30, pady=(30, 10))
+    colors = ['#00E600', '#F01E1E', Progressbar.BLUE, '#F5DC00']
+    pct = 20
+    for i in colors:
+        pb = Progressbar(pbars, color=i, length=300)
+        pb.pack(padx=5, pady=5)
+        pb.set(percent=pct)
+        pct += 10
+
+    scaleframe = ttk.LabelFrame(root, text='MarkedScale')
+    scaleframe.pack(padx=30, pady=10)
+    a = MarkedScale(scaleframe, start=0, end=100)
+    a.pack(padx=10, pady=10)
+    a.set(50)
+
+    btns = ttk.LabelFrame(root, text='RectButton')
+    btns.pack(padx=30, pady=10)
+    RectButton(btns, text='+').pack(side=tk.LEFT, padx=5, pady=5)
+    RectButton(btns, text='-').pack(side=tk.LEFT, padx=5, pady=5)
+    RectButton(btns, text='Button').pack(side=tk.LEFT, padx=5, pady=5)
+
+    ttlabel = ttk.Label(root, text='Hover for Tooltip')
+    ttlabel.pack(padx=30, pady=(10, 30))
+    Tooltip(ttlabel, text='This is a tooltip')
+
     root.mainloop()

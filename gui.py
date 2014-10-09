@@ -206,6 +206,7 @@ class MasterWin(tk.Tk):
         tk.Tk.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
+        self.title('IGP Render Controller Client')
         self.config(bg=LightBGColor)
         self.minsize(width=1257, height=730)
         #create dictionaries to hold job-specific GUI elements
@@ -698,7 +699,6 @@ class BigBox(_statusbox, ttk.LabelFrame):
     '''Large status box for top of comp panel.'''
     def __init__(self, master=None, index=None):
         self.index = index
-        self.progress = tk.IntVar()
         self.font = 'TkDefaultFont'
         ttk.LabelFrame.__init__(self, master=master)
         self._build()
@@ -713,7 +713,8 @@ class BigBox(_statusbox, ttk.LabelFrame):
         self.statuslbl = tk.Label(toprow, font=self.font, text='Empty')
         self.statuslbl.pack(side=tk.LEFT)
 
-        self.extraslabel = tk.Label(toprow, font=self.font, text='None')
+        self.extraslabel = tk.Label(toprow, font=self.font, text='None', 
+                                    wraplength=400)
         self.extraslabel.pack(side=tk.RIGHT)
         tk.Label(toprow, font=self.font, text='Extra frames:').pack(side=tk.RIGHT)
         self.endlabel = tk.Label(toprow, font=self.font, text='1000')
@@ -731,11 +732,7 @@ class BigBox(_statusbox, ttk.LabelFrame):
 
         middlerow = tk.Frame(container)
         middlerow.pack(padx=5, expand=True, fill=tk.X)
-        #ttk.Progressbar(
-        #    middlerow, length=810, mode='determinate', 
-        #    orient=tk.HORIZONTAL, variable=self.progress
-        #    ).pack(side=tk.LEFT)
-        self.pbar = tkx.Progressbar(middlerow, length=810)
+        self.pbar = tkx.Progressbar(middlerow, length=810, bgcolor='white')
         self.pbar.pack(side=tk.LEFT)
         tk.Label(middlerow, font=self.font, text='%').pack(side=tk.RIGHT)
         self.proglabel = tk.Label(middlerow, font=self.font, text='0.0')
@@ -766,6 +763,11 @@ class BigBox(_statusbox, ttk.LabelFrame):
         self.statuslbl.config(text=status, fg=color)
         self.startlabel.config(text=str(startframe))
         self.endlabel.config(text=str(endframe))
+        #max length for path is ~90 chars
+        if len(path) > 90:
+            tkx.Tooltip(self.pathlabel, text=path)
+            start = len(path) - 90
+            path = '...' + path[start:]
         self.pathlabel.config(text=path)
         if extraframes:
             extraframes.reverse()
@@ -773,7 +775,6 @@ class BigBox(_statusbox, ttk.LabelFrame):
         else:
             extras = 'None'
         self.extraslabel.config(text=extras)
-        #self.progress.set(progress)
         self.pbar.set(progress, barcolor)
         self.proglabel.config(text=str(round(progress, 1)))
         elapsed_time = self.format_time(times[0])
@@ -793,7 +794,6 @@ class SmallBox(_statusbox, tk.Frame):
         self.queuetime = 0
         self.selected = False
         self.bgcolor = 'white'
-        self.progress = tk.IntVar()
         self.font='TkSmallCaptionFont'
         tk.Frame.__init__(self, master=master)
         self._draw()
@@ -809,12 +809,7 @@ class SmallBox(_statusbox, tk.Frame):
                                   bg=self.bgcolor)
         self.statuslbl.pack(side=tk.RIGHT)
 
-        #ttk.Progressbar(
-        #    self, length=250, mode='determinate', 
-        #    orient=tk.HORIZONTAL, variable=self.progress
-        #    ).pack(padx=5)
-
-        self.pbar = tkx.Progressbar(self, length=250)
+        self.pbar = tkx.Progressbar(self, length=250, bgcolor='white')
         self.pbar.pack(padx=5)
 
         bottomrow = tk.Frame(self, bg=self.bgcolor)
@@ -856,11 +851,7 @@ class SmallBox(_statusbox, tk.Frame):
         '''Changes background color to the specified color.'''
         self.config(bg=color)
         for child in self.winfo_children():
-            try:
-                child.config(bg=color)
-            except tk.TclError:
-                #ttk.Progressbar doesn't have a bg attr & will raise exception
-                pass
+            child.config(bg=color)
             if len(child.winfo_children()) > 0:
                 for babby in child.winfo_children():
                     babby.config(bg=color)
@@ -872,9 +863,12 @@ class SmallBox(_statusbox, tk.Frame):
         color, barcolor = self.getcolor(self.status)
         self.queuetime = queuetime
         filename = os.path.basename(path)
+        if len(filename) > 25:
+            #if filename is too long, trucate label & put whole name in tooltip
+            tkx.Tooltip(self.namelabel, text=filename)
+            filename = filename[0:25] + '...'
         self.statuslbl.config(text=status, fg=color)
         self.namelabel.config(text=filename)
-        #self.progress.set(progress)
         self.pbar.set(progress, barcolor)
         self.proglabel.config(text=str(round(progress, 1)))
         time_rem = self.format_time(times[2])
@@ -898,8 +892,6 @@ class CompCube(_statusbox, tk.LabelFrame):
             mainblock, length=230, mode='determinate',
             orient=tk.HORIZONTAL, variable=self.progress
             ).pack(padx=5, pady=5)
-        #self.pbar = tkx.Progressbar(mainblock, length=230)
-        #self.pbar.pack(padx=5, pady=5)
         bottomrow = tk.Frame(mainblock, bg=self.bgcolor)
         bottomrow.pack(expand=True, fill=tk.X)
         tk.Label(
@@ -934,7 +926,6 @@ class CompCube(_statusbox, tk.LabelFrame):
 
     def update(self, frame, progress, pool):
         self.progress.set(progress)
-        #self.pbar.set(progress)
         self.frameno.config(text=str(frame))
         self.frameprog.config(text=str(round(progress, 1)))
         self.pool.set(pool)

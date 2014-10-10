@@ -1,5 +1,26 @@
 #Fifth major revison of IGP render controller
 #Written for Python 3.4
+
+'''
+#####################################################################
+Copyright 2014 James Adson
+
+This file is part of IGP Render Controller.  
+IGP Render Controller is free software: you can redistribute it 
+and/or modify it under the terms of the GNU General Public License 
+as published by the Free Software Foundation, either version 3 of 
+the License, or any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#####################################################################
+'''
+
 import queue
 import threading
 import time
@@ -204,7 +225,7 @@ class Job(object):
             renderpath = Config.blenderpath_linux
         command = subprocess.Popen(
             'ssh igp@' + computer + ' "' + renderpath +
-             ' -b ' + self.path + ' -f ' + str(frame) + 
+             ' -b -noaudio ' + self.path + ' -f ' + str(frame) + 
              ' & pgrep -n blender"', stdout=subprocess.PIPE, shell=True )
         for line in iter(command.stdout.readline, ''):
             #convert byte object to unicode string

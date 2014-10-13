@@ -1,4 +1,17 @@
-'''
+'''This module contains methods for creating, reading, and manipulating
+simple configuration files in JSON format.
+
+Any of the basic data types (strings, numbers, lists, tuples, dictionaries) 
+can be used with one caveat - dictionary keys must be strings.  If a dict 
+with non-string keys is supplied, json.dumps will automatically convert the 
+keys to strings, which will not be converted back to the original type when 
+the file is read.
+
+Note: Files are not edited in place.  After the initial file is created,
+each subsequent call of the write() method overwrites the existing file.
+Also note that nothing is actually written to the disk until the write() 
+method is called.
+
 #####################################################################
 Copyright 2014 James Adson
     
@@ -17,25 +30,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 '''
 
-
-#Creates & reads a config file
-#Should work for any list or dict input 
-#NOTE: all dict keys must be strings for json.dump and json.load
-
-
-
 import json
 import os.path
+from os import remove as os_remove
 
-if __name__ == '__main__':
-    print('This module contains methods to read and write simple JSON configuration'
-           + ' files.')
-    print('By default config files will be created in the same directory as this '
-           + 'file.')
-    print('Alternatively, a path (including filename) may be specified as an '
-           + 'optional argument.')
 
-#get current directory of this file, use this as default location for config files 
+#Use this file's current directory as the default location to save new files 
 default_dirpath = os.path.dirname(os.path.realpath(__file__))
 default_filename = 'config.json'
 
@@ -50,8 +50,9 @@ class ConfigFile(object):
         self.path = os.path.join(self.dirpath, self.filename)
 
     def filepath(self, dirpath=None, filename=None):
-        '''Returns the current directory, filename, and path if no args are given.
-        Otherwise changes the directory path and/or filename.'''
+        '''If no args are supplied, returns teh current directory, path, and
+        filename. If one or more arguments are supplied, changes the values
+        to the ones supplied.'''
         if dirpath:
             if not os.path.exists(dirpath):
                 raise ValueError('Path does not exist')
@@ -64,22 +65,42 @@ class ConfigFile(object):
         return (self.dirpath, self.filename, self.path)
 
     def exists(self):
-        '''Checks for a config file. Returns true if found.'''
+        '''Returns true if a file exists at the location specified by the
+        path attribute.'''
         if os.path.exists(self.path):
             return True
         else:
             return False
     
-    def write(self, cfgsettings):
-        '''Writes a new config file from an array or dict object passed as param.'''
-        cfgfile = open(self.path, 'w')
-        cfgfile.write(json.dumps(cfgsettings, indent=1))
-        cfgfile.close()
-        return cfgsettings
+    def write(self, data):
+        '''Accepts data in any basic type (string, number, list, tuple, dict) as
+        an argument, formats it as JSON, and writes it to the disk at the
+        specified path.'''
+        with open(self.path, 'w') as cfgfile:
+            cfgfile.write(json.dumps(data, indent=1))
+        return data
     
     def read(self):
-        '''Reads a config file and returns its contents as a list.'''
-        cfgfile = open(self.path, 'r')
-        cfgsettings = json.load(cfgfile)
-        cfgfile.close()
-        return cfgsettings
+        '''Reads a config file and returns its contents in the same data type
+        as the original.'''
+        with open(self.path, 'r') as cfgfile:
+            data = json.load(cfgfile)
+        return data
+
+    def delete(self):
+        '''Deletes the config file.'''
+        if not self.exists():
+            raise RuntimeError('Config file does not exist.')
+        else:
+            os_remove(self.path)
+
+
+
+if __name__ == '__main__':
+    print('This module contains methods to read and write simple JSON configuration'
+           + ' files.')
+    print('By default config files will be created in the same directory as this '
+           + 'file.')
+    print('Alternatively, a path (including filename) may be specified as an '
+           + 'optional argument.')
+

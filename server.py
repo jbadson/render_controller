@@ -764,8 +764,8 @@ class Config(object):
         Config.computers, Config.renice_list, Config.macs, 
         Config.blenderpath_mac, Config.blenderpath_linux, 
         Config.terragenpath_mac, Config.terragenpath_linux, 
-        Config.allowed_filetypes, Config.timeout, Config.autostart, 
-        Config.maxglobalrenders, Config.verbose, Config.log_basepath
+        Config.allowed_filetypes, Config.timeout, Config.serverport,
+        Config.autostart, Config.verbose, Config.log_basepath
         ) = cfgsettings 
 
     def getall(self):
@@ -773,8 +773,8 @@ class Config(object):
         return (Config.computers, Config.renice_list, Config.macs, 
                 Config.blenderpath_mac, Config.blenderpath_linux, 
                 Config.terragenpath_mac, Config.terragenpath_linux, 
-                Config.allowed_filetypes, Config.timeout, Config.autostart, 
-                Config.maxglobalrenders, Config.verbose, Config.log_basepath)
+                Config.allowed_filetypes, Config.timeout, Config.serverport,
+                Config.autostart, Config.verbose, Config.log_basepath)
 
 
     def defaults(self):
@@ -804,17 +804,17 @@ class Config(object):
             '.JPG', '.PEG', '.GIF', '.TIF', '.IFF', '.EXR'] 
         #timeout for failed machine in seconds
         timeout = 1000
+        #default server port number
+        serverport = 2020
         #start next job when current one finishes.
         autostart = 1 
-        #maximum number of simultaneous renders for the autostart function
-        maxglobalrenders = 1 
         verbose = 0
         #default directory to hold render log files
         log_basepath = '/mnt/data/renderlogs/'
     
         return (computers, renice_list, macs, blenderpath_mac, blenderpath_linux, 
                 terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, 
-                autostart, maxglobalrenders, verbose, log_basepath) 
+                serverport, autostart, verbose, log_basepath) 
 
 
 
@@ -943,7 +943,7 @@ class Server(object):
         if port:
             self.port = port
         else:
-            self.port = 2020
+            self.port = Config.serverport
         if not self._check_logpath():
             return
         self.renderjobs = {}

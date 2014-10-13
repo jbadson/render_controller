@@ -1,5 +1,26 @@
 #graphical user interface for IGP Render Controller
 #Written for Python 3.4
+
+'''
+#####################################################################
+Copyright 2014 James Adson
+
+This file is part of IGP Render Controller.  
+IGP Render Controller is free software: you can redistribute it 
+and/or modify it under the terms of the GNU General Public License 
+as published by the Free Software Foundation, either version 3 of 
+the License, or any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#####################################################################
+'''
+
 import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.font as tkfont
@@ -103,7 +124,6 @@ def get_job_status(index):
     status = ClientSocket().send_cmd('get_status', kwargs)
     return status
 
-
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
     StatusThread.stop = True
@@ -168,8 +188,8 @@ class Config(object):
         Config.computers, Config.renice_list, 
         Config.macs, Config.blenderpath_mac, Config.blenderpath_linux, 
         Config.terragenpath_mac, Config.terragenpath_linux, 
-        Config.allowed_filetypes, Config.timeout, Config.autostart, 
-        Config.maxglobalrenders, Config.verbose, Config.log_basepath 
+        Config.allowed_filetypes, Config.timeout, Config.serverport,
+        Config.autostart, Config.verbose, Config.log_basepath 
         ) = servercfg
         return False
     
@@ -1375,7 +1395,7 @@ class PrefsWin(tk.Toplevel):
         self.input_cols = tk.IntVar()
         self.host = tk.StringVar()
         self.port = tk.StringVar()
-        self.refresh_interval = tk.DoubleVar()
+        self.refresh_interval = tk.IntVar()
         self.path.set(Config.default_path)
         self.startframe.set(Config.default_startframe)
         self.endframe.set(Config.default_endframe)
@@ -1409,9 +1429,9 @@ class PrefsWin(tk.Toplevel):
         self.allowed_filetypes = tk.StringVar()
         self.timeout = tk.StringVar()
         self.autostart = tk.IntVar()
-        self.maxglobalrenders = tk.StringVar()
         self.verbose = tk.IntVar()
         self.log_basepath = tk.StringVar()
+        self.serverport = tk.StringVar()
 
         self.blenderpath_mac.set(Config.blenderpath_mac)
         self.blenderpath_linux.set(Config.blenderpath_linux)
@@ -1419,11 +1439,11 @@ class PrefsWin(tk.Toplevel):
         self.terragenpath_linux.set(Config.terragenpath_linux)
         self.allowed_filetypes.set(Config.allowed_filetypes)
         self.timeout.set(Config.timeout)
+        self.serverport.set(Config.serverport)
         #XXX this autostart is runtime-changeable, need DEFAULT
         #maybe just need to pass this to server to update cfgfile without
         #updating runtime state
         self.autostart.set(Config.autostart)
-        self.maxglobalrenders.set(Config.maxglobalrenders)
         #XXX same as autostart above
         self.verbose.set(Config.verbose)
         self.log_basepath.set(Config.log_basepath)
@@ -1434,18 +1454,23 @@ class PrefsWin(tk.Toplevel):
         #self.lpane = tk.LabelFrame(self.nb, bg=LightBGColor)
         lpane = ttk.Frame(self.nb)
         fr1 = ttk.LabelFrame(lpane, text='Connection Defaults')
-        fr1.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
-        ttk.Label(fr1, text='Update Frequency (Hz)'
+        #fr1.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        fr1.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=5)
+        ttk.Label(fr1, text='Update Frequency'
             ).grid(row=0, column=0, padx=5, pady=5)
+        self.freqlabel = ttk.Label(fr1, text=str(self.refresh_interval.get())+' Hz')
+        self.freqlabel.grid(row=1, column=0, padx=5, pady=0)
         #self.freqscale = ttk.Scale(
         #    fr1, from_=1, to=10, orient=tk.HORIZONTAL, 
         #    variable=self.refresh_interval
         #    )
         #self.freqscale.grid(row=1, column=0, padx=5, pady=5)
-        tkx.MarkedScale(fr1, start=1, end=10, variable=self.refresh_interval
-            ).grid(row=1, column=0, padx=5, pady=5)
+        tkx.MarkedScale(
+            fr1, start=1, end=10, variable=self.refresh_interval,
+            command=self._freqscale_callback
+            ).grid(row=2, column=0, padx=5, pady=5)
         ttk.Separator(fr1, orient=tk.VERTICAL
-            ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=20)
+            ).grid(row=0, rowspan=3, column=1, sticky=tk.NS, padx=20)
         ttk.Label(fr1, text='Host:'
             ).grid(row=0, column=2, sticky=tk.E, padx=5, pady=5)
         ttk.Entry(fr1, width=15, textvariable=self.host
@@ -1456,7 +1481,8 @@ class PrefsWin(tk.Toplevel):
             ).grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
 
         fr2 = ttk.LabelFrame(lpane, text='New / Edit Job Window Defaults')
-        fr2.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        #fr2.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        fr2.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=5)
         ttk.Label(fr2, text='Start frame:'
             ).grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
         ttk.Entry(fr2, width=15, textvariable=self.startframe
@@ -1479,28 +1505,49 @@ class PrefsWin(tk.Toplevel):
             ).grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
 
         fr3 = ttk.LabelFrame(lpane, text='GUI Layout: Columns')
-        fr3.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        #fr3.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
+        fr3.grid(row=0, rowspan=2, column=1, sticky=tk.NSEW, padx=10, pady=5)
         ttk.Label(fr3, text='Main Status Panel'
-            ).grid(row=0, column=0, padx=5, pady=5)
+            ).pack()
         #compcol_scale = ttk.Scale(
         #    fr3, from_=1, to=10, orient=tk.HORIZONTAL, 
         #    variable=self.comppanel_cols
         #    )
         #compcol_scale.grid(row=1, column=0, padx=5, pady=5)
-        tkx.MarkedScale(fr3, start=1, end=10, variable=self.comppanel_cols
-            ).grid(row=1, column=0, padx=5, pady=5)
-        ttk.Separator(fr3, orient=tk.VERTICAL
-            ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=5)
+        self.pcolslabel = ttk.Label(fr3, text=str(self.comppanel_cols.get())+' cols')
+        self.pcolslabel.pack()
+        tkx.MarkedScale(
+            fr3, start=1, end=10, variable=self.comppanel_cols,
+            command=self._panelcols_scale_callback
+            ).pack()
+        ttk.Separator(fr3, orient=tk.HORIZONTAL
+            ).pack(expand=True, fill=tk.X)
         ttk.Label(fr3, text='New Job Checkboxes'
-            ).grid(row=0, column=2, padx=5, pady=5)
+            ).pack()
         #inputcol_scale = ttk.Scale(
         #    fr3, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.input_cols
         #    )
         #inputcol_scale.grid(row=1, column=2, padx=5, pady=5)
-        tkx.MarkedScale(fr3, start=1, end=10, variable=self.input_cols
-            ).grid(row=1, column=2, padx=5, pady=5)
-        
+        self.inputcolslabel = ttk.Label(fr3, text=str(self.input_cols.get())+' cols')
+        self.inputcolslabel.pack()
+        tkx.MarkedScale(
+            fr3, start=1, end=10, variable=self.input_cols,
+            command=self._inputcols_scale_callback
+            ).pack()
         return lpane
+
+    def _freqscale_callback(self, event=None):
+        freq = str(self.refresh_interval.get())
+        self.freqlabel.config(text=freq+' Hz')
+
+    def _panelcols_scale_callback(self, event=None):
+        cols = str(self.comppanel_cols.get())
+        self.pcolslabel.config(text=cols+' cols')
+
+    def _inputcols_scale_callback(self, event=None):
+        cols = str(self.input_cols.get())
+        self.inputcolslabel.config(text=cols+' cols')
+        
 
     def _server_pane(self):
         '''Pane for server-specific preferences.'''
@@ -1519,9 +1566,9 @@ class PrefsWin(tk.Toplevel):
         ttk.Separator(fr1, orient=tk.VERTICAL
             ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=20)
         ttk.Label(
-            fr1, text='Concurrent Renders'
+            fr1, text='Default Server Port'
             ).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Entry(fr1, width=5, textvariable=self.maxglobalrenders
+        ttk.Entry(fr1, width=5, textvariable=self.serverport
             ).grid(row=1, column=2, padx=5, pady=5)
 
         fr2 = ttk.LabelFrame(spane, text='Server Startup Settings')

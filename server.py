@@ -622,7 +622,7 @@ class RenderLog(Job):
                         + self.enq_time + '.txt')
         self.total = str(len(range(startframe, endframe)) + 1 + len(extraframes))
 
-    def _gettime(self):
+    def gettime(self):
         '''Returns current time as string formatted for timestamps.'''
         timestamp = time.strftime('%H:%M:%S on %Y/%m/%d', time.localtime())
         return timestamp
@@ -635,7 +635,7 @@ class RenderLog(Job):
             return
         with open(self.logpath, 'w') as log:
             log.write(RenderLog.hrule)
-            log.write('Render started at ' + self._gettime() + '\n')
+            log.write('Render started at ' + self.gettime() + '\n')
             log.write('File: ' + self.path + '\n')
             log.write('Frames: ' + str(self.startframe) + ' - ' 
                       + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
@@ -645,40 +645,40 @@ class RenderLog(Job):
     def frame_sent(self, frame, computer):
         with open(self.logpath, 'a') as log:
             log.write('Sent frame ' + str(frame) + ' of ' + self.total + ' to '
-                      + computer + ' at ' + self._gettime() + '\n')
+                      + computer + ' at ' + self.gettime() + '\n')
 
     def frame_recvd(self, frame, computer, rendertime):
         with open(self.logpath, 'a') as log:
             log.write('Received frame ' + str(frame) + ' of ' + self.total 
-                      + ' from ' + computer + ' at ' + self._gettime() + 
+                      + ' from ' + computer + ' at ' + self.gettime() + 
                       '. Render time was ' + rendertime + '\n')
 
     def frame_failed(self, frame, computer, errtxt):
         with open(self.logpath, 'a') as log:
             log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
-                      + computer + ' at ' + self._gettime() + ': ' + errtxt + '\n')
+                      + computer + ' at ' + self.gettime() + ': ' + errtxt + '\n')
 
     def process_killed(self, pid, computer):
         with open(self.logpath, 'a') as log:
             log.write('Killed process ' + str(pid) + ' on ' + computer + ' at '
-                      + self._gettime() + '\n')
+                      + self.gettime() + '\n')
 
     def computer_added(self, computer):
         with open(self.logpath, 'a') as log:
             log.write('Added ' + computer + ' to render pool at ' 
-                      + self._gettime() + '\n')
+                      + self.gettime() + '\n')
 
     def computer_removed(self, computer):
         with open(self.logpath, 'a') as log:
             log.write('Removed ' + computer + ' from render pool at ' 
-                      + self._gettime() + '\n')
+                      + self.gettime() + '\n')
 
     def finished(self, times):
         '''Marks render finished, closes log file.'''
         elapsed, avg, rem = times
         with open(self.logpath, 'a') as log:
             log.write(RenderLog.hrule)
-            log.write('Render finished at ' + self._gettime() + '\n')
+            log.write('Render finished at ' + self.gettime() + '\n')
             log.write('Total time: ' + self.format_time(elapsed) + '\n')
             log.write('Average time per frame: ' + self.format_time(avg) + '\n')
             log.write(RenderLog.hrule)
@@ -688,7 +688,7 @@ class RenderLog(Job):
         elapsed, avg, rem = times
         with open(self.logpath, 'a') as log:
             log.write(RenderLog.hrule)
-            log.write('Render stopped by user at ' + self._gettime() + '\n')
+            log.write('Render stopped by user at ' + self.gettime() + '\n')
             log.write('Total time: ' + self.format_time(elapsed) + '\n')
             log.write('Average time per frame: ' + self.format_time(avg) + '\n')
             log.write(RenderLog.hrule)
@@ -697,11 +697,21 @@ class RenderLog(Job):
         '''Appends a new header to the existing log file.'''
         with open(self.logpath, 'a') as log:
             log.write(RenderLog.hrule)
-            log.write('Render resumed at ' + self._gettime() + '\n')
+            log.write('Render resumed at ' + self.gettime() + '\n')
             log.write('File: ' + self.path + '\n')
             log.write('Frames: ' + str(self.startframe) + ' - ' 
                       + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
+            log.write(RenderLog.hrule)
+
+    def server_shutdown(self):
+        '''Writes message to log if the server is manually shut down while
+        unfinished jobs are still in queue.'''
+        with open(self.logpath, 'a') as log:
+            log.write(RenderLog.hrule)
+            log.write('Server shut down at ' + self.gettime() + '\n')
+            log.write('If server is restarted and this render is resumed,\n'
+                      'a new log file will be created.\n') 
             log.write(RenderLog.hrule)
 
     def format_time(self, time):
@@ -980,31 +990,42 @@ class Server(object):
 
     def _start_server(self):
         #socket server to handle interface interactions
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         host = '' #all interfaces
         hostname = socket.gethostname()
-        s.bind((host, self.port))
-        s.listen(5)
+        self.s.bind((host, self.port))
+        self.s.listen(5)
         print('Server now running on ' + hostname + ' port ' + str(self.port))
         print('Press Crtl + C to stop...')
         while True:
             try:
-                clientsocket, address = s.accept()
+                clientsocket, address = self.s.accept()
                 client_thread = ClientThread(self, clientsocket)
                 client_thread.start()
             except KeyboardInterrupt:
                 #close the server socket cleanly if user interrupts the loop
-                print('Shutting down server')
-                s.close()
-                quit()
-        s.close()
+                self.shutdown_server()
+        self.s.close()
+
+    def shutdown_server(self):
+        '''Saves the server state then shuts it down cleanly.'''
+        #check for any unfinished jobs, note the shutdown in their logs
+        log_statuses = ['Rendering', 'Stopped', 'Paused']
+        for i in self.renderjobs:
+            if self.renderjobs[i].status in log_statuses:
+                self.renderjobs[i].renderlog.server_shutdown()
+        print('Saving server state')
+        self.save_state()
+        print('Shutting down server')
+        self.s.close()
+        quit()
 
     def update_loop(self):
         '''Handles miscellaneous tasks that need to be carried out on a regular
         interval. Runs in separate thread to prevent blocking other processes.'''
         while True:
-            self.dump_state()
+            self.save_state()
             if Config.autostart:
                 self.check_autostart()
             time.sleep(30)
@@ -1051,6 +1072,11 @@ class Server(object):
                     '''All frames have been distributed, just waiting for last 
                     set to finish. Starting next job here b/c sometimes the last 
                     frame takes an inordinately long time.'''
+                    #try paused jobs first
+                    for job in self.waitlist:
+                        if job.status == 'Paused':
+                            job.autostart()
+                            return
                     newjob = self.waitlist.pop(0)
                     newjob.autostart()
                     print('Autostart started', newjob.path)
@@ -1062,16 +1088,18 @@ class Server(object):
         newjob.autostart()
         print('Autostart started', newjob.path)
 
-    def dump_state(self):
+    def save_state(self):
         '''Writes the current state of all Job instances on the server
         to a file. Used for restoring queue contents and server state in
         case the server crashes or needs to be restarted.  The update_loop
         method periodically calls this function whenever the server is running.'''
+        statevars = {'verbose':Config.verbose, 'autostart':Config.autostart}
         jobs = {}
         for index in self.renderjobs:
             jobs[index] = self.renderjobs[index].get_attrs()
-        serverstate = cfgfile.ConfigFile(filename='serverstate.json')
-        serverstate.write(jobs)
+        serverstate = [statevars, jobs]
+        savefile = cfgfile.ConfigFile(filename='serverstate.json')
+        savefile.write(serverstate)
     
     def _check_restore_state(self):
         '''Checks for an existing serverstate.json file in the same directory
@@ -1079,20 +1107,25 @@ class Server(object):
         from the file. If yes, loads the file contents and attempts to
         create new Job instances with attributes from the file. Can only
         be called at startup to avoid overwriting exiting Job instances.'''
-        savedstate = cfgfile.ConfigFile(filename='serverstate.json')
-        if savedstate.exists():
+        savefile = cfgfile.ConfigFile(filename='serverstate.json')
+        if savefile.exists():
             if not input('Saved state file found. Restore previous server '
                          'state? (Y/n): ') == 'Y':
                 print('Discarding previous server state')
                 return
-            jobs = savedstate.read()
+            (statevars, jobs) = savefile.read()
+            #restore state variables
+            Config.verbose = statevars['verbose']
+            Config.autostart = statevars['autostart']
+            #restore job queue
             for index in jobs:
                 self.renderjobs[index] = Job()
                 reply = self.renderjobs[index].set_attrs(jobs[index])
                 if reply:
                     print('Restored job ', index)
                     #add job to waitlist if necessary
-                    if self.renderjobs[index].status == 'Waiting' or self.renderjobs[index].status == 'Paused':
+                    if (self.renderjobs[index].status == 'Waiting' \
+                        or self.renderjobs[index].status == 'Paused'):
                         self.waitlist.append(self.renderjobs[index])
                 else:
                     print('Unable to restore job ', index)
@@ -1111,9 +1144,9 @@ class Server(object):
         on the server where key is the job's index and the dict contains all of
         its attributes.
     
-        Also if no index is specified, an entry called _EXTRA_ will be appended
-        that contains non-job-related information about the server state that
-        needs to be updated in client GUIs immediately.'''
+        Also if no index is specified, an entry called __STATEVARS__ will be 
+        appended that contains non-job-related information about the server 
+        state that needs to be updated in client GUI regularly.'''
         if kwargs:
             index = kwargs['index']
             if not index in self.renderjobs:
@@ -1126,7 +1159,7 @@ class Server(object):
         for i in self.renderjobs:
             attrdict[i] = self.renderjobs[i].get_attrs()
         #append non-job-related update info
-        attrdict['_EXTRA_'] = {'autostart':Config.autostart, 
+        attrdict['__STATEVARS__'] = {'autostart':Config.autostart, 
                                'verbose':Config.verbose}
         return attrdict
     
@@ -1216,7 +1249,7 @@ class Server(object):
             reply = self.renderjobs[index].kill_later()
             if reply:
                 return ('Killed render of '+str(index)+' but all '
-                        'currently-rendering processes will be allowed '
+                        'currently-rendering frames will be allowed '
                         'to finish.')
         return 'Failed to kill render for job '+str(index)
     

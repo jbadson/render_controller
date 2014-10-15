@@ -208,12 +208,8 @@ class Config(object):
 
 #----------GUI----------
 #XXX Some additional config stuff, decide where to put it later
-#XXX Get rid of LightBlueBGColor if you're not going to use it.
-LightBlueBGColor = 'white'
 MidBGColor = '#%02x%02x%02x' % (190, 190, 190)
-ttkNtbkBGColor = '#%02x%02x%02x' % (223, 223, 223)
 LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
-#DarkBGColor = '#%02x%02x%02x' % (50, 50, 50)
 HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
 
 
@@ -327,8 +323,7 @@ class MasterWin(tk.Tk):
         left_frame_inner = tk.LabelFrame(left_frame, bg=LightBGColor)
         left_frame_inner.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
         
-        self.jobbox_frame = tk.Frame(left_frame_inner, bg=LightBlueBGColor, 
-                                     width=260)
+        self.jobbox_frame = tk.Frame(left_frame_inner, width=260)
         self.jobbox_frame.pack(expand=True, fill=tk.BOTH)
         jobbtns = tk.Frame(left_frame_inner, bg=LightBGColor)
         jobbtns.pack(fill=tk.X)
@@ -346,10 +341,10 @@ class MasterWin(tk.Tk):
         children based on that.'''
         #get the extra stuff first
         self.serverjobs = serverjobs
-        _extra_info = serverjobs['_EXTRA_']
+        _extra_info = serverjobs['__STATEVARS__']
         self.verbosity.set(_extra_info['verbose'])
         self.autostart.set(_extra_info['autostart'])
-        del serverjobs['_EXTRA_']
+        del serverjobs['__STATEVARS__']
         #create local job instances for any new jobs on server
         for index in serverjobs:
             if not index in self.jobboxes:
@@ -434,8 +429,38 @@ class MasterWin(tk.Tk):
         del self.comppanels[index]
 
     def sort_jobboxes(self):
+        '''Sort job boxes chronologically and by status.'''
+        #XXX Doing this a bit more simply.  Move finished jobs to bottom,
+        #otherwise ignore status and sort from oldest to newest
+        finishedjobs = []
+        otherjobs = []
+        for i in self.jobboxes:
+            if self.jobboxes[i].status == 'Finished':
+                finishedjobs.append(self.jobboxes[i])
+            else:
+                otherjobs.append(self.jobboxes[i])
+        if len(finishedjobs) > 1:
+            finishedjobs = self.sort_chrono(finishedjobs)
+        if len(otherjobs) > 1:
+            otherjobs = self.sort_chrono(otherjobs)
+        boxlist = otherjobs + finishedjobs
+        #do not update if nothing has changed
+        if boxlist == self.boxlist:
+            return
+        else:
+            self.boxlist = boxlist
+        for i in self.jobboxes:
+            self.jobboxes[i].pack_forget()
+        for box in boxlist:
+            box.pack()
+        if self.firstrun:
+            self.select_job(self.boxlist[0].index)
+            self.firstrun = False
+
+    #def XXXsort_jobboxes(self):
         '''Sorts the job status boxes vertically according to sorting rules.
         First sorts by status, then by queuetime.'''
+        '''
         boxlist = []
         done, stopped, waiting, paused, rendering = [], [], [], [], []
         #first sort boxes into categories by status
@@ -473,7 +498,7 @@ class MasterWin(tk.Tk):
             box.pack()
         if self.firstrun:
             self.select_job(self.boxlist[0].index)
-            self.firstrun = False
+            self.firstrun = False'''
 
     def sort_chrono(self, sortlist):
         '''Takes a list of SmallBox instances in any order, returns the list
@@ -485,7 +510,7 @@ class MasterWin(tk.Tk):
         newlist = []
         for time in qtimes:
             newlist.append(boxes[time])
-        newlist.reverse()
+        #newlist.reverse()
         return newlist
 
     def select_job(self, index):
@@ -1458,17 +1483,9 @@ class PrefsWin(tk.Toplevel):
         fr1.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=5)
         ttk.Label(fr1, text='Update Frequency'
             ).grid(row=0, column=0, padx=5, pady=5)
-        self.freqlabel = ttk.Label(fr1, text=str(self.refresh_interval.get())+' Hz')
-        self.freqlabel.grid(row=1, column=0, padx=5, pady=0)
-        #self.freqscale = ttk.Scale(
-        #    fr1, from_=1, to=10, orient=tk.HORIZONTAL, 
-        #    variable=self.refresh_interval
-        #    )
-        #self.freqscale.grid(row=1, column=0, padx=5, pady=5)
         tkx.MarkedScale(
-            fr1, start=1, end=10, variable=self.refresh_interval,
-            command=self._freqscale_callback
-            ).grid(row=2, column=0, padx=5, pady=5)
+            fr1, start=1, end=10, variable=self.refresh_interval, units=' Hz'
+            ).grid(row=1, column=0, padx=5, pady=5)
         ttk.Separator(fr1, orient=tk.VERTICAL
             ).grid(row=0, rowspan=3, column=1, sticky=tk.NS, padx=20)
         ttk.Label(fr1, text='Host:'
@@ -1509,45 +1526,17 @@ class PrefsWin(tk.Toplevel):
         fr3.grid(row=0, rowspan=2, column=1, sticky=tk.NSEW, padx=10, pady=5)
         ttk.Label(fr3, text='Main Status Panel'
             ).pack()
-        #compcol_scale = ttk.Scale(
-        #    fr3, from_=1, to=10, orient=tk.HORIZONTAL, 
-        #    variable=self.comppanel_cols
-        #    )
-        #compcol_scale.grid(row=1, column=0, padx=5, pady=5)
-        self.pcolslabel = ttk.Label(fr3, text=str(self.comppanel_cols.get())+' cols')
-        self.pcolslabel.pack()
         tkx.MarkedScale(
-            fr3, start=1, end=10, variable=self.comppanel_cols,
-            command=self._panelcols_scale_callback
+            fr3, start=1, end=10, variable=self.comppanel_cols, units=' cols'
             ).pack()
         ttk.Separator(fr3, orient=tk.HORIZONTAL
             ).pack(expand=True, fill=tk.X)
         ttk.Label(fr3, text='New Job Checkboxes'
             ).pack()
-        #inputcol_scale = ttk.Scale(
-        #    fr3, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.input_cols
-        #    )
-        #inputcol_scale.grid(row=1, column=2, padx=5, pady=5)
-        self.inputcolslabel = ttk.Label(fr3, text=str(self.input_cols.get())+' cols')
-        self.inputcolslabel.pack()
         tkx.MarkedScale(
-            fr3, start=1, end=10, variable=self.input_cols,
-            command=self._inputcols_scale_callback
+            fr3, start=1, end=10, variable=self.input_cols, units=' cols'
             ).pack()
         return lpane
-
-    def _freqscale_callback(self, event=None):
-        freq = str(self.refresh_interval.get())
-        self.freqlabel.config(text=freq+' Hz')
-
-    def _panelcols_scale_callback(self, event=None):
-        cols = str(self.comppanel_cols.get())
-        self.pcolslabel.config(text=cols+' cols')
-
-    def _inputcols_scale_callback(self, event=None):
-        cols = str(self.input_cols.get())
-        self.inputcolslabel.config(text=cols+' cols')
-        
 
     def _server_pane(self):
         '''Pane for server-specific preferences.'''

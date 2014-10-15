@@ -85,10 +85,6 @@ class Progressbar(tk.Canvas):
             color = Progressbar.BLUE
         if length < 6:
             length = 6
-        #if length < 6:
-        #    return (
-        #        self.create_rectangle(6,6,6,self.height, fill='', outline='')
-        #        )
         return (
             self.create_rectangle(6,6, length,self.height, fill=color, 
                                   outline='')
@@ -101,8 +97,6 @@ class Progressbar(tk.Canvas):
         newlength = self.barlength * percent/100
         if newlength < 6:
             newlength = 6
-        #self.delete(self.pbar)
-        #self.pbar = self._innerbar(newlength, color)
         self.coords(self.pbar, 6,6,newlength,self.height)
         if color:
             self.itemconfig(self.pbar, fill=color)
@@ -150,32 +144,69 @@ class RectButton(tk.Frame):
 
 
 class MarkedScale(ttk.Frame):
-    '''Version of ttk Scale that includes tickmarks below the
-    horizontal scale bar.'''
-
-    #XXX Need to adjust number of ticks to compensate for length, esp. if
-    #XXX length is different from end-start
+    '''Version of ttk Scale that includes labels for the start and end values
+    and has a built-in callback to display the current value above the scale bar.
+    
+    Attrs:
+    start = Lowest value on the scale.
+    end = Highest value on the scale.
+    length = Length of the scale bar itself.
+    variable = a tkinter IntVar or DoubleVar
+    round_ = Integer indicating number of decimal places to include in the label
+        above the scale bar.
+    units = String to be appended after the number label above the scale bar.'''
     def __init__(self, master=None, start=0, end=10, length=100, variable=None, 
-                 command=None, font='TkSmallCaptionFont'):
+                 command=None, round_=0, units=None, font='TkSmallCaptionFont'):
         self.start = start
         self.end = end
         self.length = length
         self.var = variable #must be a tkinter variable
+        self.round_ = round_
+        self.units = units
+        self.command = command
         self.font = font
         ttk.Frame.__init__(self, master=master)
-        self.scale = ttk.Scale(self, from_=start, to=end, variable=self.var, 
-                               command=command)
-        self.scale.pack(expand=True, fill=tk.X)
-        self.ticks().pack(padx=4, expand=True, fill=tk.X)
+        self.numlabel = ttk.Label(self, text=self._initialval())
+        self.numlabel.pack()
+        scalerow = ttk.Frame(self)
+        scalerow.pack()
+        ttk.Label(scalerow, text=self.start).pack(side=tk.LEFT)
+        self.scale = ttk.Scale(scalerow, from_=start, to=end, variable=self.var, 
+                               command=self._callback)
+        self.scale.pack(side=tk.LEFT)
+        ttk.Label(scalerow, text=self.end).pack(side=tk.LEFT)
+        #self.ticks().pack(padx=4, expand=True, fill=tk.X)
 
-    def ticks(self):
-        tickframe = ttk.Frame(self)
-        ttk.Label(tickframe, text=self.start, font=self.font).pack(side=tk.LEFT)
-        for i in range(self.start + 1, self.end):
-            ttk.Label(tickframe, text='.', font=self.font
-                ).pack(side=tk.LEFT, expand=True, fill=tk.X)
-        ttk.Label(tickframe, text=self.end, font=self.font).pack(side=tk.RIGHT)
-        return tickframe
+    def _format_number(self, number):
+        '''Returns a formatted string based on params for round_ and units.'''
+        if self.round_ == 0:
+            num = round(number) #truncate to nearest decimal
+        else:
+            num = round(number, self.round_)
+        if self.units:
+            labeltext = str(num) + self.units
+        else:
+            labeltext = str(num) 
+        return labeltext
+
+    def _initialval(self):
+        '''Returns a string with the initial value for the number label.'''
+        if self.var:
+            val = self._format_number(self.var.get())
+        else:
+            val = self._format_number(self.start)
+        return val
+
+    def _callback(self, event=None):
+        '''Updates the number label above the scale bar and executes any
+        command supplied as an arg to __init__.'''
+        labeltext = self._format_number(float(event))
+        self.numlabel.config(text=labeltext)
+        if self.command:
+            self.command()
+            return
+        else:
+            return
 
     def set(self, value):
         '''Sets the value of the progress bar.'''
@@ -247,7 +278,7 @@ if __name__ == '__main__':
 
     scaleframe = ttk.LabelFrame(root, text='MarkedScale')
     scaleframe.pack(padx=30, pady=10)
-    a = MarkedScale(scaleframe, start=0, end=100)
+    a = MarkedScale(scaleframe, start=0, end=100, round_=0, units=' Units')
     a.pack(padx=10, pady=10)
     a.set(50)
 

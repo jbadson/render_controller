@@ -151,12 +151,24 @@ class Config(object):
             except Exception:
                 print('GUI config file corrupt or incorrect. Creating new')
                 guisettings = self.cfg.write(self.defaults())
+        self.set_class_vars(guisettings)
+
+    def set_class_vars(self, guisettings):
+        '''Defines the client class variables based on a tuple formatted to
+        match the one returned by defaults().'''
         (
         Config.default_path, Config.default_startframe, 
         Config.default_endframe, Config.default_render_engine,
         Config.input_win_cols, Config.comp_status_panel_cols,
         Config.default_host, Config.default_port, Config.refresh_interval
         ) = guisettings
+
+    def update_cfgfile(self, guisettings):
+        '''Updates teh config file and sets class variables based on a tuple
+        formatted to match the one returned by defaults().'''
+        self.cfg.write(guisettings)
+        self.set_class_vars(guisettings)
+        print('Wrote changes to config file.')
 
     def defaults(self):
         '''Restores GUI config file variables to default values. Also used 
@@ -192,6 +204,8 @@ class Config(object):
         Config.autostart, Config.verbose, Config.log_basepath 
         ) = servercfg
         return False
+
+
     
     #def get_gui_vars(self):
         '''Returns an n-tuple of all current GUI config vars.'''
@@ -222,6 +236,8 @@ class MasterWin(tk.Tk):
         tk.Tk.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
+        #self.bind('<Command-w>', quit)
+        #self.bind('<Control-w>', quit)
         self.title('IGP Render Controller Client')
         self.config(bg=LightBGColor)
         self.minsize(width=1257, height=730)
@@ -920,17 +936,18 @@ class SmallBox(_statusbox, tk.Frame):
         self.rem_time_lbl.config(text=time_rem)
 
 
-class CompCube(_statusbox, tk.LabelFrame):
+class CompCube(_statusbox, ttk.LabelFrame):
     '''Class representing box to display computer status.'''
     def __init__(self, index, computer, master=None):
         self.index = index
         self.computer = computer
-        self.bgcolor = 'white' 
+        #self.bgcolor = 'white' 
+        self.bgcolor = LightBGColor #color changes to white when frame assigned
         self.font = 'TkSmallCaptionFont'
         self.progress = tk.IntVar()
         self.pool = tk.IntVar()
         ttk.LabelFrame.__init__(self, master)
-        mainblock = tk.Frame(self)
+        mainblock = tk.Frame(self, bg=self.bgcolor)
         mainblock.pack(side=tk.LEFT)
         tk.Label(mainblock, text=computer, bg=self.bgcolor).pack(anchor=tk.W)
         ttk.Progressbar(
@@ -950,13 +967,14 @@ class CompCube(_statusbox, tk.LabelFrame):
         self.frameprog = tk.Label(bottomrow, text='0.0', font=self.font, 
                                   bg=self.bgcolor)
         self.frameprog.pack(side=tk.RIGHT) 
-        buttonblock = tk.Frame(self)
+        buttonblock = tk.Frame(self, bg=self.bgcolor)
         buttonblock.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
         tk.Checkbutton(
             buttonblock, text='Use', variable=self.pool, 
-            command=self._toggle_pool_state
+            command=self._toggle_pool_state, bg=self.bgcolor,
             ).pack()
-        tk.Button(buttonblock, text='Kill', command=self._kill_thread).pack()
+        tk.Button(buttonblock, text='Kill', command=self._kill_thread,
+                  highlightbackground=self.bgcolor, highlightthickness=0).pack()
 
     def _toggle_pool_state(self):
         '''Adds or removes the computer from the pool.'''
@@ -969,7 +987,31 @@ class CompCube(_statusbox, tk.LabelFrame):
         reply = ClientSocket().send_cmd('kill_single_thread', kwargs)
         print(reply)
 
+    def _change_bgcolor(self, bgcolor):
+        if bgcolor == self.bgcolor:
+            #don't try to change colors if status hasn't changed
+            return
+        self.bgcolor = bgcolor
+        for child in self.winfo_children():
+            child.config(bg=bgcolor)
+            for babby in child.winfo_children():
+                try:
+                    babby.config(bg=bgcolor, highlightbackground=bgcolor)
+                #progressbar will throw exception because it lacks bg option
+                except:
+                    print('caught exception in CompCube._change_bgcolor, '
+                          'ignoring.')
+                    continue
+                for subbabby in babby.winfo_children():
+                    subbabby.config(bg=bgcolor)
+        #self.frameno.config(bg=bgcolor)
+        #self.frameprog.config(bg=bgcolor)
+
     def update(self, frame, progress, pool):
+        if frame:
+            self._change_bgcolor('white')
+        else:
+            self._change_bgcolor(LightBGColor)
         self.progress.set(progress)
         self.frameno.config(text=str(frame))
         self.frameprog.config(text=str(round(progress, 1)))
@@ -1382,6 +1424,7 @@ class MissingFramesWindow(tk.Toplevel):
         for frame in missing:
             self.missingFrames.insert(tk.END, str(frame) + '\n')
 
+
 class PrefsWin(tk.Toplevel):
     def __init__(self):
         tk.Toplevel.__init__(self)
@@ -1394,20 +1437,14 @@ class PrefsWin(tk.Toplevel):
         #create window elements
         self.nb = ttk.Notebook(self)
         self.nb.pack()
-        self.nb.add(self._local_pane(), text='Local Settings', sticky=tk.N)
+        self.nb.add(self._local_pane(), text='GUI Client Settings', sticky=tk.N)
         self.nb.add(self._server_pane(), text='Server Settings')
         btnbar = ttk.Frame(self)
         btnbar.pack(anchor=tk.W, expand=True, fill=tk.X)
         ttk.Button(
-            btnbar, text='Ok', command=self._apply, style='Toolbutton'
+            btnbar, text='Close', command=self._apply, style='Toolbutton'
             ).pack(side=tk.LEFT, padx=(15, 5), pady=(0, 15))
-        ttk.Button(
-            btnbar, text='Cancel', command=self.destroy, style='Toolbutton'
-            ).pack(side=tk.LEFT, padx=5, pady=(0, 15))
-        ttk.Button(
-            btnbar, text='Restore Defaults', command=self._restore_defaults, 
-            style='Toolbutton'
-            ).pack(side=tk.LEFT, padx=5, pady=(0, 15))
+
 
     def _get_local_vars(self):
         '''Sets tkinter variables to the current global values.'''
@@ -1431,6 +1468,24 @@ class PrefsWin(tk.Toplevel):
         self.port.set(Config.default_port)
         #convert refresh_interval in sec. to frequency (Hz) for display
         self.refresh_interval.set(1 / Config.refresh_interval)
+
+    def _set_local_vars(self):
+        '''Sets the local Config class variables based on their tk variable
+        counterparts.'''
+        guisettings = (
+            self.path.get(), int(self.startframe.get()), int(self.endframe.get()),
+            self.render_engine.get(), int(self.input_cols.get()),
+            int(self.comppanel_cols.get()), self.host.get(), int(self.port.get()), 
+            float(self.refresh_interval.get()),
+            )
+        Config().update_cfgfile(guisettings)
+
+    def _restore_local_cfg(self):
+        '''Restores local Config class variables to defaults and overwrites the
+        config file.'''
+        guisettings = Config().defaults()
+        Config().update_cfgfile(guisettings)
+        print('Restored local config vars to defaults.')
 
     def _get_server_vars(self):
         '''Gets current server vars and sets tkinter vars from them.'''
@@ -1473,6 +1528,29 @@ class PrefsWin(tk.Toplevel):
         self.verbose.set(Config.verbose)
         self.log_basepath.set(Config.log_basepath)
 
+    def _set_server_vars(self):
+        '''Gets values from tk variables and sets Config values from them.'''
+        #XXX Allowing editing of blender paths is a significant security hole
+        #XXX Need way to get new computers, renice, macs list
+        servercfg = (
+            Config.computers, Config.renice_list, Config.macs,
+            self.blenderpath_mac.get(), self.blenderpath_linux.get(),
+            self.terragenpath_mac.get(), self.terragenpath_linux.get(),
+            self.allowed_filetypes.get(), int(self.timeout.get()),
+            int(self.serverport.get()), self.autostart.get(), self.verbose.get(),
+            self.log_basepath.get()
+            )
+        reply = ClientSocket().send_cmd('update_server_cfg', servercfg)
+        print(reply)
+
+    def _restore_server_cfg(self):
+        '''Instructs the server to reset all config variables to default values
+        and overwrite its config file.'''
+        reply = ClientSocket().send_cmd('restore_cfg_defaults')
+        print(reply)
+        #NOTE: below doesn't work because it re-defines the tk variables before
+        #setting values. Need to split up functions or something.
+        #self._get_server_vars()
 
     def _local_pane(self):
         '''Pane for local preferences (does not affect server).'''
@@ -1536,6 +1614,11 @@ class PrefsWin(tk.Toplevel):
         tkx.MarkedScale(
             fr3, start=1, end=10, variable=self.input_cols, units=' cols'
             ).pack()
+
+        btns = ttk.Frame(lpane)
+        btns.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
+        ttk.Button(btns, text='Save Client Settings', command=self._set_local_vars, style='Toolbutton').pack(side=tk.LEFT)
+        ttk.Button(btns, text='Restore Client Defaults', command=self._restore_local_cfg, style='Toolbutton').pack(side=tk.LEFT)
         return lpane
 
     def _server_pane(self):
@@ -1588,6 +1671,11 @@ class PrefsWin(tk.Toplevel):
             ).grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
         ttk.Entry(pathspane, width=40, textvariable=self.terragenpath_linux
             ).grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        btns = ttk.Frame(spane)
+        btns.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
+        ttk.Button(btns, text='Save Server Settings', command=self._set_server_vars, style='Toolbutton').pack(side=tk.LEFT)
+        ttk.Button(btns, text='Restore Server Defaults', command=self._restore_server_cfg, style='Toolbutton').pack(side=tk.LEFT)
         return spane
 
     def _complist_frame(self, master):

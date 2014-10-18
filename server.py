@@ -770,22 +770,43 @@ class Config(object):
             except Exception:
                 print('Config file corrupt or incorrect. Creating new')
                 cfgsettings = self.cfg.write(self.defaults())
+        self.set_class_vars(cfgsettings)
+        '''
         (
         Config.computers, Config.renice_list, Config.macs, 
         Config.blenderpath_mac, Config.blenderpath_linux, 
         Config.terragenpath_mac, Config.terragenpath_linux, 
         Config.allowed_filetypes, Config.timeout, Config.serverport,
         Config.autostart, Config.verbose, Config.log_basepath
-        ) = cfgsettings 
+        ) = cfgsettings '''
+
+    def set_class_vars(self, settings):
+        '''Defines the class variables from a tuple formatted to match
+        the one returned by getall().'''
+        (
+        Config.computers, Config.renice_list, Config.macs, 
+        Config.blenderpath_mac, Config.blenderpath_linux, 
+        Config.terragenpath_mac, Config.terragenpath_linux, 
+        Config.allowed_filetypes, Config.timeout, Config.serverport,
+        Config.autostart, Config.verbose, Config.log_basepath
+        ) = settings
 
     def getall(self):
-        '''Returns tuple of all config variables.'''
+        '''Returns tuple of all class variables. Used by clients to retrieve
+        server config info.'''
         return (Config.computers, Config.renice_list, Config.macs, 
                 Config.blenderpath_mac, Config.blenderpath_linux, 
                 Config.terragenpath_mac, Config.terragenpath_linux, 
                 Config.allowed_filetypes, Config.timeout, Config.serverport,
                 Config.autostart, Config.verbose, Config.log_basepath)
 
+    def update_cfgfile(self, settings):
+        '''Updates the config file and sets class variables based on a tuple
+        formatted to match getall().  Used by clients to change server
+        config settings.'''
+        self.cfg.write(settings)
+        self.set_class_vars(settings)
+        print('Wrote changes to config file.')
 
     def defaults(self):
         '''Restores all config file variables to default values. Also used
@@ -875,7 +896,8 @@ allowed_commands= [
 'cmdtest', 'get_attrs', 'job_exists', 'enqueue',
 'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
 'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
-'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority'
+'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority',
+'update_server_cfg', 'restore_cfg_defaults'
 ]
 
 
@@ -1318,6 +1340,20 @@ class Server(object):
             return 'Priority of ' + index + ' set to ' + str(priority)
         else:
             return 'Priority not changed'
+
+    def update_server_cfg(self, settings):
+        '''Updates server config variables and config file based on tuple 
+        from client.'''
+        Config().update_cfgfile(settings)
+        return 'Server settings updated'
+
+    def restore_cfg_defaults(self, kwargs=None):
+        '''Resets server config variables to default values and overwrites
+        the config file.'''
+        cfgsettings = Config().defaults()
+        Config().update_cfgfile(cfgsettings)
+        return 'Server settings restored to defaults'
+        
     
 
 

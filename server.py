@@ -154,6 +154,7 @@ class Job(object):
         elif self.render_engine == 'tgd':
             tgt_thread = self._renderthread_tgn
         while True:
+            print('while')
             if self.killflag:
                 print('Kill flag detected, breaking render loop.')
                 #deal with log & render timer
@@ -1025,6 +1026,7 @@ class Server(object):
                 clientsocket, address = self.s.accept()
                 client_thread = ClientThread(self, clientsocket)
                 client_thread.start()
+                #time.sleep(0.001)
             except KeyboardInterrupt:
                 #close the server socket cleanly if user interrupts the loop
                 self.shutdown_server()

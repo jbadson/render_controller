@@ -26,69 +26,120 @@ CLIENT-SERVER PROTOCOL AS SOON AS I GET THE GUI SQUARED AWAY.'''
 
 import sys
 import socket
+import json
+import ast
 
 print(sys.argv)
 
-host = 'localhost'
-port = 2020
+class ClientSocket(object):
+    '''Wrapper for socket to handle command-response protocol for interacting 
+    with the render controller server.'''
+    HOST = 'localhost'
+    PORT = 2020
+
+    def setup(host, port):
+        ClientSocket.HOST = host
+        ClientSocket.PORT = port
+
+    def __init__(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((ClientSocket.HOST, ClientSocket.PORT))
+
+    def _recvall(self):
+        '''Receives message of specified length, returns it as a string.'''
+        #first 8 bytes contain msg length
+        msglen = int(self.socket.recv(8).decode('UTF-8'))
+        bytes_recvd = 0
+        chunks = []
+        while bytes_recvd < msglen:
+            chunk = self.socket.recv(2048)
+            if not chunk:
+                break
+            chunks.append(chunk.decode('UTF-8'))
+            bytes_recvd += len(chunk)
+        data = json.loads(''.join(chunks))
+        return data
+
+    def _sendmsg(self, message):
+        '''Wrapper for socket.sendall() that formats message for server.
+        Message must be compatible with json.dumps/json.loads.'''
+        #now doing everything in json for web interface convenience
+        message = json.dumps(message)
+        msg = bytes(message, 'UTF-8')
+        msglen = str(len(msg))
+        #first 8 bytes contains message length 
+        while len(msglen) < 8:
+            msglen = '0' + msglen
+        msglen = bytes(msglen, 'UTF-8')
+        self.socket.sendall(msglen)
+        self.socket.sendall(msg)
+
+    def send_cmd(self, command, kwargs={}):
+        '''Sends a command to the server. Command must be a UTF-8 string.
+        Associated args should be supplied as a dict. Returns a string'''
+        #send command first, wait for response, then send args
+        #don't print anything if command is request for status update
+        if not command == 'get_attrs': print('sending command', command) #debug
+        self._sendmsg(command)
+        #check that the command was valid
+        cmd_ok = ast.literal_eval(self._recvall())
+        if not cmd_ok:
+            return 'Invalid command'
+        #if command was valid, send associated arguments
+        if not command == 'get_attrs': print('sending kwargs', str(kwargs))
+        self._sendmsg(kwargs)
+        #collect the return string (True/False for success/fail or requested data)
+        return_str = self._recvall()
+        if not command == 'get_attrs': print('received return_str', return_str)
+        self.socket.close()
+        return return_str
+
+def cmdtest():
+    '''a basic test of client server command-response protocol'''
+    command = 'cmdtest'
+    kwargs = {'1':'one', '2':'two'}
+    return_str = ClientSocket().send_cmd(command, kwargs)
+    print(return_str)
 
 
-def send_command(command, kwargs={}):
-    '''Passes a dict containing a keyword command and args to the server.
-    supplied args should be in a dictionary''' 
-    data = command + str(kwargs)
+class Cli(object):
+    '''Master object for command line interface.'''
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((host, port))
-    s.sendall(bytes(data, 'UTF-8'))
-    #reply = s.recv(4096)
-    #print('Response from server: ', reply)
-    s.close()
+    def __init__(self):
+        self.serverjobs = self.get_all()
 
-def get_status(job):
-    '''Gets status for a given job.'''
+    def get_all(self):
+        '''Gets all attributes for all jobs on server.'''
+        serverjobs = ClientSocket().send_cmd('get_attrs')
+        return serverjobs
 
-    command = 'get_status'
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((host, port))
-    s.sendall(bytes(command, 'UTF-8'))
-    reply = s.recv(4096)
-    if reply:
-        statdict = eval(reply.decode('UTF-8'))
-    else:
-        return
-    s.close()
+    def list_jobs(self):
+        '''Returns a list of all jobs on the server.'''
+        jobs = []
+        for job in self.serverjobs.keys():
+            if not job == '__STATEVARS__':
+                jobs.append(job)
+        return jobs
 
-    #now parse the dict
-    if not job in statdict:
-        print('Invalid job number, try again.')
-        return
-    if not statdict[job]:
-        print('Queue slot ' + str(job) + ' is empty.')
-        return
-    data = statdict[job]
-    path = data['path']
-    start = data['startframe']
-    end = data['endframe']
-    extras = data['extraframes']
-    complist = data['complist']
-    #render_engine = data['render_engine']
-    status = data['status']
-    progress = data['progress']
-    compstatus = data['compstatus']
+    def print_job_stats(self, job_id):
+        '''Returns a list of key stats about a given job ID
 
-    print('\nJob:\t' + str(job) + '\t|\tStatus: ' + status + '\t|\t' 
-            + str(round(progress, 2)) + '% complete')
-    print('-' * 70)
-    print('Frames ' + str(start) + '-' + str(end) + ' + ' +str(extras))
-    print('Path: ' + path)
-    print('Rendering on:')
-    for comp in complist:
-        print(comp + '\t | Frame: ' + str(compstatus[comp]['frame']) + '\t | ' +
-                str(round(compstatus[comp]['progress'], 2)) + '%')
-    print('-' * 70 + '\n')
+        start, end, path, status, progress'''
+
+        if not job_id in self.serverjobs:
+            print('Job ID not found.')
+            return
+        else:
+            job = self.serverjobs[job_id]
+        print('Filename: %s\tStatus: %s\tProgress: %s' % (job_id, job['status'], job['progress']))
+        print('Start: %s\tEnd: %s\tExtra frames: %s' % (job['startframe'], 
+              job['endframe'], job['extraframes']))
+        #print(
 
 
+        
+
+#---------CLI STUFF---------
 helpstring = (
                 'IGP Render Controller Command Line Interface\n' +
                 'Arguments and options:\n' +
@@ -99,6 +150,15 @@ helpstring = (
                 '--status   :get status for a given job number\n'
                 )
 
+
+if __name__ == '__main__':
+    reply = ClientSocket().send_cmd('cmdtest')
+    print(reply)
+    cli = Cli()
+    for i in cli.list_jobs():
+        cli.print_job_stats(i)
+
+'''
 required_args = ['-p', '-s', '-e', '-c']
 render_args = {} 
 job = None
@@ -134,3 +194,4 @@ if len(sys.argv) > 1:
     elif job != None:
         print('Attempting to get status for job ' + str(job))
         get_status(job)
+'''

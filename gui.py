@@ -124,6 +124,23 @@ def get_job_status(index):
     status = ClientSocket().send_cmd('get_status', kwargs)
     return status
 
+def killall_blender():
+    '''Attempts to kill all running instances of Blender on all computers.'''
+    if not Dialog('This will kill ALL instances of Blender on ALL '
+                  ' computers. Proceed?').confirm():
+        return
+    reply = ClientSocket().send_cmd('killall_blender')
+    print(reply)
+
+def killall_tgn():
+    '''Attempts to kill all running instances of Terragen on all computers.'''
+    if not Dialog('This will kill ALL instances of Terragen on ALL '
+                  ' computers. Proceed?').confirm():
+        return
+    reply = ClientSocket().send_cmd('killall_tgn')
+    print(reply)
+
+
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
     StatusThread.stop = True
@@ -325,6 +342,14 @@ class MasterWin(tk.Tk):
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
             topbar, text='Preferences', command=PrefsWin, style='Toolbutton'
+            ).pack(padx=5, side=tk.LEFT)
+        ttk.Button(
+            topbar, text='Killall Blender', command=killall_blender,
+            style='Toolbutton'
+            ).pack(padx=5, side=tk.LEFT)
+        ttk.Button(
+            topbar, text='Killall Terragen', command=killall_tgn,
+            style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
@@ -697,10 +722,14 @@ class ComputerPanel(ttk.Frame):
             attrdict['progress'], attrdict['times']
             )
         for computer in Config.computers:
+            if computer in attrdict['complist']:
+                pool = True
+            else:
+                pool = False
             compstatus = attrdict['compstatus'][computer]
             self.compcubes[computer].update(
-                compstatus['frame'], compstatus['progress'], compstatus['pool']
-                )
+                compstatus['frame'], compstatus['progress'], pool,
+                compstatus['active'], compstatus['error'])
 
 
 class _statusbox(object):
@@ -948,13 +977,15 @@ class CompCube(_statusbox, ttk.LabelFrame):
         self.pool = tk.IntVar()
         ttk.LabelFrame.__init__(self, master)
         mainblock = tk.Frame(self, bg=self.bgcolor)
-        mainblock.pack(side=tk.LEFT)
-        tk.Label(mainblock, text=computer, bg=self.bgcolor).pack(anchor=tk.W)
+        mainblock.pack(expand=True, fill=tk.X)
+        leftblock = tk.Frame(mainblock, bg=self.bgcolor)
+        leftblock.pack(side=tk.LEFT)
+        tk.Label(leftblock, text=computer, bg=self.bgcolor).pack(anchor=tk.W)
         ttk.Progressbar(
-            mainblock, length=230, mode='determinate',
+            leftblock, length=230, mode='determinate',
             orient=tk.HORIZONTAL, variable=self.progress
             ).pack(padx=5, pady=5)
-        bottomrow = tk.Frame(mainblock, bg=self.bgcolor)
+        bottomrow = tk.Frame(leftblock, bg=self.bgcolor)
         bottomrow.pack(expand=True, fill=tk.X)
         tk.Label(
             bottomrow, text='Frame:', font=self.font, bg=self.bgcolor
@@ -967,7 +998,7 @@ class CompCube(_statusbox, ttk.LabelFrame):
         self.frameprog = tk.Label(bottomrow, text='0.0', font=self.font, 
                                   bg=self.bgcolor)
         self.frameprog.pack(side=tk.RIGHT) 
-        buttonblock = tk.Frame(self, bg=self.bgcolor)
+        buttonblock = tk.Frame(mainblock, bg=self.bgcolor)
         buttonblock.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
         tk.Checkbutton(
             buttonblock, text='Use', variable=self.pool, 
@@ -975,6 +1006,15 @@ class CompCube(_statusbox, ttk.LabelFrame):
             ).pack()
         tk.Button(buttonblock, text='Kill', command=self._kill_thread,
                   highlightbackground=self.bgcolor, highlightthickness=0).pack()
+        errblock = tk.Frame(self, bg=self.bgcolor)
+        errblock.pack(expand=True, fill=tk.X)
+        tk.Label(errblock, text='Status:', font=self.font).pack(side=tk.LEFT)
+        self.statlabel = tk.Label(errblock, text='', font=self.font)
+        self.statlabel.pack(side=tk.LEFT)
+        tk.Label(errblock, text='     Last error:', font=self.font
+            ).pack(side=tk.LEFT)
+        self.errlabel = tk.Label(errblock, text='None', font=self.font)
+        self.errlabel.pack(side=tk.LEFT)
 
     def _toggle_pool_state(self):
         '''Adds or removes the computer from the pool.'''
@@ -1007,15 +1047,23 @@ class CompCube(_statusbox, ttk.LabelFrame):
         #self.frameno.config(bg=bgcolor)
         #self.frameprog.config(bg=bgcolor)
 
-    def update(self, frame, progress, pool):
-        if frame:
-            self._change_bgcolor('white')
+    def update(self, frame, progress, pool, active, error):
+        if active:
+            #self._change_bgcolor('white')
+            self.statlabel.config(text='Active')
         else:
-            self._change_bgcolor(LightBGColor)
+            #self._change_bgcolor(LightBGColor)
+            #Job._thread_failed() leaves frame assigned while status inactive
+            if frame:
+                self.statlabel.config(text='FAILED')
+            else:
+                self.statlabel.config(text='Inactive')
         self.progress.set(progress)
         self.frameno.config(text=str(frame))
         self.frameprog.config(text=str(round(progress, 1)))
         self.pool.set(pool)
+        if error:
+            self.errlabel.config(text=error)
 
 
 class InputWindow(tk.Toplevel):

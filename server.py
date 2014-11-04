@@ -62,10 +62,15 @@ class Job(object):
             pool = True
         else:
             pool = False
-        self.compstatus[computer] = {
-            'active':False, 'frame':None, 'pid':None, 'timer':None, 
-            'progress':0.0, 'error':None, 'pool':pool
-            }
+        #self.compstatus[computer] = {
+        #    'active':False, 'frame':None, 'pid':None, 'timer':None, 
+        #    'progress':0.0, 'error':None, 'pool':pool
+        #    }
+        with threadlock:
+            self.compstatus[computer] = {
+                'active':False, 'frame':None, 'pid':None, 'timer':None, 
+                'progress':0.0, 'error':None
+                }
 
     def get_job_progress(self):
         '''Returns the percent complete for the job.'''
@@ -99,8 +104,8 @@ class Job(object):
 
         self.render_engine = render_engine
         self.complist = complist
-        for computer in self.complist:
-            self.compstatus[computer]['pool'] = True
+        #for computer in self.complist:
+        #    self.compstatus[computer]['pool'] = True
         #Fill list of total frames with zeros
         #used for tracking percent complete
         self.totalframes = []
@@ -154,7 +159,6 @@ class Job(object):
         elif self.render_engine == 'tgd':
             tgt_thread = self._renderthread_tgn
         while True:
-            print('while')
             if self.killflag:
                 print('Kill flag detected, breaking render loop.')
                 #deal with log & render timer
@@ -166,11 +170,21 @@ class Job(object):
                 self._stop_timer()
                 self.renderlog.finished(self.get_times())
                 break
+
+            #prevent lockup if all computers end up in skiplist
+            if len(self.skiplist) == len(self.complist):
+                #ignore if both lists are empty
+                if not len(self.complist) == 0:
+                    print('All computers in skiplist, popping oldest one.')
+                    skipcomp = self.skiplist.pop(0)
+                    self._reset_compstatus(skipcomp)
     
             for computer in Config.computers:
                 time.sleep(0.01)
-                if not self.compstatus[computer]['pool']:
+                #if not self.compstatus[computer]['pool']:
+                if not computer in self.complist:
                     continue
+
                 if (not self.compstatus[computer]['active'] and 
                         computer not in self.skiplist):
                     #break loop if queue becomes empty after new computer is added
@@ -192,8 +206,12 @@ class Job(object):
                 elif computer in self.skiplist:
                     continue
                 #if computer is active, check its timeout status
-                elif time.time() - self.compstatus[computer]['timer'] > Config.timeout:
-                    frame = self.compstatus[computer]['frame']
+                elif (time.time() - self.compstatus[computer]['timer'] > 
+                        Config.timeout):
+                    #frame = self.compstatus[computer]['frame']
+                    self._thread_failed(self.compstatus[computer]['frame'], 
+                                       computer, 'Timeout')
+                    '''
                     print('Frame ' + str(frame) + ' on ' + computer + 
                           ' timed out in render loop. Adding to skiplist')
                     self.skiplist.append(computer)
@@ -201,10 +219,13 @@ class Job(object):
                     self.kill_thread(computer)
                     with threadlock:
                         self.compstatus[computer]['active'] = False
-                        self.compstatus[computer]['error'] = 'timeout'
+                        self.compstatus[computer]['error'] = 'Timeout'
                         self.renderlog.frame_failed(frame, computer, 'Timed out')
+                    '''
 
         print('_masterthread() terminating') #debug
+
+
 
     def _threadsactive(self):
         '''Returns true if instances of _renderthread() are active.'''
@@ -235,8 +256,20 @@ class Job(object):
             if not line:
                 #pipe broken, 
                 #assume render failed but wait for timeout in _masterthread
+                self._thread_failed(frame, computer, 'Broken pipe')
+                return
+                '''
                 print('no line in stdout from _renderthread(), breaking', computer)
-                break
+                print('Frame %s on %s failed in _renderthread() because of a '
+                      'broken pipe.  Adding to skiplist.' %(frame, computer))
+                self.skiplist.append(computer)
+                self.kill_thread(computer)
+                with threadlock:
+                    self.compstatus[computer]['active'] = False
+                    self.compstatus[computer]['error'] = 'Broken pipe'
+                    self.renderlog.frame_failed(frame, computer, 'Broken pipe')
+                #break
+                return'''
             #reset timeout timer every time an update is received
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
@@ -307,8 +340,10 @@ class Job(object):
             if not line:
                 #pipe broken, 
                 #assume render failed but wait for timeout in _masterthread
-                print('no line in stdout from _renderthread(), breaking', computer)
-                break
+                self._thread_failed(frame, computer, 'Broken pipe')
+                return
+                #print('no line in stdout from _renderthread(), breaking', computer)
+                #break
             #reset timer
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
@@ -398,6 +433,86 @@ class Job(object):
         percent = tiles / total * 100
         return percent
 
+    def _thread_failed(self, frame, computer, errortype):
+        '''Handles operations associated with a failed render thread.'''
+        #If pipe is broken because render was killed by user, don't
+        #treat it as an error:
+        #if self.compstatus[computer]['error'] == 'Killed':
+        if not self.compstatus[computer]['active']:
+            print('_thread_failed() called while thread inactive, ignorning')#debug
+            return
+        print('Frame %s failed to render on %s, error type: %s'
+              %(frame, computer, errortype))
+        self.skiplist.append(computer)
+        with threadlock:
+            self.queue.put(frame)
+            self.compstatus[computer]['active'] = False
+            self.compstatus[computer]['error'] = errortype
+            self.renderlog.frame_failed(frame, computer, errortype)
+        pid = self.compstatus[computer]['pid']
+        if pid:
+            self._kill_thread(computer, pid)
+
+    def _kill_thread(self, computer, pid):
+        '''Handles INTERNAL kill thread requests. Encapsulates kill command in 
+        separate thread to prevent blocking of main if ssh connection is slow.'''
+        kthread = threading.Thread(target=self._threadkiller, args=(computer, pid))
+        kthread.start()
+        with threadlock:
+            self.renderlog.process_killed(pid, computer)
+
+    def _threadkiller(self, computer, pid):
+        print('entered Job._threadkiller(), pid %s on %s' %(pid, computer))#debug
+        subprocess.call('ssh igp@%s "kill %s"' %(computer, pid), shell=True)
+        print('finished Job._threadkiller()') #debug
+
+    def kill_thread(self, computer):
+        '''Handles EXTERNAL kill thread requests.  Returns PID if successful.'''
+        try:
+            pid = self.compstatus[computer]['pid']
+            frame = self.compstatus[computer]['frame']
+        except Exception as e:
+            print('Exception caught in Job.kill_thread() while getting pid, ', e)
+            return False
+        if pid == None or frame == None:
+            print('Job.kill_thread() failed, no frame or PID assigned')
+            return False
+        with threadlock:
+            self.queue.put(frame)
+        self._kill_thread(computer, pid)
+        self._reset_compstatus(computer)
+        print('finished Job.kill_thread()') #debug
+        return pid
+
+
+    #def XXkill_thread(self, computer):
+        '''Attempts to terminate active render thread on a specified computer.'''
+        '''
+        if not self.compstatus[computer]['active']:
+            return False
+        try:
+            frame = self.compstatus[computer]['frame']
+            pid = self.compstatus[computer]['pid']
+            if not frame > 0 and pid > 0:
+                #raise RuntimeError
+                print('Wierdness in kill_thread(), frame: %s, PID: %s. '
+                      'Returning False.' %(frame, pid))
+                return False
+        #except Exception:
+        #XXX Do NOT remove computer from pool here b/c it will take computers
+        #out of service permanently if frame times out
+        #remove computer from pool unless render is being stopped
+        #if self.compstatus[computer]['pool'] and self.status != 'Stopped':
+        #    self.remove_computer(computer)
+        with threadlock:
+            self.queue.put(frame)
+        subprocess.call('ssh igp@'+computer+' "kill '+str(pid)+'"', shell=True)
+        with threadlock:
+            self.compstatus[computer]['active'] = False
+            #self.compstatus[computer]['error'] = 'Killed'
+            self.renderlog.process_killed(pid, computer)
+        return pid'''
+
     def _start_timer(self):
         '''Starts the render timer for the job.'''
         if self.status == 'Stopped' or self.status == 'Paused':
@@ -454,51 +569,28 @@ class Job(object):
         return attrdict
 
     def add_computer(self, computer):
-        if self.compstatus[computer]['pool']:
+        #if self.compstatus[computer]['pool']:
+        if computer in self.complist:
             return False
         else:
             self.complist.append(computer)
-            self.compstatus[computer]['pool'] = True
+            #self.compstatus[computer]['pool'] = True
             if self.status == 'Rendering':
                 with threadlock:
                     self.renderlog.computer_added(computer)
             return True
 
     def remove_computer(self, computer):
-        if not self.compstatus[computer]['pool']:
+        #if not self.compstatus[computer]['pool']:
+        if not computer in self.complist:
             return False
         else:
             self.complist.remove(computer)
-            self.compstatus[computer]['pool'] = False
+            #self.compstatus[computer]['pool'] = False
             if self.status == 'Rendering':
                 with threadlock:
                     self.renderlog.computer_removed(computer)
             return True
-
-    def kill_thread(self, computer):
-        '''Attempts to terminate active render thread on a specified computer.'''
-        if not self.compstatus[computer]['active']:
-            return False
-        try:
-            frame = self.compstatus[computer]['frame']
-            pid = self.compstatus[computer]['pid']
-            if not frame > 0 and pid > 0:
-                raise RuntimeError
-        except Exception:
-            return False
-        #XXX Do NOT remove computer from pool here b/c it will take computers
-        #out of service permanently if frame times out
-        #remove computer from pool unless render is being stopped
-        #if self.compstatus[computer]['pool'] and self.status != 'Stopped':
-        #    self.remove_computer(computer)
-        with threadlock:
-            self.queue.put(frame)
-        subprocess.call('ssh igp@'+computer+' "kill '+str(pid)+'"', shell=True)
-        with threadlock:
-            self.compstatus[computer]['active'] = False
-            self.compstatus[computer]['error'] = 'killed'
-            self.renderlog.process_killed(pid, computer)
-        return pid
 
     def kill_now(self):
         '''Kills job and all currently rendering frames'''
@@ -898,7 +990,7 @@ allowed_commands= [
 'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
 'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
 'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority',
-'update_server_cfg', 'restore_cfg_defaults'
+'update_server_cfg', 'restore_cfg_defaults', 'killall_blender', 'killall_tgn'
 ]
 
 
@@ -1026,7 +1118,6 @@ class Server(object):
                 clientsocket, address = self.s.accept()
                 client_thread = ClientThread(self, clientsocket)
                 client_thread.start()
-                #time.sleep(0.001)
             except KeyboardInterrupt:
                 #close the server socket cleanly if user interrupts the loop
                 self.shutdown_server()
@@ -1239,7 +1330,8 @@ class Server(object):
     def toggle_comp(self, kwargs):
         index = kwargs['index']
         computer = kwargs['computer']
-        if self.renderjobs[index].get_comp_status(computer)['pool']:
+        #if self.renderjobs[index].get_comp_status(computer)['pool']:
+        if computer in self.renderjobs[index].complist:
             reply = self.renderjobs[index].remove_computer(computer)
             if reply: return computer+' removed from render pool for '+str(index)
         else:
@@ -1251,16 +1343,27 @@ class Server(object):
         index = kwargs['index']
         computer = kwargs['computer']
         #first remove computer from the pool
-        reply = self.renderjobs[index].remove_computer(computer)
-        if not reply:
-            return 'Failed to kill thread, unable to remove computer from pool.'
-        reply = self.renderjobs[index].kill_thread(computer)
+        remove = self.renderjobs[index].remove_computer(computer)
+        #if not reply:
+        #    return 'Failed to kill thread, unable to remove computer from pool.'
+        kill = self.renderjobs[index].kill_thread(computer)
         #remove computer
-        if reply:
-            pid = reply
-            return 'Sent kill signal for pid '+str(pid)+' on '+computer
+        if kill:
+            pid = kill
+            rstr = 'Sent kill signal for %s' %pid
+            if remove:
+                rstr += ', %s removed from render pool' %computer
+            else:
+                rstr += ', unable to remove %s from render pool.' %computer
+            #return 'Sent kill signal for pid '+str(pid)+' on '+computer
         else:
-            return 'Failed to kill thread.'
+            #return 'Failed to kill thread.'
+            rstr = 'Failed to kill thread'
+            if remove:
+                rstr += ', removed %s from render pool.' %computer
+            else:
+                rstr += ', unable to remove %s from render pool.' %computer
+        return rstr
     
     def kill_render(self, kwargs):
         index = kwargs['index']
@@ -1355,7 +1458,30 @@ class Server(object):
         cfgsettings = Config().defaults()
         Config().update_cfgfile(cfgsettings)
         return 'Server settings restored to defaults'
-        
+
+    def killall_blender(self, kwargs=None):
+        '''Attempts to kill all running instances of blender on all computers.'''
+        for computer in Config.computers:
+            kt = threading.Thread(target=self._ssh_killthread, 
+                                  args=(computer, 'blender'))
+            kt.start()
+        return 'Attempting to kill all instances of Blender on all computers.'
+
+    def killall_tgn(self, kwargs=None):
+        '''Attempts to kill all running instances of terragen on all computers.'''
+        for computer in Config.computers:
+            if computer in Config.macs:
+                command = 'Terragen_3'
+            else:
+                command = 'terragen'
+            kt = threading.Thread(target=self._ssh_killthread, 
+                                  args=(computer, command))
+            kt.start()
+        return 'Attempting to kill all instances of Terragen on all computers.'
+
+    def _ssh_killthread(self, computer, command):
+        print('Sending command: ssh igp@%s "killall %s"' %(computer, command))
+        subprocess.call('ssh igp@%s "killall %s"' %(computer, command), shell=True)
     
 
 

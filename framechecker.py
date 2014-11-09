@@ -49,35 +49,39 @@ class Framechecker(object):
             self.base, self.ext = os.path.splitext(item)
             if self.ext in self.allowed_extensions:
                 filesok = True
+                break
             else:
                 filesok = False
         if not filesok:
             raise RuntimeError('No suitable files found in directory.')
 
-    def calculate_indices(self):
+    def calculate_indices(self, filename=None):
         '''Attempts to determine the slice indices needed to isolate sequential
         file numbers within a typical filename. Assuming the sequential numbers go 
         to the end of the file base name, traverse the base name backwards looking 
         for the first non-numerical character. Assume the adjacent number is the 
         beginning of the sequential numbers. Returns a tuple with left and right
-        indices as integers. Returns false if nothing was found.'''
+        indices as integers. Returns false if nothing was found.
+
+        Optinal basename arg changes the value of self.base. Used to account for
+        changes in filename length during iteration.'''
+        if filename:
+            self.base, self.ext = os.path.splitext(filename)
         i = len(self.base) - 1
         while i >= 0:
             char = self.base[i]
             if not char.isdigit():
-                self.left = i + 1
-                self.right = len(self.base)
-                print(self.left, self.right)#debug
-                return (self.left, self.right)
+                left = i + 1
+                right = len(self.base)
+                return (left, right)
             i -= 1
         #loop finished with nothing found
-        return False
+        raise RuntimeError('Unable to parse filename:', self.base)
 
-    def generate_lists(self, left, right):
+    #def generate_lists(self, left, right):
+    def generate_lists(self):
         '''Given left and right slice indices, returns lists of directory contents,
         frames expected, frames found and frames missing.'''
-        self.left = left
-        self.right = right
         frames_expected = []
         frames_found = []
         frames_missing = []
@@ -85,18 +89,22 @@ class Framechecker(object):
         for frame in range(self.startframe, self.endframe + 1):
             frames_expected.append(frame)
         #generate list of found frames, i.e. a list of sequential file numbers
-        #found by parsing dir_contents according to provided indices
         for item in self.dir_contents:
+            #ignore hidden files
+            if item[0] == '.':
+                continue
             #ignore files that don't have allowed extensions
-            if os.path.splitext(item)[-1] in self.allowed_extensions:
-                self.filename = item
-                frame = int(item[self.left:self.right])
-                frames_found.append(frame)
+            if not os.path.splitext(item)[-1] in self.allowed_extensions:
+                continue
+            self.filename = item
+            left, right = self.calculate_indices(filename=item)
+            frame = int(item[left:right])
+            frames_found.append(frame)
         #now compare to get list of missing frames
         for frame in frames_expected:
             if not frame in frames_found:
                 frames_missing.append(frame)
-        return(self.filename, self.dir_contents, frames_expected, frames_found, 
+        return (self.filename, self.dir_contents, frames_expected, frames_found, 
                 frames_missing)
 
 

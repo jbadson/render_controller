@@ -1366,10 +1366,11 @@ class MissingFramesWindow(tk.Toplevel):
             ).grid(row=0, column=0, sticky=tk.W)
         self.dirconts = tk_st.ScrolledText(outputframe, width=35, height=15)
         self.dirconts.grid(row=1, column=0)
-        ttk.Label(outputframe, text='Found:').grid(row=0, column=1, sticky=tk.W)
+        ttk.Label(outputframe, text='Expected:'
+            ).grid(row=0, column=1, sticky=tk.W)
         self.expFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
         self.expFrames.grid(row=1, column=1)
-        ttk.Label(outputframe, text='Expected:').grid(row=0, column=2, sticky=tk.W)
+        ttk.Label(outputframe, text='Found:').grid(row=0, column=2, sticky=tk.W)
         self.foundFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
         self.foundFrames.grid(row=1, column=2)
         ttk.Label(outputframe, text='Missing:').grid(row=0, column=3, sticky=tk.W)
@@ -1415,7 +1416,7 @@ class MissingFramesWindow(tk.Toplevel):
             allowed_extensions=Config.allowed_filetypes
             )
         self.left, self.right = self.checker.calculate_indices()
-        lists = self.checker.generate_lists(self.left, self.right)
+        lists = self.checker.generate_lists()
         self._put_text(lists)
         self.checked = True
         #change the key bindings so they do the contextually correct thing
@@ -1430,7 +1431,7 @@ class MissingFramesWindow(tk.Toplevel):
             return
         self.left = int(self.slider_left.get())
         self.right = int(self.slider_right.get())
-        lists = self.checker.generate_lists(self.left, self.right)
+        lists = self.checker.generate_lists()
         self._put_text(lists)
 
     def _update_sliders(self, event=None):

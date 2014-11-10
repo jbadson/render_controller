@@ -343,7 +343,6 @@ class Job(object):
                 #XXX Terragen breaks pipes all the time for no apparent reason,
                 #XXX so just letting timeout catch these errors.
                 print('Terragen pipe broken, ignoring', frame, computer)
-                continue
                 #self._thread_failed(frame, computer, 'Broken pipe')
                 #return
                 #print('no line in stdout from _renderthread(), breaking', computer)

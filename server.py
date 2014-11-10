@@ -340,8 +340,12 @@ class Job(object):
             if not line:
                 #pipe broken, 
                 #assume render failed but wait for timeout in _masterthread
-                self._thread_failed(frame, computer, 'Broken pipe')
-                return
+                #XXX Terragen breaks pipes all the time for no apparent reason,
+                #XXX so just letting timeout catch these errors.
+                print('Terragen pipe broken, ignoring', frame, computer)
+                continue
+                #self._thread_failed(frame, computer, 'Broken pipe')
+                #return
                 #print('no line in stdout from _renderthread(), breaking', computer)
                 #break
             #reset timer

@@ -28,6 +28,7 @@ import sys
 import socket
 import json
 import ast
+import argparse
 
 print(sys.argv)
 
@@ -151,12 +152,47 @@ helpstring = (
                 )
 
 
+class ListAction(argparse.Action):
+    def __init__(self, option_strings, dest, narg=None, **kwargs):
+        super().__init__(option_strings, dest, **kwargs)
+    def __call__(self, parser, namespace, values, option_string=None):
+        joblist = Cli().list_jobs()
+        for i in range(len(joblist)):
+            print('%s:\t%s' %(i, joblist[i]))
+
+class ToggleAction(argparse.Action):
+    def __init__(self, option_strings, dest, narg=None, **kwargs):
+        super().__init__(option_strings, dest, **kwargs)
+        print('narg', narg, 'option_strings', option_strings, 'dest', dest )
+    def __call__(self, parser, namespace, values, option_string=None):
+        joblist = Cli().list_jobs()
+        for i in range(len(joblist)):
+            print('%s:\t%s' %(i, joblist[i]))
+
+
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--list', action=ListAction, nargs=0)
+    parser.add_argument('--toggle', action=ToggleAction, nargs=2)
+    args = parser.parse_args()
+    print(args)
+
+
+
+
+
+    '''
     reply = ClientSocket().send_cmd('cmdtest')
     print(reply)
     cli = Cli()
+
+    joblist = cli.list_jobs()
+    for i in range(len(joblist)):
+        print('%s:\t%s' %(i, joblist[i]))
     for i in cli.list_jobs():
+        print(i)
         cli.print_job_stats(i)
+    '''
 
 '''
 required_args = ['-p', '-s', '-e', '-c']

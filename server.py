@@ -325,13 +325,23 @@ class Job(object):
         print('started _renderthread_tgn()') #debug
         #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in Config.macs:
-            cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_mac+' -p '
-                          +self.path+' -hide -exit -r -f '+str(frame)
-                          +' & pgrep -n Terragen&wait"')
+            #cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_mac+' -p '
+            #              +self.path+' -hide -exit -r -f '+str(frame)
+            #              +' & pgrep -n Terragen&wait"')
+            cmd_string = (
+                'ssh igp@%s "%s -p %s -hide -exit -r -f %s & pgrep -n '
+                'Terragen&wait"' 
+                %(computer, Config.terragenpath_mac, self.path, frame)
+                )
         else:
-            cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_linux+' -p '
-                          +self.path+' -hide -exit -r -f '+str(frame)
-                          +' & pgrep -n terragen&wait"')
+            #cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_linux+' -p '
+            #              +self.path+' -hide -exit -r -f '+str(frame)
+            #              +' & pgrep -n terragen&wait"')
+            cmd_string = (
+                'ssh igp@%s "%s -p %s -hide -exit -r -f %s & pgrep -n '
+                'terragen&wait"' 
+                %(computer, Config.terragenpath_linux, self.path, frame)
+                )
 
         command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, shell=True)
 
@@ -339,14 +349,10 @@ class Job(object):
             line = line.decode('UTF-8')
             if not line:
                 #pipe broken, 
-                #assume render failed but wait for timeout in _masterthread
-                #XXX Terragen breaks pipes all the time for no apparent reason,
-                #XXX so just letting timeout catch these errors.
-                print('Terragen pipe broken, ignoring', frame, computer)
-                #self._thread_failed(frame, computer, 'Broken pipe')
-                #return
-                #print('no line in stdout from _renderthread(), breaking', computer)
+                self._thread_failed(frame, computer, 'Broken pipe')
+                return
                 #break
+
             #reset timer
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
@@ -453,7 +459,7 @@ class Job(object):
             self.compstatus[computer]['error'] = errortype
             self.renderlog.frame_failed(frame, computer, errortype)
         pid = self.compstatus[computer]['pid']
-        if pid:
+        if pid and not errortype != 'Broken pipe':
             self._kill_thread(computer, pid)
 
     def _kill_thread(self, computer, pid):

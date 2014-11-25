@@ -1180,22 +1180,52 @@ class Server(object):
             return
 
         #if there are no waiting jobs, no reason to continue
+        print('Autostart: waitlist:', self.waitlist)
         if not self.waitlist:
             return
         
         #if no high priority jobs, handle the normal ones
+        activejobs = []
         for i in self.renderjobs:
             job = self.renderjobs[i]
             if job.status == 'Rendering':
-                '''Loop should terminate with either rendering condition. Either 
-                something is running or something is about to finish.'''
+                activejobs.append(job)
+        if len(activejobs) > 1:
+            print('Autostart: more than 1 active job found, returning')#debug
+            return
+        elif len(activejobs) == 0:
+            newjob = self.waitlist.pop(0)
+            newjob.autostart()
+            print('Autostart started', newjob.path)
+            return
+        elif len(activejobs) == 1:
+            job = activejobs[0]
+            if job.queue.empty():
+                #All frames distributed, just waiting for render to finish.
+                #If one frame is taking inordinately long, don't want to wait
+                #to start the next render.
+                print('Autostart: exactly 1 job running & queue empty')#debug
+                if job.totalframes.count(0) > 1:
+                    print('Autostart: >1 frame rendering, returning')#debug
+                    return
+                else:
+                    print('Autostart: exactly 1 frame rendering, starting next'
+                         )#debug
+                    newjob = self.waitlist.pop(0)
+                    newjob.autostart()
+                    print('Autostart started', newjob.path)
+                pass
+            else:
+                return
+
+        '''
+        for i in self.renderjobs:
+            job = self.renderjobs[i]
+            if job.status == 'Rendering':
                 if not job.queue.empty():
                     #job is currently rendering, nothing else needs to be done
                     return
                 else:
-                    '''All frames have been distributed, just waiting for last 
-                    set to finish. Starting next job here b/c sometimes the last 
-                    frame takes an inordinately long time.'''
                     #try paused jobs first
                     for job in self.waitlist:
                         if job.status == 'Paused':
@@ -1211,6 +1241,7 @@ class Server(object):
         newjob = self.waitlist.pop(0)
         newjob.autostart()
         print('Autostart started', newjob.path)
+        '''
 
     def save_state(self):
         '''Writes the current state of all Job instances on the server

@@ -24,13 +24,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''THIS MODULE IS NOT CURRENTLY WORKING. I'LL UPDATE IT TO USE THE CURRENT
 CLIENT-SERVER PROTOCOL AS SOON AS I GET THE GUI SQUARED AWAY.'''
 
-import sys
 import socket
 import json
 import ast
 import argparse
 
-print(sys.argv)
 
 class ClientSocket(object):
     '''Wrapper for socket to handle command-response protocol for interacting 
@@ -105,129 +103,79 @@ def cmdtest():
 
 class Cli(object):
     '''Master object for command line interface.'''
-
     def __init__(self):
-        self.serverjobs = self.get_all()
+        #var to contain all current server job attributes
+        self.serverjobs = ClientSocket().send_cmd('get_attrs')
+        #now need a list with integer job IDs to make it easier to select jobs
+        #from the command line
+        self.job_ids = sorted(self.serverjobs.keys())
+        #remove the metadata
+        self.job_ids.remove('__STATEVARS__')
 
-    def get_all(self):
-        '''Gets all attributes for all jobs on server.'''
-        serverjobs = ClientSocket().send_cmd('get_attrs')
-        return serverjobs
 
-    def list_jobs(self):
-        '''Returns a list of all jobs on the server.'''
-        jobs = []
-        for job in self.serverjobs.keys():
-            if not job == '__STATEVARS__':
-                jobs.append(job)
-        return jobs
+    def list_all(self):
+        print('\nListing all jobs on %s:%s' 
+              %(ClientSocket.HOST, ClientSocket.PORT))
+        print('ID\tFilename')
+        print('-'*60)
+        for i in range(len(self.job_ids)):
+            print('%s:\t%s' %(i, self.job_ids[i]))
 
     def print_job_stats(self, job_id):
-        '''Returns a list of key stats about a given job ID
+        index = self.job_ids[job_id]
+        job = self.serverjobs[index]
+        elapsed, avg, remaining = job['times']
+        print('\nFilename\t\tStatus\t\tProgress (%)\tElapsed\tAvg.\tRemaining')
+        print('-'*60)
+        print('%s\t%s\t\t%s\t\t%s\t%s\t%s' 
+              %(index, job['status'], job['progress'], elapsed, avg, remaining))
 
-        start, end, path, status, progress'''
+    def print_comp_status(self, job_id):
+        index = self.job_ids[job_id]
+        #job = self.serverjobs[index]
+        cs = self.serverjobs[index]['compstatus']
+        self.print_job_stats(job_id)
+        print('\nComputer\tFrame\tProgress\tActive\tError')
+        print('-'*60)
+        for comp in self.serverjobs[index]['complist']:
+            #print(comp)
+            #print(cs[comp])
+            print('%s\t%s\t%s\t%s\t%s' 
+                  %(comp, cs[comp]['frame'], cs[comp]['progress'], 
+                  cs[comp]['active'], cs[comp]['error']))
 
-        if not job_id in self.serverjobs:
-            print('Job ID not found.')
-            return
-        else:
-            job = self.serverjobs[job_id]
-        print('Filename: %s\tStatus: %s\tProgress: %s' % (job_id, job['status'], job['progress']))
-        print('Start: %s\tEnd: %s\tExtra frames: %s' % (job['startframe'], 
-              job['endframe'], job['extraframes']))
-        #print(
+
 
 
         
 
-#---------CLI STUFF---------
-helpstring = (
-                'IGP Render Controller Command Line Interface\n' +
-                'Arguments and options:\n' +
-                '-p         :path to file for rendering\n' +
-                '-s         :start frame\n' +
-                '-e         :end frame\n' +
-                '-c         :list of computers to render on\n' +
-                '--status   :get status for a given job number\n'
-                )
 
-
-class ListAction(argparse.Action):
-    def __init__(self, option_strings, dest, narg=None, **kwargs):
-        super().__init__(option_strings, dest, **kwargs)
-    def __call__(self, parser, namespace, values, option_string=None):
-        joblist = Cli().list_jobs()
-        for i in range(len(joblist)):
-            print('%s:\t%s' %(i, joblist[i]))
-
-class ToggleAction(argparse.Action):
-    def __init__(self, option_strings, dest, narg=None, **kwargs):
-        super().__init__(option_strings, dest, **kwargs)
-        print('narg', narg, 'option_strings', option_strings, 'dest', dest )
-    def __call__(self, parser, namespace, values, option_string=None):
-        joblist = Cli().list_jobs()
-        for i in range(len(joblist)):
-            print('%s:\t%s' %(i, joblist[i]))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--list', action=ListAction, nargs=0)
-    parser.add_argument('--toggle', action=ToggleAction, nargs=2)
-    args = parser.parse_args()
-    print(args)
-
-
-
-
-
-    '''
-    reply = ClientSocket().send_cmd('cmdtest')
-    print(reply)
     cli = Cli()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--list', action='store_true', default=False, 
+        dest='listall', help='List all items in render queue.')
+    parser.add_argument('--jstat', action='store', default=-1,
+        dest='jstat', help='Print basic status info for job with given ID.',
+        metavar='ID', type=int)
+    parser.add_argument('--comps', action='store', default=-1, dest='compstat',
+        metavar='ID', type=int, help='List all computers with their assigned '
+        'frames and progress for a given job ID')
 
-    joblist = cli.list_jobs()
-    for i in range(len(joblist)):
-        print('%s:\t%s' %(i, joblist[i]))
-    for i in cli.list_jobs():
-        print(i)
-        cli.print_job_stats(i)
-    '''
+    args = parser.parse_args()
+    print('ARGS:', args)
 
-'''
-required_args = ['-p', '-s', '-e', '-c']
-render_args = {} 
-job = None
+    if args.listall:
+        cli.list_all()
+    if args.jstat >= 0:
+        cli.print_job_stats(args.jstat)
+    if args.compstat >= 0:
+        cli.print_comp_status(args.compstat)
 
-#if command line options have been specified, parse them
-if len(sys.argv) > 1:
-    #check that all required arguments are present, then start a render
-    #for i in required_args:
-    #    if not i in sys.argv:
-    #        print('Missing required argument. Do it again.')
-    #        print(helpstring)
-    #        quit()
 
-    for i in range(len(sys.argv)):
-        if sys.argv[i] == '-h' or sys.argv[i] == '--help':
-            print(helpstring)
-            raise SystemExit
 
-        elif sys.argv[i] == '-p':
-            render_args['path'] = sys.argv[i+1]
-        elif sys.argv[i] == '-s':
-            render_args['start'] = sys.argv[i+1]
-        elif sys.argv[i] == '-e':
-            render_args['end'] = sys.argv[i+1]
-        elif sys.argv[i] == '-c':
-            render_args['computers'] = sys.argv[i+1]
-        elif sys.argv[i] == '--status':
-            job = int(sys.argv[i+1])
 
-    if render_args:
-        print(render_args)
-        send_command('cmd_render', kwargs=render_args)
-    elif job != None:
-        print('Attempting to get status for job ' + str(job))
-        get_status(job)
-'''
+
+

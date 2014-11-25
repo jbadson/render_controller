@@ -29,6 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import sys
 import server
 import gui
+import projcache
 
 
 helptext = (
@@ -38,8 +39,11 @@ helptext = (
 '-s --server\tStart the server.\n'
 '-p --port\tUse the specified port when starting the server.\n'
 '\t\tMust be used with -s or --server.\n'
+'--cache\t\tCopy files to local rendercaches (interactive).\n'
+'--retrieve\tRetrieve rendered files from local rendercaches (interactive).\n'
 '-h --help\tDisplay this help message.'
 )
+
 
 port = None
 
@@ -52,6 +56,10 @@ if '-s' in sys.argv or '--server' in sys.argv:
     renderserver = server.Server(port=port)
 elif '-h' in sys.argv or '--help' in sys.argv:
     print(helptext)
+elif '--cache' in sys.argv:
+    projcache.Interactive(mode='send')
+elif '--retrieve' in sys.argv:
+    projcache.Interactive(mode='retrieve')
     
 else:
     masterwin = gui.MasterWin()

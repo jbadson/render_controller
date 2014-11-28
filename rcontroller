@@ -60,7 +60,6 @@ elif '--cache' in sys.argv:
     projcache.Interactive(mode='send')
 elif '--retrieve' in sys.argv:
     projcache.Interactive(mode='retrieve')
-    
 else:
     masterwin = gui.MasterWin()
     masterwin.mainloop()

@@ -23,17 +23,16 @@ class FileCacher(object):
     '''Moves Blender project files to local storage on rendernodes to
     speed up rendering of large scenes and reduce server IO.'''
 
-    def __init__(self, projectdir, blendpath, renderdir):
-        '''Args:
-        projectdir = Absolute path to the project's base directory. This 
+    def __init__(self, projectdir, blendpath, renderdir, computers=None):
+        '''
+        projectdir: Absolute path to the project's base directory. This 
             directory and its conents will be cached locally on each machine.
-        blendpath = Relative path from projectdir to .blend file to be rendered.
-        renderdir = Relative path from projectdir to directory where rendered 
+        blendpath: Relative path from projectdir to .blend file to be rendered.
+        renderdir: Relative path from projectdir to directory where rendered 
             frames will be saved.
-        paths_relative: Optional. Change to True if blend file's paths have
-            already been converted to relative. Otherwise prevents cache()
-            from being executed until make_paths_relative() successfully
-            finishes.'''  
+        computers: list of computers that will have files cached on them.  If
+            no computers are specified, they will have to be provided when files
+            are cached or retrieved.'''  
         self.projectdir = projectdir
         if self.projectdir[-1] == '/':
             #path.split will give an empty string if there's a trailing slash
@@ -41,6 +40,7 @@ class FileCacher(object):
         self.basepath, self.dirname = os.path.split(self.projectdir)
         self.blendpath = blendpath #RELATIVE path
         self.renderdir = renderdir #RELATIVE path
+        self.computers = computers #list of all computers data has been cached on
 
     def make_paths_relative(self):
         '''Launches blender with a python script to make all paths in the 
@@ -74,14 +74,20 @@ class FileCacher(object):
         else:
             return 0
 
-    def cache(self, computer):
+    def get_render_path(self):
+        '''Returns a relative path to the file to be rendered.'''
+        renderpath = os.path.join('~/rendercache/', self.dirname, self.blendpath)
+        return renderpath
+
+    def cache_single(self, computer):
         '''Copies the project directory to the ~/rendercache directory
         on the specified computer.'''
 
         '''NOTE: The below command assumes the server is mounted on the target
         machine in the same location.  It would also be possible to use rsync
         or scp to copy directly from the machine this script is running on.'''
-
+        if not computer in self.computers:
+            self.computers.append(computer)
         #want to exclude any rendered frames with initial copy
         command = (
             'ssh igp@%s "rsync -au --exclude=%s --delete %s ~/rendercache/"' 
@@ -94,6 +100,27 @@ class FileCacher(object):
             #throws exception if a path is inaccessible or user lacks permissions
             return e
         return 0
+
+    def cache_all(self, computers=None):
+        '''Copies project directory to a list of computers.  If no list is given,
+        it will use self.computers.  If self.computers is also null, an exception
+        will be raised.  Returns 0 if successful, otherwise returns a list in the
+        format computer:error.'''
+        if not computers:
+            computers = self.computers
+        if not computers:
+            raise RuntimeError('No computer list found')
+        #remove any duplicate entries so we don't send commands twice
+        computers = set(computers)
+        errors = []
+        for computer in computers:
+            result = self.cache_single(computer)
+            if result:
+                errors.append('%s: %s' %(computer, result))
+        if errors:
+            return errors
+        else:
+            return 0
 
     def retrieve_frames(self, computer):
         '''Copies rendered frames from local ~/rendercache directory
@@ -111,16 +138,46 @@ class FileCacher(object):
             return e
         return 0
 
+    def retrieve_all(self, computers=None):
+        '''Copies rendered frames from cache directories on a list of computers
+        back to the server.  If no computer list is specified, will use 
+        self.computers. Returns 0 on success or a list of errors on failure.'''
+        if not computers:
+            computers = self.computers
+        if not computers:
+            raise RuntimeError('No computer list found')
+        #remove any duplicate entries so we don't send commands twice
+        computers = set(computers)
+        errors = []
+        for computer in computers:
+            result = self.retrieve_frames(computer)
+            if result:
+                errors.append('%s: %s' %(computer, result))
+        if errors:
+            return errors
+        else:
+            return 0
+
 class Interactive(object):
     '''Interactive command line interface for FileCacher.'''
-    def __init__(self, mode):
+    def __init__(self, mode=None):
         '''mode: 'send' copies files to computers, 'retrieve' copies rendered
-        frames back to the shared project render folder'''
+        frames back to the shared project render folder.  If no mode is
+        is specified, user will be prompted.'''
         
         print('This utility will attempt to convert all paths in a given blend '
               'file\n to relative, then copy the contents of the project '
               'directory to\n the ~/rendercache/ directory on each specified '
-              'computer.\n')
+              'computer or retrieve rendered frames from that location.\n')
+
+        if not mode:
+            reply = input('Mode (S to send, R to retrieve): ')
+            if reply == 'S':
+                mode = 'send'
+            elif reply == 'R':
+                mode = 'retrieve'
+            else:
+                print('Mode not recognized, quitting.')
     
         project_path = input('Absolute path to project root directory: ')
         blendfile = input('Relative path from project root to blend file: ')
@@ -145,17 +202,11 @@ class Interactive(object):
         for computer in complist:
             if mode == 'send':
                 print('Copying files to %s' %computer)
-                fc.cache(computer)
+                fc.cache_single(computer)
             else:
                 print('Retrieving frames from %s' %computer)
                 fc.retrieve_frames(computer)
 
 
 if __name__ == '__main__':
-    projpath = '/mnt/data/test_render/cachetest'
-    blendfile = 'cachetest.blend'
-    renderpath = 'render'
-    fc = FileCacher(projpath, blendfile, renderpath)
-    #fc.make_paths_relative()
-    #fc.cache('sneffels')
-    fc.retrieve_frames('sneffels')
+    interface = Interactive()

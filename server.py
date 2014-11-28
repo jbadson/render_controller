@@ -30,6 +30,7 @@ import socket
 import ast
 import json
 import cfgfile
+import projcache
 
 illegal_characters = [' ', ';', '&'] #not allowed in paths
 class Job(object):
@@ -55,6 +56,7 @@ class Job(object):
         self.render_engine = None
         self.totalframes = []
         self.progress = None
+        self.cachedata = None #holds info related to local file caching
 
     def _reset_compstatus(self, computer):
         '''Returns a compstatus dict containing default values'''
@@ -92,7 +94,7 @@ class Job(object):
         return self.compstatus[computer]
 
     def enqueue(self, path, startframe, endframe, render_engine, complist, 
-                extraframes=[]):
+                extraframes=[], cachedata=None):
         '''Create a new job and place it in queue.'''
         self.path = path
         for char in illegal_characters:
@@ -126,8 +128,25 @@ class Job(object):
             self.extraframes.reverse()
             for frame in self.extraframes:
                 self.queue.put(frame)
-        self.renderlog = RenderLog(self.path, self.startframe, self.endframe, 
-                                   self.extraframes, self.complist)
+        #if project files will be cached locally on render nodes, set up cacher
+        if cachedata:
+            print('Request for projcache detected in enqueue()', cachedata)#debug
+            #XXX not sure if there's really any need to maintain both the
+            #cachedata dict and the filecacher object.
+            self.cachedata = cachedata
+            self.filecacher = projcache.FileCacher(
+                cachedata['rootpath'], cachedata['filepath'], 
+                cachedata['renderdirpath'], cachedata['computers']
+                )
+            self.renderlog = RenderLog(
+                self.path, self.startframe, self.endframe, self.extraframes, 
+                self.complist, caching=True
+                )
+        else:
+            self.renderlog = RenderLog(
+                self.path, self.startframe, self.endframe, self.extraframes, 
+                self.complist
+                )
         self.status = 'Waiting'
         return True
 
@@ -154,6 +173,7 @@ class Job(object):
     
         print('started _masterthread()') #debug
         self.threads_active = False
+        #set target thread type based on render engine
         if self.render_engine == 'blend':
             tgt_thread = self._renderthread
         elif self.render_engine == 'tgd':
@@ -169,6 +189,8 @@ class Job(object):
                 self.status = 'Finished'
                 self._stop_timer()
                 self.renderlog.finished(self.get_times())
+                if self.cachedata:
+                    self.retrieve_cached_files()
                 break
 
             #prevent lockup if all computers end up in skiplist
@@ -582,6 +604,18 @@ class Job(object):
         if computer in self.complist:
             return False
         else:
+            #if project files are being cached locally, add computer to
+            #cache list & transfer files if necessary
+            if self.cachedata:
+                if not computer in self.filecacher.computers:
+                    print('Adding %s to filecacher computer list' %computer)
+                    result = self.filecacher.cache_single(computer)
+                    if result:
+                        print('Unable to transfer files to %s: %s'
+                              %(computer, result))
+                        return False
+                    #NOTE: FileCacher should add comp. to its list automatically
+                    self.cachedata['computers'].append(computer)
             self.complist.append(computer)
             #self.compstatus[computer]['pool'] = True
             if self.status == 'Rendering':
@@ -705,18 +739,38 @@ class Job(object):
             self.render()
         return True
 
+    def retrieve_cached_files(self):
+        '''Attempts to copy rendered frames from the rendercache directory
+        on each render node back to the shared directory on the server.'''
+        print('Attempting to retrieve rendered frames from '
+              'local rendercache directories.')
+        result = self.filecacher.retrieve_all()
+        if result:
+            print(result)
+            #XXX Need way to report this to GUI
+            self.renderlog.frames_retrieved(self.filecacher.computers, 
+                                            error=result)
+            return result
+        else:
+            print('Cached frames successfully retrieved.')
+            self.renderlog.frames_retrieved(self.filecacher.computers,  
+                                            error=None)
+            return 0
+
 
 class RenderLog(Job):
     '''Logs render progress for a given job.  Log instance is created when
     job is placed in queue, but actual log file is not created until render
     is started. Time in filename reflects time job was placed in queue.'''
     hrule = '=' * 70 + '\n' #for printing thick horizontal line
-    def __init__(self, path, startframe, endframe, extraframes, complist):
+    def __init__(self, path, startframe, endframe, extraframes, complist, 
+                 caching=False):
         self.path = path
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
         self.complist = complist
+        self.caching = caching #indicates if files are cached on render nodes
         self.log_basepath = Config.log_basepath
         self.filename, ext = os.path.splitext(os.path.basename(self.path))
         self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
@@ -742,6 +796,8 @@ class RenderLog(Job):
             log.write('Frames: ' + str(self.startframe) + ' - ' 
                       + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
+            if self.caching:
+                log.write('Local file caching enabled \n')
             log.write(RenderLog.hrule)
 
     def frame_sent(self, frame, computer):
@@ -783,6 +839,18 @@ class RenderLog(Job):
             log.write('Render finished at ' + self.gettime() + '\n')
             log.write('Total time: ' + self.format_time(elapsed) + '\n')
             log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+            log.write(RenderLog.hrule)
+
+    def frames_retrieved(self, computers, error=None):
+        with open(self.logpath, 'a') as log:
+            log.write(RenderLog.hrule)
+            log.write('Attempted to retrieve locally cached frames at %s\n'
+                      %self.gettime())
+            if not error:
+                log.write('No errors reported.\n')
+            else:
+                log.write('Received the following error(s): %s\n' %error)
+            log.write('Final computer list: %s\n' %computers)
             log.write(RenderLog.hrule)
 
     def stop(self, times):
@@ -999,7 +1067,8 @@ allowed_commands= [
 'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
 'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
 'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority',
-'update_server_cfg', 'restore_cfg_defaults', 'killall_blender', 'killall_tgn'
+'update_server_cfg', 'restore_cfg_defaults', 'killall_blender', 'killall_tgn',
+'cache_files', 'retrieve_cached_files'
 ]
 
 
@@ -1180,7 +1249,6 @@ class Server(object):
             return
 
         #if there are no waiting jobs, no reason to continue
-        print('Autostart: waitlist:', self.waitlist)
         if not self.waitlist:
             return
         
@@ -1217,31 +1285,6 @@ class Server(object):
                 pass
             else:
                 return
-
-        '''
-        for i in self.renderjobs:
-            job = self.renderjobs[i]
-            if job.status == 'Rendering':
-                if not job.queue.empty():
-                    #job is currently rendering, nothing else needs to be done
-                    return
-                else:
-                    #try paused jobs first
-                    for job in self.waitlist:
-                        if job.status == 'Paused':
-                            job.autostart()
-                            return
-                    newjob = self.waitlist.pop(0)
-                    newjob.autostart()
-                    print('Autostart started', newjob.path)
-                    return
-        
-        #finally, no high-priority renders and nothing rendering. 
-        #Start the oldest thing that's waiting
-        newjob = self.waitlist.pop(0)
-        newjob.autostart()
-        print('Autostart started', newjob.path)
-        '''
 
     def save_state(self):
         '''Writes the current state of all Job instances on the server
@@ -1338,6 +1381,7 @@ class Server(object):
         extras = kwargs['extraframes']
         render_engine = kwargs['render_engine']
         complist = kwargs['complist']
+        cachedata = kwargs['cachedata']
         #create the job
         if index in self.renderjobs:
             if self.renderjobs[index].status == 'Rendering':
@@ -1348,7 +1392,7 @@ class Server(object):
         self.waitlist.append(self.renderjobs[index])
         reply = self.renderjobs[index].enqueue(
             path, startframe, endframe, render_engine, complist, 
-            extraframes=extras
+            extraframes=extras, cachedata=cachedata
             )
         if reply:
             return (index + ' successfully placed in queue')
@@ -1411,7 +1455,7 @@ class Server(object):
         if kill_now:
             reply = self.renderjobs[index].kill_now()
             if reply:
-                return 'Killed render and all associated processes for '+str(index)
+                return 'Killed render and all associated processes for %s' %index
         else:
             reply = self.renderjobs[index].kill_later()
             if reply:
@@ -1470,7 +1514,11 @@ class Server(object):
         '''Checks if a path is accessible from the server (exists) and that 
         it's an regular file. Returns True if yes.'''
         path = kwargs['path']
-        if os.path.exists(path) and os.path.isfile(path):
+        #if os.path.exists(path) and os.path.isfile(path):
+        #XXX No longer checking that path is to a file b/c also need to check
+        #for the root project directory if file caching is turned on.
+        #This might create a security problem.
+        if os.path.exists(path):
             return True
         else:
             return False
@@ -1521,7 +1569,38 @@ class Server(object):
 
     def _ssh_killthread(self, computer, command):
         print('Sending command: ssh igp@%s "killall %s"' %(computer, command))
-        subprocess.call('ssh igp@%s "killall %s"' %(computer, command), shell=True)
+        subprocess.call('ssh igp@%s "killall %s"' %(computer, command), 
+                        shell=True)
+
+    def cache_files(self, cachedata):
+        '''Transfers project files to local rendercache directories on each
+        render node.'''
+        
+        cacher = projcache.FileCacher(
+            cachedata['rootpath'], cachedata['filepath'], 
+            cachedata['renderdirpath'], cachedata['computers']
+            )
+        result = cacher.cache_all()
+        if result:
+            return 'Cache returned the following errors: %s' %result
+        else:
+            return 'Files cached without errors.'
+
+    def retrieve_cached_files(self, index):
+        '''Attempts to retrieve rendered frames from local storage for an
+        existing job.'''
+        if not index in self.renderjobs:
+            return '%s not found on server' %index
+        job = self.renderjobs[index]
+        if not job.cachedata:
+            return 'File caching not enabled for %s' %index
+        else:
+            result = job.retrieve_cached_files()
+        if result:
+            return ('Attempted to retrieve files, the following errors were '
+                    'reported: %s' %result)
+        else:
+            return 'Files retrieved without errors'
     
 
 

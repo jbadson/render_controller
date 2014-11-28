@@ -36,6 +36,7 @@ import json
 import cfgfile
 import framechecker
 import tk_extensions as tkx
+import projcache
 
 illegal_characters = [' ', ';', '&'] #not allowed in path
 
@@ -498,49 +499,6 @@ class MasterWin(tk.Tk):
             self.select_job(self.boxlist[0].index)
             self.firstrun = False
 
-    #def XXXsort_jobboxes(self):
-        '''Sorts the job status boxes vertically according to sorting rules.
-        First sorts by status, then by queuetime.'''
-        '''
-        boxlist = []
-        done, stopped, waiting, paused, rendering = [], [], [], [], []
-        #first sort boxes into categories by status
-        for i in self.jobboxes:
-            box = self.jobboxes[i]
-            if box.status == 'Rendering':
-                rendering.append(box)
-            elif box.status == 'Paused':
-                paused.append(box)
-            elif box.status == 'Waiting':
-                waiting.append(box)
-            elif box.status == 'Stopped':
-                stopped.append(box)
-            else:
-                done.append(box)
-        #sort boxes within each category chronologically
-        if len(rendering) > 1:
-            rendering = self.sort_chrono(rendering)
-        if len(paused) > 1:
-            paused = self.sort_chrono(paused)
-        if len(waiting) > 1:
-            waiting = self.sort_chrono(waiting)
-        if len(stopped) > 1:
-            stopped = self.sort_chrono(stopped)
-        if len(done) > 1:
-            done = self.sort_chrono(done)
-        boxlist = rendering + paused + waiting + stopped + done
-        if boxlist == self.boxlist:
-            return
-        else:
-            self.boxlist = boxlist
-        for index in self.jobboxes:
-            self.jobboxes[index].pack_forget()
-        for box in self.boxlist:
-            box.pack()
-        if self.firstrun:
-            self.select_job(self.boxlist[0].index)
-            self.firstrun = False'''
-
     def sort_chrono(self, sortlist):
         '''Takes a list of SmallBox instances in any order, returns the list
         sorted chronologically by queue time.'''
@@ -600,7 +558,7 @@ class ComputerPanel(ttk.Frame):
         self.bigbox.pack(expand=True, fill=tk.X, padx=5)
         #Create job control buttons
         buttonbox = ttk.Frame(self)
-        buttonbox.pack(anchor=tk.W, padx=5, pady=5)
+        buttonbox.pack(anchor=tk.W, expand=True, fill=tk.X, padx=5, pady=5)
         ttk.Button(buttonbox, text='Edit', command=self._edit).pack(side=tk.LEFT)
         ttk.Button(buttonbox, text='Start', command=self._start).pack(side=tk.LEFT)
         ttk.Button(
@@ -616,6 +574,10 @@ class ComputerPanel(ttk.Frame):
             command=self._set_priority
             )
         self.primenu.pack(side=tk.LEFT, pady=(0, 2))
+        ttk.Button(
+            buttonbox, text='Retrieve Cached Frames', 
+            command=self.retrieve_frames
+            ).pack(side=tk.RIGHT)
         self._create_computer_array()
 
     def _create_computer_array(self):
@@ -712,6 +674,10 @@ class ComputerPanel(ttk.Frame):
         reply = ClientSocket().send_cmd('set_job_priority', kwargs)
         print(reply)
 
+    def retrieve_frames(self):
+        reply = ClientSocket().send_cmd('retrieve_cached_files', self.index)
+        print(reply)
+
     def update(self, attrdict):
         '''Calls the update methods for all child elements.'''
         if attrdict['priority'] != self.tk_priority.get():
@@ -733,8 +699,8 @@ class ComputerPanel(ttk.Frame):
 
 
 class _statusbox(object):
-    '''Master class for status box-related objects. Holds shared methods related to
-    output formatting.'''
+    '''Master class for status box-related objects. Holds shared methods 
+    related to output formatting.'''
     def format_time(self, time):
         '''Converts time in decimal seconds to human-friendly strings.
         format is ddhhmmss.s'''
@@ -1086,14 +1052,15 @@ class InputWindow(tk.Toplevel):
             end = Config.default_endframe
             engine = Config.default_render_engine
         #initialize tkinter variables
-        self.tk_path = tk.StringVar()
+        #self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
         self.tk_extraframes = tk.StringVar()
         self.tk_render_engine = tk.StringVar()
+        self.tk_cachefiles = tk.IntVar()
         self.complist = complist
         #populate text fields
-        self.tk_path.set(path)
+        #self.tk_path.set(path)
         self.tk_startframe.set(start)
         self.tk_endframe.set(end)
         self.tk_render_engine.set(engine)
@@ -1104,19 +1071,21 @@ class InputWindow(tk.Toplevel):
         self._build(container)
 
     def _build(self, master):
-        pathrow = ttk.Frame(master)
-        pathrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Label(
-            pathrow, text='Path:').grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(
-            pathrow, textvariable=self.tk_path, width=60
-            ).grid(row=1, column=0, sticky=tk.W)
-        ttk.Button(
-            pathrow, text='Browse', command=self._get_path
-            ).grid(row=1, column=1, sticky=tk.W)
+        #cacherow = ttk.LabelFrame(master, text='Local File Caching')
+        #cacherow.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        ttk.Checkbutton(
+            master, command=self._swap_pathrows, variable=self.tk_cachefiles,
+            text='Cache project files locally on each computer '
+                 '(only works with Blender)'
+            ).pack(expand=True, fill=tk.X, padx=10, pady=5)
+
+        self.rows = [] #list to hold row objects for sorting
+        self.normalrow = NormalPathBlock(master)
+        self.cacherow = CacheFilesPathBlock(master)
+        self.rows.append(self.normalrow)
 
         framesrow = ttk.Frame(master)
-        framesrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        self.rows.append(framesrow)
         ttk.Label(
             framesrow, text='Start frame:'
             ).grid(row=0, column=0, sticky=tk.W)
@@ -1136,27 +1105,33 @@ class InputWindow(tk.Toplevel):
             framesrow, textvariable=self.tk_extraframes, width=40
             ).grid(row=1, column=2, padx=5, sticky=tk.W)
 
-        rengrow = ttk.LabelFrame(master, text='Render Engine')
-        rengrow.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Radiobutton(
-            rengrow, variable=self.tk_render_engine, 
-            text='Blender', value='blend'
-            ).pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Radiobutton(
-            rengrow, variable=self.tk_render_engine, 
-            text='Terragen', value='tgd'
-            ).pack(side=tk.LEFT, padx=5, pady=5)
-
         self.compboxes = ttk.LabelFrame(master, text='Computers')
-        self.compboxes.pack(expand=True, fill=tk.X, padx=10, pady=5)
+        self.rows.append(self.compboxes)
         self._compgrid(self.compboxes)
 
         buttons = ttk.Frame(master)
-        buttons.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Button(buttons, text='OK', command=self._enqueue).pack(side=tk.LEFT)
+        self.rows.append(buttons)
+        ttk.Button(buttons, text='OK', command=self._process_inputs
+            ).pack(side=tk.LEFT)
         ttk.Button(
             buttons, text='Cancel', command=self.destroy
             ).pack(side=tk.LEFT, padx=5)
+        for row in self.rows:
+            row.pack(expand=True, fill=tk.X, padx=10, pady=5)
+
+    def _swap_pathrows(self):
+        '''Switches between normal path input and file caching path input, then
+        re-packs the window elements in the correct order.'''
+        for row in self.rows:
+            row.pack_forget()
+        self.rows.pop(0)
+        if self.tk_cachefiles.get() == 1:
+            self.rows.insert(0, self.cacherow)
+        else:
+            self.rows.insert(0, self.normalrow)
+        for row in self.rows:
+            row.pack(expand=True, fill=tk.X, padx=10, pady=5)
+            
 
     def _compgrid(self, master):
         '''Generates grid of computer checkboxes.'''
@@ -1209,37 +1184,17 @@ class InputWindow(tk.Toplevel):
         for computer in Config.computers:
             self.compvars[computer].set(0)
 
-    def _get_path(self):
-        path = tk_filedialog.askopenfilename(title='Open File')
-        self.tk_path.set(path)
-        
-    def _enqueue(self, event=None):
-        '''Places a new job in queue.'''
-        path = self.tk_path.get()
-        #verify that path exists and is accessible from the server
-        if not self._path_exists(path):
-            Dialog('Path is not accessible from the server.').warn()
+    def _process_inputs(self, event=None):
+        try:
+            startframe = int(self.tk_startframe.get())
+            endframe = int(self.tk_endframe.get())
+        except ValueError:
+            Dialog('Frame numbers must be integers.').warn()
             return
-        for char in illegal_characters:
-            if char in path:
-                Dialog('Illegal characters in path.').warn()
-                return
-        #if this is a new job, create index based on filename
-        if not self.index:
-            self.index = os.path.basename(path)
-            if job_exists(self.index):
-                if not Dialog('Job with the same index already exists. '
-                              'Overwrite?').yesno():
-                    return
-                if get_job_status(self.index) == 'Rendering':
-                    Dialog("Can't overwrite a job while it's rendering.").warn()
-                    return
-        startframe = int(self.tk_startframe.get())
-        endframe = int(self.tk_endframe.get())
         extras = self.tk_extraframes.get()
         if extras:
             #check if list is comma-delimited
-            if ',' in extras:
+            if ',' in extras:               
                 extraframes = extras.split(',')
             else:
                 extraframes = extras.split()
@@ -1258,15 +1213,145 @@ class InputWindow(tk.Toplevel):
             print('extraframes:', extraframes) #debug
         else:
             extraframes = []
-        render_engine = self.tk_render_engine.get()
-        if not path.endswith(render_engine):
-            Dialog('Incorrect render engine for file type.').warn()
-            return
         complist = []
         for computer in self.compvars:
             if self.compvars[computer].get() == 1:
                 complist.append(computer)
-        self.destroy()
+    
+        #XXX Now it's time for new steps, not sure the best way for this
+        if self.tk_cachefiles.get() == 1: #file caching turned on
+            self._process_cache_paths(startframe, endframe, extraframes, 
+                                      complist)
+        else:
+            self._process_normal_path(startframe, endframe, extraframes, 
+                                      complist)    
+    
+    
+    def _process_cache_paths(self, startframe, endframe, extraframes, complist):
+        if not complist:
+            Dialog('At least one computer must be specified to cache files '
+                   'locally.').warn()
+            return
+        paths = self.cacherow.get_paths()
+        if paths == 1:
+            Dialog('Paths to render file and rendered frames directory must be '
+                   'relative to the project root directory.').warn()
+            return
+        elif paths == 2:
+            Dialog('Render file and rendered frames directory cannot be located '
+                   'above the project root directory.').warn()
+            return
+        else:
+            rootpath, filepath, renderdirpath = paths
+        print('paths:', rootpath, filepath, renderdirpath)#debug
+        #verify that all paths are accessible from the server
+        if not self.path_exists(rootpath):
+            Dialog('Server cannot find the root project directory.').warn()
+            return
+        if not self.path_exists(os.path.join(rootpath, filepath)):
+            Dialog('Server cannot find the render file path.').warn()
+            return
+        if not self.path_exists(os.path.join(rootpath, renderdirpath)):
+            Dialog('Server cannot find the render directory path.').warn()
+            return
+        #verify that none of the paths contain illegal characters
+        if not self.path_legal(rootpath):
+            Dialog('Illegal characters in project root path.').warn()
+            return
+        if not self.path_legal(filepath):
+            Dialog('Illegal characters in file path.').warn()
+            return
+        if not self.path_legal(renderdirpath):
+            Dialog('Illegal characters in render directory path.').warn()
+            return
+        #If this is a new job, create index based on filename
+        if not self.index:
+            self.index = os.path.basename(filepath)
+            print('index:', self.index)#debug
+            if job_exists(self.index):
+                if not Dialog('Job with the same index already exists. '
+                              'Overwrite?').yesno():
+                    return
+                if get_job_status(self.index) == 'Rendering':
+                    Dialog("Can't overwrite a job while it's rendering.").warn()
+                    return
+        #set the render engine based on file suffix
+        #NOTE currently filename fixing only works with blender, but as long as
+        #paths are manually made relative in a Terragen file, that should work too
+        if filepath.endswith('blend'):
+            render_engine = 'blend'
+        elif filepath.endswith('tgd'):
+            render_engine = 'tgd'
+        else:
+            Dialog('File extension not recognized. Project file must end with '
+                   '".blend" for Blender or ".tgd" for Terragen3 files.').warn()
+            return
+        #Ask user if they want to set blender paths to relative now
+        #NOTE blend file MUST be accessible from the given paths from the machine
+        #on which the GUI is running because Blender must be able to open its GUI.
+        cacher = projcache.FileCacher(rootpath, filepath, renderdirpath)
+        if Dialog('Attempt to set blend file paths to relative now?  NOTE: File '
+                  'MUST be accessible from this computer.').yesno():
+            result = cacher.make_paths_relative()
+            if result: #there was an error
+                Dialog('Unable to make paths relative. Error message: "%s"' 
+                       %result).warn()
+                return
+        #Now ready to start transferring files
+        if not Dialog('Click OK to start transferring files. This may take a '
+                      'while. Do not start render until the file transfer is '
+                      'complete.').confirm():
+            return
+        cachedata = {'rootpath':rootpath, 'filepath':filepath, 
+                     'renderdirpath':renderdirpath, 'computers':complist}
+        reply = ClientSocket().send_cmd('cache_files', cachedata)
+        print(reply)
+        #XXX Wait for successful reply before putting the project in queue
+        #XXX THIS COULD CAUSE A PROBLEM if connection between gui and server is
+        #lost during file transfer, the job won't be enqueued and will have to
+        #start over.  Should move enqueue to server-side somehow.
+
+        #get a properly formatted relative render path
+        renderpath = cacher.get_render_path()
+        print('Renderpath:', renderpath)
+        self._enqueue(renderpath, startframe, endframe, extraframes, 
+                      render_engine, complist, cachedata)
+    
+    
+    def _process_normal_path(self, startframe, endframe, extraframes, complist):
+        path = self.normalrow.get_path()
+        #verify that path exists and is accessible from the server
+        if not self.path_exists(path):
+            Dialog('Path is not accessible from the server.').warn()
+            return
+        if not self.path_legal(path):
+            Dialog('Illegal characters in path.').warn()
+            return
+        #if this is a new job, create index based on filename
+        if not self.index:
+            self.index = os.path.basename(path)
+            if job_exists(self.index):
+                if not Dialog('Job with the same index already exists. '
+                              'Overwrite?').yesno():
+                    return
+                if get_job_status(self.index) == 'Rendering':
+                    Dialog("Can't overwrite a job while it's rendering.").warn()
+                    return
+        #set the render enging based on the file suffix
+        if path.endswith('blend'):
+            render_engine = 'blend'
+        elif path.endswith('tgd'):
+            render_engine = 'tgd'
+        else:
+            Dialog('File extension not recognized. Project file must end with '
+                   '".blend" for Blender or ".tgd" for Terragen3 files.').warn()
+            return
+        self._enqueue(path, startframe, endframe, extraframes, render_engine,
+                      complist)
+    
+    
+    def _enqueue(self, path, startframe, endframe, extraframes, render_engine, 
+                 complist, cachedata=None):
         render_args = {
             'index':self.index,
             'path':path, 
@@ -1274,19 +1359,148 @@ class InputWindow(tk.Toplevel):
             'endframe':endframe, 
             'extraframes':extraframes, 
             'render_engine':render_engine,
-            'complist':complist 
+            'complist':complist,
+            'cachedata':cachedata
             }
-        print('extraframes:', extraframes, type(extraframes))#debug
         reply = ClientSocket().send_cmd('enqueue', render_args)
         print(reply)
+        self.destroy()
+    
+    
+    def path_legal(self, path):
+        '''Returns False if there are illegal characters in path.  Otherwise
+        returns True.'''
+        for char in illegal_characters:
+            if char in path:
+                return False
+        return True
+        
 
-    def _path_exists(self, path):
+
+    def path_exists(self, path):
         kwargs = {'path':path}
         reply = ClientSocket().send_cmd('check_path_exists', kwargs)
         return reply
 
+class NormalPathBlock(ttk.Frame):
+    '''Path input UI elements for normal (centrally-shared) files.'''
+    def __init__(self, master, *args, **kwargs):
+        ttk.Frame.__init__(self, master=master, *args, **kwargs)
+
+        self.tk_path = tk.StringVar()
+
+        ttk.Label(
+            self, text='Path:').grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            self, textvariable=self.tk_path, width=60
+            ).grid(row=1, column=0, sticky=tk.W)
+        ttk.Button(
+            self, text='Browse', command=self._browse_path
+            ).grid(row=1, column=1, sticky=tk.W)
+
+    def _browse_path(self):
+        path = tk_filedialog.askopenfilename(title='Open File')
+        self.tk_path.set(path)
+
+    def get_path(self):
+        '''Returns contents of path field.'''
+        return self.tk_path.get()
+
+class CacheFilesPathBlock(ttk.Frame):
+    '''Alternate path input UI elements & associated methods for use if
+    project files will be cached locally on render nodes.'''
+    def __init__(self, master, *args, **kwargs):
+        ttk.Frame.__init__(self, master=master, *args, **kwargs)
+
+        self.tk_rootpath = tk.StringVar()
+        self.tk_filepath = tk.StringVar()
+        self.tk_renderdirpath = tk.StringVar()
+
+        row1 = ttk.Frame(self)
+        row1.pack()
+        ttk.Label(
+            row1, text='Absolute path to project root directory:'
+            ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            row1, textvariable=self.tk_rootpath, width=60
+            ).grid(row=1, column=0, sticky=tk.W)
+        ttk.Button(
+            row1, text='Browse', command=self._browse_rootdir
+            ).grid(row=1, column=1, sticky=tk.W)
+
+        row2 = ttk.Frame(self)
+        row2.pack()
+        ttk.Label(
+            row2, text='Path to render file in project root:'
+            ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            row2, textvariable=self.tk_filepath, width=60
+            ).grid(row=1, column=0, sticky=tk.W)
+        ttk.Button(
+            row2, text='Browse', command=self._browse_filepath
+            ).grid(row=1, column=1, sticky=tk.W)
+
+        row3 = ttk.Frame(self)
+        row3.pack()
+        ttk.Label(
+            row3, text='Path to rendered frames directory in project root:'
+            ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            row3, textvariable=self.tk_renderdirpath, width=60
+            ).grid(row=1, column=0, sticky=tk.W)
+        ttk.Button(
+            row3, text='Browse', command=self._browse_renderdir
+            ).grid(row=1, column=1, sticky=tk.W)
+
+    def _browse_rootdir(self):
+        rootdir = tk_filedialog.askdirectory(title='Project Root Directory')
+        self.tk_rootpath.set(rootdir)
+
+    def _browse_filepath(self):
+        rootdir = self.tk_rootpath.get()
+        if rootdir:
+            filepath = tk_filedialog.askopenfilename(title='Open File', 
+                                                     initialdir=rootdir)
+            filepath = os.path.relpath(filepath, start=rootdir)
+        else:
+            filepath = tk_filedialog.askopenfilename(title='Open File')
+        self.tk_filepath.set(filepath)
+
+    def _browse_renderdir(self):
+        rootdir = self.tk_rootpath.get()
+        if rootdir:
+            renderdir = tk_filedialog.askdirectory(
+                title='Rendered Frames Directory', initialdir=rootdir
+                )
+            renderdir = os.path.relpath(renderdir, start=rootdir)
+        else:
+            renderdir = tk_filedialog.askdirectory(
+                title='Rendered Frames Directory'
+                )
+        self.tk_renderdirpath.set(renderdir)
+
+    def get_paths(self):
+        '''Returns absolute path to project root directory and relative paths
+        to blendfile and rendered frames directory.'''
+        rootdir = self.tk_rootpath.get()
+        filepath = self.tk_filepath.get()
+        renderdir = self.tk_renderdirpath.get()
+        #make sure filepath & renderdir are relative paths
+        if os.path.isabs(filepath) or os.path.isabs(renderdir):
+            return 1
+        #make sure they're in the root project directory
+        if filepath.startswith('..') or renderdir.startswith('..'):
+            return 2
+        return (rootdir, filepath, renderdir)
+
+
+
+
+
 
 class MissingFramesWindow(tk.Toplevel):
+    '''UI for utility to check for missing frames within a specified start-end
+    range in a given directory.'''
     def __init__(self, renderpath=None, startframe=None, endframe=None):
         tk.Toplevel.__init__(self)
         self.config(bg=LightBGColor)

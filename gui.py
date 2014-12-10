@@ -38,7 +38,7 @@ import framechecker
 import tk_extensions as tkx
 import projcache
 
-illegal_characters = [' ', ';', '&'] #not allowed in path
+illegal_characters = [';', '&'] #not allowed in path
 
 class ClientSocket(object):
     '''Wrapper for socket to handle command-response protocol for interacting 
@@ -139,6 +139,16 @@ def killall_tgn():
                   ' computers. Proceed?').confirm():
         return
     reply = ClientSocket().send_cmd('killall_tgn')
+    print(reply)
+
+def clear_rendercache():
+    '''Attempts to delete all contents from the ~/rendercache directory on
+    all computers.'''
+    if not Dialog('This will delete ALL contents of the ~/rendercache '
+                  'directory on ALL computers.  Are you sure you want to do '
+                  'this?').confirm():
+        return
+    reply = ClientSocket().send_cmd('clear_rendercache')
     print(reply)
 
 
@@ -352,6 +362,10 @@ class MasterWin(tk.Tk):
             topbar, text='Killall Terragen', command=killall_tgn,
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
+        ttk.Button(
+            topbar, text='Clear Rendercache', command=clear_rendercache,
+            style='Toolbutton'
+            ).pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
         midblock = tk.Frame(self, bg=LightBGColor)
@@ -387,6 +401,11 @@ class MasterWin(tk.Tk):
         self.verbosity.set(_extra_info['verbose'])
         self.autostart.set(_extra_info['autostart'])
         del serverjobs['__STATEVARS__']
+        #retrieve and display and messages from the server
+        msg = serverjobs['__MESSAGE__']
+        del serverjobs['__MESSAGE__']
+        if msg:
+            Dialog(msg).info()
         #create local job instances for any new jobs on server
         for index in serverjobs:
             if not index in self.jobboxes:
@@ -574,10 +593,13 @@ class ComputerPanel(ttk.Frame):
             command=self._set_priority
             )
         self.primenu.pack(side=tk.LEFT, pady=(0, 2))
-        ttk.Button(
-            buttonbox, text='Retrieve Cached Frames', 
-            command=self.retrieve_frames
-            ).pack(side=tk.RIGHT)
+        self.cachebutton = ttk.Button(
+            buttonbox, text='Retrieve now ', 
+            command=self.retrieve_frames, state='disabled'
+            )
+        self.cachebutton.pack(side=tk.RIGHT)
+        self.cachelabel = ttk.Label(buttonbox, text='File caching: Disabled')
+        self.cachelabel.pack(side=tk.RIGHT)
         self._create_computer_array()
 
     def _create_computer_array(self):
@@ -682,6 +704,9 @@ class ComputerPanel(ttk.Frame):
         '''Calls the update methods for all child elements.'''
         if attrdict['priority'] != self.tk_priority.get():
             self.tk_priority.set(attrdict['priority'])
+        if attrdict['cachedata']:
+            self.cachelabel.config(text='File caching: Enabled')
+            self.cachebutton.config(state='active')
         self.bigbox.update(
             attrdict['status'], attrdict['startframe'], 
             attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
@@ -1988,7 +2013,7 @@ class Dialog(object):
             return False
     def yesno(self):
         '''Displays a box with Yes and No buttons. Returns True if Yes.'''
-        if tk_msgbox.askyesno('Confirm', self.msg, icon='info'):
+        if tk_msgbox.askyesno('Confirm', self.msg, icon='question'):
             return True
         else:
             return False
@@ -1998,6 +2023,9 @@ class Dialog(object):
         reply = tk_msgbox.askquestion('Confirm', self.msg, icon='info', 
                                       type='yesnocancel')
         return reply
+    def info(self):
+        '''Displays a box with just an OK button.'''
+        tk_msgbox.showinfo('Alert', self.msg, icon='info')
 
 
 class StatusThread(threading.Thread):

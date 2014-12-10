@@ -95,7 +95,7 @@ class FileCacher(object):
             )
         print('cache() command:', command) #debug
         try:
-            subprocess.call(command, shell=True)
+            subprocess.check_output(command, shell=True)
         except Exception as e:
             #throws exception if a path is inaccessible or user lacks permissions
             return e
@@ -133,7 +133,7 @@ class FileCacher(object):
             )
         print('retrieve_frames() command:', command) #debug
         try:
-            subprocess.call(command, shell=True)
+            subprocess.check_output(command, shell=True)
         except Exception as e:
             return e
         return 0

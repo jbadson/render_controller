@@ -110,40 +110,119 @@ class Cli(object):
         #from the command line
         self.job_ids = sorted(self.serverjobs.keys())
         #remove the metadata
+        self.statevars = self.job_ids
         self.job_ids.remove('__STATEVARS__')
+        self.job_ids.remove('__MESSAGE__')
+        self.fprint = FPrinter() #formatted printer object
 
+
+    def list_jobs(self):
+        print('Listing all jobs on %s:%s\n' 
+              %(ClientSocket.HOST, ClientSocket.PORT))
+        self.fprint.jlist_header()
+        for i in range(len(self.job_ids)):
+            fname = self.job_ids[i]
+            status = self.serverjobs[fname]['status']
+            prog = self.serverjobs[fname]['progress']
+            self.fprint.jlist(i, fname, status, prog)
+
+    def print_single_job(self, job_id):
+        print('Full status info for ID %s\n' %job_id)
+        self._print_job_stats(job_id)
 
     def list_all(self):
-        print('\nListing all jobs on %s:%s' 
+        print('Printing full status info for all jobs on %s:%s' 
               %(ClientSocket.HOST, ClientSocket.PORT))
-        print('ID\tFilename')
-        print('-'*60)
         for i in range(len(self.job_ids)):
-            print('%s:\t%s' %(i, self.job_ids[i]))
+            self.fprint.job_separator(i)
+            self._print_job_stats(i)
 
-    def print_job_stats(self, job_id):
+    def _print_job_stats(self, job_id):
         index = self.job_ids[job_id]
         job = self.serverjobs[index]
         elapsed, avg, remaining = job['times']
-        print('\nFilename\t\tStatus\t\tProgress (%)\tElapsed\tAvg.\tRemaining')
-        print('-'*60)
-        print('%s\t%s\t\t%s\t\t%s\t%s\t%s' 
-              %(index, job['status'], job['progress'], elapsed, avg, remaining))
-
-    def print_comp_status(self, job_id):
-        index = self.job_ids[job_id]
-        #job = self.serverjobs[index]
-        cs = self.serverjobs[index]['compstatus']
-        self.print_job_stats(job_id)
-        print('\nComputer\tFrame\tProgress\tActive\tError')
-        print('-'*60)
+        self.fprint.jobsummary(index, job['status'], job['progress'], elapsed, 
+                               avg, remaining)
+        print('\nComputer status info:\n')
+        self.fprint.complist_header()
         for comp in self.serverjobs[index]['complist']:
-            #print(comp)
-            #print(cs[comp])
-            print('%s\t%s\t%s\t%s\t%s' 
-                  %(comp, cs[comp]['frame'], cs[comp]['progress'], 
-                  cs[comp]['active'], cs[comp]['error']))
+            cs = self.serverjobs[index]['compstatus'][comp]
+            self.fprint.complist(comp, cs['frame'], cs['progress'], cs['active'],
+                                 cs['error'])
 
+    def test(self):
+        print('test thingy done')
+
+
+
+
+
+class FPrinter(object):
+    '''Prints formatted data to stdout.'''
+
+    def format_time(self, time):
+        '''Converts time in decimal seconds to human-friendly strings.
+        format is ddhhmmss.s'''
+        if time < 60:
+            newtime = [round(time, 1)]
+        elif time < 3600:
+            m, s = time / 60, time % 60
+            newtime = [int(m), round(s, 1)]
+        elif time < 86400:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            newtime = [int(h), int(m), round(s, 1)]
+        else:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            d, h = h / 24, h % 24
+            newtime = [int(d), int(h), int(m), round(s, 1)]
+        if len(newtime) == 1:
+            timestr = str(newtime[0])+'s'
+        elif len(newtime) == 2:
+            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
+        elif len(newtime) == 3:
+            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m ' +
+                       str(newtime[2])+'s')
+        else:
+            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
+                       str(newtime[2])+'m '+str(newtime[3])+'s')
+        return timestr
+
+    def jobsummary(self, filename, status, progress, time_elapsed, 
+                   time_avg, time_remaining):    
+        header = ('Filename', 'Status', 'Progress', 'Elapsed', 'Avg./Fr.',
+                  'Remaining')
+        formatstr = '{:<20} {:<10} {:<9} {:<10} {:<10} {:<10}'
+
+        etime = self.format_time(time_elapsed)
+        avtime = self.format_time(time_avg)
+        remtime = self.format_time(time_remaining)
+        print(formatstr.format(*header))
+        print('-'*70)
+        print(formatstr.format(filename, status, round(progress, 1), etime, 
+              avtime, remtime))
+
+    def jlist_header(self):
+        formatstr = '{:<4} {:<30} {:<10} {:<10}'
+        print(formatstr.format('ID', 'Filename', 'Status', 'Progress'))
+        print('-'*70)
+
+    def jlist(self, job_id, filename, status, progress):
+        formatstr = '{:<4} {:<30} {:<10} {:<10}'
+        print(formatstr.format(job_id, filename, status, round(progress, 1)))
+
+    def complist_header(self):
+        formatstr = '{:<20} {:<10} {:<10} {:<10} {}'
+        print(formatstr.format('Computer', 'Frame', 'Progress', 'Active', 'Error'))
+        print('-'*70)
+
+    def complist(self, computer, frame, progress, active, error):
+        formatstr = '{!s:<20} {!s:<10} {!s:<10} {!s:<10} {}'
+        print(formatstr.format(computer, frame, progress, active, error))
+
+    def job_separator(self, job_id):
+        print('\n%s ID: %s %s' %('#'*30, job_id, '#'*30))
 
 
 
@@ -156,23 +235,30 @@ if __name__ == '__main__':
     cli = Cli()
     parser = argparse.ArgumentParser()
     parser.add_argument('--list', action='store_true', default=False, 
-        dest='listall', help='List all items in render queue.')
-    parser.add_argument('--jstat', action='store', default=-1,
-        dest='jstat', help='Print basic status info for job with given ID.',
+        dest='joblist', help='List all items in render queue.')
+    parser.add_argument('--listall', action='store_true', default=False,
+        dest='listall', help='Print full status info for all jobs in queue.')
+    parser.add_argument('--stats', action='store', default=-1,
+        dest='jstat', help='Print full status info for job with given ID.',
         metavar='ID', type=int)
-    parser.add_argument('--comps', action='store', default=-1, dest='compstat',
-        metavar='ID', type=int, help='List all computers with their assigned '
-        'frames and progress for a given job ID')
+    parser.add_argument('--test', action='store_true', default=False,
+        dest='test', help='Test feature. Does whatever I need it to.')
+    #parser.add_argument('--comps', action='store', default=-1, dest='compstat',
+    #    metavar='ID', type=int, help='List all computers with their assigned '
+    #    'frames and progress for a given job ID')
 
     args = parser.parse_args()
-    print('ARGS:', args)
 
+    if args.joblist:
+        cli.list_jobs()
+    if args.jstat >= 0:
+        cli.print_single_job(args.jstat)
     if args.listall:
         cli.list_all()
-    if args.jstat >= 0:
-        cli.print_job_stats(args.jstat)
-    if args.compstat >= 0:
-        cli.print_comp_status(args.compstat)
+    if args.test:
+        cli.test()
+    #if args.compstat >= 0:
+    #    cli.print_comp_status(args.compstat)
 
 
 

@@ -282,6 +282,7 @@ class MasterWin(tk.Tk):
         '''Gets server connection info from the user.'''
         self.setupframe = ttk.Frame(self)
         self.setupframe.pack(padx=50, pady=50)
+        self.tk_username = tk.StringVar()
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
         self.statthread = StatusThread(masterwin=self)
@@ -294,21 +295,25 @@ class MasterWin(tk.Tk):
         ttk.Label(
             self.setupframe, text='Connection Setup', font='TkCaptionFont'
             ).grid(row=0, column=0, columnspan=2, pady=10)
+        ttk.Label(self.setupframe, text='Username:').grid(
+            row=1, column=0, sticky=tk.E, pady=5)
+        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_username).grid(
+            row=1, column=1, sticky=tk.W, padx=5, pady=5)
         ttk.Label(self.setupframe, text='Server address:').grid(
-            row=1, column=0, sticky=tk.E, pady=5
-            )
-        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_host).grid(
-            row=1, column=1, sticky=tk.W, padx=5, pady=5
-            )
-        ttk.Label(self.setupframe, text='Port:').grid(
             row=2, column=0, sticky=tk.E, pady=5
             )
-        ttk.Entry(self.setupframe, width=10, textvariable=self.tk_port).grid(
+        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_host).grid(
             row=2, column=1, sticky=tk.W, padx=5, pady=5
+            )
+        ttk.Label(self.setupframe, text='Port:').grid(
+            row=3, column=0, sticky=tk.E, pady=5
+            )
+        ttk.Entry(self.setupframe, width=10, textvariable=self.tk_port).grid(
+            row=3, column=1, sticky=tk.W, padx=5, pady=5
             )
         ttk.Button(
             self.setupframe, text='Connect', command=self._apply_setup
-            ).grid(row=3, column=0, columnspan=2, padx=10, pady=10)
+            ).grid(row=4, column=0, columnspan=2, padx=10, pady=10)
         self.bind('<Return>', self._apply_setup)
         self.bind('<KP_Enter>', self._apply_setup)
 
@@ -329,6 +334,7 @@ class MasterWin(tk.Tk):
         self.verbosity.set(Config.verbose)
         self.autostart = tk.IntVar()
         self.autostart.set(Config.autostart)
+        self.username = self.tk_username.get()
         self.setupframe.destroy()
         self._build_main()
         self.statthread.start()

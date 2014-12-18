@@ -463,7 +463,7 @@ class Job(object):
                         percent = float(pct_str[:-1])
                         break
                 #print('Frame '+str(frame)+' on '+computer+' '+str(percent)+'%')
-                self.prints('%s% complete' %percent, frame, computer)
+                self.prints('%s%% complete' %percent, frame, computer)
                 with threadlock:
                     self.compstatus[computer]['progress'] = percent
             #frame is done rendering

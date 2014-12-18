@@ -621,6 +621,8 @@ class Job(object):
 
     def get_attrs(self):
         '''Returns dict containing all status-related attributes and times.'''
+        for i in self.compstatus:
+            print('Compstatus: %s | %s' %(i, self.compstatus[i]))#debug
         attrdict = {
             'status':self.status,
             'queuetime':self.queuetime,

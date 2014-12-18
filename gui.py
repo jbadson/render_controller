@@ -723,10 +723,14 @@ class ComputerPanel(ttk.Frame):
                 pool = True
             else:
                 pool = False
-            compstatus = attrdict['compstatus'][computer]
-            self.compcubes[computer].update(
-                compstatus['frame'], compstatus['progress'], pool,
-                compstatus['active'], compstatus['error'])
+            try:
+                compstatus = attrdict['compstatus'][computer]
+                self.compcubes[computer].update(
+                    compstatus['frame'], compstatus['progress'], pool,
+                    compstatus['active'], compstatus['error'])
+            except KeyError as e:
+                print('MasterWin.update() error handled: %s raised KeyError in '
+                      'compstatus' %computer)
 
 
 class _statusbox(object):

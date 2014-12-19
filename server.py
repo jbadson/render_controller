@@ -61,7 +61,7 @@ class Job(object):
         self._id = None #unique job identifier for logging, created at enqueue()
 
     def _reset_compstatus(self, computer):
-        '''Returns a compstatus dict containing default values'''
+        '''Creates compstatus dict or resets an existing one to default values'''
         if computer in self.complist:
             pool = True
         else:
@@ -756,6 +756,7 @@ class Job(object):
         self.stoptime = attrdict['stoptime']
         self.complist = attrdict['complist']
         self.compstatus = attrdict['compstatus']
+
         self.path = attrdict['path']
         self.startframe = attrdict['startframe']
         self.endframe = attrdict['endframe']
@@ -763,6 +764,24 @@ class Job(object):
         self.totalframes = attrdict['totalframes']
         self.cachedata = attrdict['cachedata']
         self._id_ = attrdict['_id_']
+        #create new entries if list of available computers has changed
+        #new computers added
+        added = [comp for comp in Config.computers if not 
+                 comp in self.compstatus]
+        if added:
+            for comp in added:
+                self._reset_compstatus(comp)
+                self.prints('New computer available, creating compstatus entry', 
+                            computer=comp)
+        #any computers no longer available
+        removed = [comp for comp in self.compstatus if not
+                   comp in Config.computers]
+        if removed:
+            for comp in removed:
+                if comp in self.complist:
+                    self.complist.remove(comp)
+                self.prints('Computer in compstatus no longer available. '
+                            'removing compstatus entry.', computer=comp)
         if not self.status == 'Finished':
             self.queue = queue.LifoQueue(0)
             framelist = list(range(self.startframe, self.endframe + 1))

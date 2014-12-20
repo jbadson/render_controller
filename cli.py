@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 #command line interface for IGP Render Controller
 #must run in python 3
 
@@ -317,10 +319,8 @@ if __name__ == '__main__':
     if args.resume >= 0:
         cli.resume_render(args.resume)
     if args.killall:
-        print(args.killall)
         cli.killall(args.killall)
     if args.toggle:
-        print(args.toggle)
         job_id, comp = args.toggle
         cli.toggle_comp(job_id, comp)
 

@@ -179,7 +179,7 @@ class Cli(object):
     def killall(self, program):
         '''Attempts to kill all instances of program.'''
         if not (program == 'terragen' or program =='blender'):
-            print('Invalid argument.  Must be "terragen" or "blender".')
+            print('Invalid argument. Must be "terragen" or "blender".')
             return
         if not input('This will attempt to kill all instances of %s '
                      'on all computers. Proceed? (Y/n): ' %program) == 'Y':
@@ -289,18 +289,17 @@ if __name__ == '__main__':
     parser.add_argument('--start', action='store', default=-1,
         dest='start', help='Start render for job witn given ID.', metavar='ID',
         type=int)
-    parser.add_argument('--kill', action='store', default=-1, dest='kill',
-        help='Kill render for job with given ID', metavar='ID', type=int)
+    parser.add_argument('--stop', action='store', default=-1, dest='stop',
+        help='Stop render for job with given ID', metavar='ID', type=int)
     parser.add_argument('--resume', action='store', default=-1, dest='resume',
         type=int, metavar='ID', help='Resume a stopped job with a given ID')
-    parser.add_argument('--killall', action='store_true', dest='killall',
-        help='Kill all terragen or blender processes on all computers.')
-    parser.add_argument('--toggle', action='store_true', default=False,
-        dest='toggle', help='Toggle computer render status. '
-        'Usage is [ID] [Computer]')
 
-    #general-purpose list to gather any args supplied by user
-    parser.add_argument('arglist', nargs='*')
+    parser.add_argument('--killall', dest='killall', default='',
+        type=str, help='Kill all terragen or blender processes on all '
+        'computers. Specify "blender" or "terragen".', metavar='PROG')
+
+    parser.add_argument('--toggle', nargs=2, dest='toggle', 
+        metavar=('ID', 'COMP'), help='Toggle computer render status')
 
 
     args = parser.parse_args()
@@ -313,15 +312,16 @@ if __name__ == '__main__':
         cli.list_all()
     if args.start >= 0:
         cli.start_render(args.start)
-    if args.kill >= 0:
-        cli.kill_render(args.kill)
+    if args.stop >= 0:
+        cli.kill_render(args.stop)
     if args.resume >= 0:
         cli.resume_render(args.resume)
     if args.killall:
-        program = args.arglist[0]
-        cli.killall(program)
+        print(args.killall)
+        cli.killall(args.killall)
     if args.toggle:
-        job_id, comp = args.arglist
+        print(args.toggle)
+        job_id, comp = args.toggle
         cli.toggle_comp(job_id, comp)
 
 

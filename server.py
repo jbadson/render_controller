@@ -1527,6 +1527,8 @@ class Server(object):
     def toggle_comp(self, kwargs):
         index = kwargs['index']
         computer = kwargs['computer']
+        if not computer in Config.computers:
+            return 'Computer "%s" not recognized.' %computer
         #if self.renderjobs[index].get_comp_status(computer)['pool']:
         if computer in self.renderjobs[index].complist:
             reply = self.renderjobs[index].remove_computer(computer)

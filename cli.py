@@ -106,8 +106,10 @@ class Cli(object):
     def __init__(self):
         #var to contain all current server job attributes
         self.serverjobs = ClientSocket().send_cmd('get_attrs')
-        #now need a list with integer job IDs to make it easier to select jobs
-        #from the command line
+        '''Need a list of integer IDs corresponding to jobs on the server to
+        make manipulating them easier from the command line.  Because dict keys
+        are not kept in any order, need to sort the list each time to make sure
+        that job IDs don't change between listing and running a command.'''
         self.job_ids = sorted(self.serverjobs.keys())
         #remove the metadata
         self.statevars = self.job_ids
@@ -159,7 +161,12 @@ class Cli(object):
 
     def kill_render(self, job_id):
         '''Kill render and all associated processes for given ID'''
-        kwargs = {'index':self.job_ids[job_id], 'kill_now':True}
+        index = self.job_ids[job_id]
+        if not input('This will stop rendering %s and attempt to kill all '
+                     'related processes.  Continue? (Y/n): ' %index) == 'Y':
+            print('Cancelled')
+            return
+        kwargs = {'index':index, 'kill_now':True}
         result = ClientSocket().send_cmd('kill_render', kwargs)
         print(result)
 
@@ -169,8 +176,27 @@ class Cli(object):
         result = ClientSocket().send_cmd('resume_render', kwargs)
         print(result)
 
-    def test(self):
-        print('test thingy done')
+    def killall(self, program):
+        '''Attempts to kill all instances of program.'''
+        if not (program == 'terragen' or program =='blender'):
+            print('Invalid argument.  Must be "terragen" or "blender".')
+            return
+        if not input('This will attempt to kill all instances of %s '
+                     'on all computers. Proceed? (Y/n): ' %program) == 'Y':
+            print('Cancelled')
+            return
+        if program == 'terragen':
+            result = ClientSocket().send_cmd('killall_tgn')
+        elif program == 'blender':
+            result = ClientSocket().send_cmd('killall_blender')
+        print(result)
+
+    def toggle_comp(self, job_id, computer):
+        '''Toggle status of a computer for a given job.'''
+        kwargs = {'index':self.job_ids[int(job_id)], 'computer':computer}
+        result = ClientSocket().send_cmd('toggle_comp', kwargs)
+        print(result)
+
 
 
 
@@ -267,11 +293,15 @@ if __name__ == '__main__':
         help='Kill render for job with given ID', metavar='ID', type=int)
     parser.add_argument('--resume', action='store', default=-1, dest='resume',
         type=int, metavar='ID', help='Resume a stopped job with a given ID')
-    parser.add_argument('--test', action='store_true', default=False,
-        dest='test', help='Test feature. Does whatever I need it to.')
-    #parser.add_argument('--comps', action='store', default=-1, dest='compstat',
-    #    metavar='ID', type=int, help='List all computers with their assigned '
-    #    'frames and progress for a given job ID')
+    parser.add_argument('--killall', action='store_true', dest='killall',
+        help='Kill all terragen or blender processes on all computers.')
+    parser.add_argument('--toggle', action='store_true', default=False,
+        dest='toggle', help='Toggle computer render status. '
+        'Usage is [ID] [Computer]')
+
+    #general-purpose list to gather any args supplied by user
+    parser.add_argument('arglist', nargs='*')
+
 
     args = parser.parse_args()
 
@@ -287,10 +317,12 @@ if __name__ == '__main__':
         cli.kill_render(args.kill)
     if args.resume >= 0:
         cli.resume_render(args.resume)
-    if args.test:
-        cli.test()
-    #if args.compstat >= 0:
-    #    cli.print_comp_status(args.compstat)
+    if args.killall:
+        program = args.arglist[0]
+        cli.killall(program)
+    if args.toggle:
+        job_id, comp = args.arglist
+        cli.toggle_comp(job_id, comp)
 
 
 

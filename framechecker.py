@@ -1,4 +1,5 @@
-#Rewrite of checkframes.py for Python 3.4 and to be less idiotic
+'''This module contains methods to check a directory of rendered frames for any 
+missing items between a specified start and end range.'''
 
 '''
 #####################################################################
@@ -20,11 +21,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 '''
 
-
-'''This module contains methods to check a directory of rendered frames for any 
-missing items between a specified start and end range.'''
-
 import os
+import shlex
 
 class Framechecker(object):
     '''Master object for this module. This must be instantiated with a valid path
@@ -36,7 +34,7 @@ class Framechecker(object):
 
     def __init__(self, path, startframe, endframe, 
                  allowed_extensions=default_exts):
-        self.path = path
+        self.path = shlex.quote(path)
         self.startframe = startframe
         self.endframe = endframe
         self.allowed_extensions = allowed_extensions
@@ -66,7 +64,7 @@ class Framechecker(object):
         Optinal basename arg changes the value of self.base. Used to account for
         changes in filename length during iteration.'''
         if filename:
-            self.base, self.ext = os.path.splitext(filename)
+            self.base, self.ext = os.path.splitext(shlex.quote(filename))
         i = len(self.base) - 1
         while i >= 0:
             char = self.base[i]
@@ -78,7 +76,6 @@ class Framechecker(object):
         #loop finished with nothing found
         raise RuntimeError('Unable to parse filename:', self.base)
 
-    #def generate_lists(self, left, right):
     def generate_lists(self):
         '''Given left and right slice indices, returns lists of directory contents,
         frames expected, frames found and frames missing.'''

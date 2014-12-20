@@ -23,13 +23,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 '''
 
-'''THIS MODULE IS NOT CURRENTLY WORKING. I'LL UPDATE IT TO USE THE CURRENT
-CLIENT-SERVER PROTOCOL AS SOON AS I GET THE GUI SQUARED AWAY.'''
+
 
 import socket
 import json
 import ast
 import argparse
+import framechecker
 
 
 class ClientSocket(object):
@@ -95,12 +95,7 @@ class ClientSocket(object):
         self.socket.close()
         return return_str
 
-def cmdtest():
-    '''a basic test of client server command-response protocol'''
-    command = 'cmdtest'
-    kwargs = {'1':'one', '2':'two'}
-    return_str = ClientSocket().send_cmd(command, kwargs)
-    print(return_str)
+
 
 
 class Cli(object):
@@ -199,6 +194,23 @@ class Cli(object):
         result = ClientSocket().send_cmd('toggle_comp', kwargs)
         print(result)
 
+    def checkframes(self):
+        path = input('Path to directory: ')
+        start = int(input('Start frame: '))
+        end = int(input('End frame: '))
+        self.checker = framechecker.Framechecker(path, start, end)
+        self.checker.calculate_indices()
+        lists = self.checker.generate_lists()
+        totalfiles = len(lists[1])
+        missing = lists[-1]
+        print('Directory contains %s items' %totalfiles)
+        if not missing:
+            print('No missing frames found')
+        else:
+            print('Missing frames:')
+            for i in missing:
+                print(i)
+
 
 
 
@@ -295,13 +307,13 @@ if __name__ == '__main__':
         help='Stop render for job with given ID', metavar='ID', type=int)
     parser.add_argument('--resume', action='store', default=-1, dest='resume',
         type=int, metavar='ID', help='Resume a stopped job with a given ID')
-
     parser.add_argument('--killall', dest='killall', default='',
         type=str, help='Kill all terragen or blender processes on all '
         'computers. Specify "blender" or "terragen".', metavar='PROG')
-
     parser.add_argument('--toggle', nargs=2, dest='toggle', 
         metavar=('ID', 'COMP'), help='Toggle computer render status')
+    parser.add_argument('--checkframes', action='store_true', default=False,
+        dest='checkframes', help='Check a directory for missing frames.')
 
 
     args = parser.parse_args()
@@ -323,6 +335,8 @@ if __name__ == '__main__':
     if args.toggle:
         job_id, comp = args.toggle
         cli.toggle_comp(job_id, comp)
+    if args.checkframes:
+        cli.checkframes()
 
 
 

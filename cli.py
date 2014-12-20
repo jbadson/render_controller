@@ -150,6 +150,25 @@ class Cli(object):
             self.fprint.complist(comp, cs['frame'], cs['progress'], cs['active'],
                                  cs['error'])
 
+    def start_render(self, job_id):
+        '''Start job with the given ID'''
+        kwargs = {'index':self.job_ids[job_id]}
+        print(kwargs)
+        result = ClientSocket().send_cmd('start_render', kwargs)
+        print(result)
+
+    def kill_render(self, job_id):
+        '''Kill render and all associated processes for given ID'''
+        kwargs = {'index':self.job_ids[job_id], 'kill_now':True}
+        result = ClientSocket().send_cmd('kill_render', kwargs)
+        print(result)
+
+    def resume_render(self, job_id):
+        '''Resume a stopped render.'''
+        kwargs = {'index':self.job_ids[job_id], 'startnow':True}
+        result = ClientSocket().send_cmd('resume_render', kwargs)
+        print(result)
+
     def test(self):
         print('test thingy done')
 
@@ -241,6 +260,13 @@ if __name__ == '__main__':
     parser.add_argument('--stats', action='store', default=-1,
         dest='jstat', help='Print full status info for job with given ID.',
         metavar='ID', type=int)
+    parser.add_argument('--start', action='store', default=-1,
+        dest='start', help='Start render for job witn given ID.', metavar='ID',
+        type=int)
+    parser.add_argument('--kill', action='store', default=-1, dest='kill',
+        help='Kill render for job with given ID', metavar='ID', type=int)
+    parser.add_argument('--resume', action='store', default=-1, dest='resume',
+        type=int, metavar='ID', help='Resume a stopped job with a given ID')
     parser.add_argument('--test', action='store_true', default=False,
         dest='test', help='Test feature. Does whatever I need it to.')
     #parser.add_argument('--comps', action='store', default=-1, dest='compstat',
@@ -255,6 +281,12 @@ if __name__ == '__main__':
         cli.print_single_job(args.jstat)
     if args.listall:
         cli.list_all()
+    if args.start >= 0:
+        cli.start_render(args.start)
+    if args.kill >= 0:
+        cli.kill_render(args.kill)
+    if args.resume >= 0:
+        cli.resume_render(args.resume)
     if args.test:
         cli.test()
     #if args.compstat >= 0:

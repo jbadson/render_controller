@@ -756,7 +756,6 @@ class Job(object):
         self.stoptime = attrdict['stoptime']
         self.complist = attrdict['complist']
         self.compstatus = attrdict['compstatus']
-
         self.path = attrdict['path']
         self.startframe = attrdict['startframe']
         self.endframe = attrdict['endframe']

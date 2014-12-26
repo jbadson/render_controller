@@ -277,9 +277,9 @@ class Job(object):
         #print('started _renderthread()', frame, computer ) #debug
         self.prints('started _renderthread()', frame, computer)
         if computer in Config.macs:
-            renderpath = Config.blenderpath_mac
+            renderpath = shlex.quote(Config.blenderpath_mac)
         else:
-            renderpath = Config.blenderpath_linux
+            renderpath = shlex.quote(Config.blenderpath_linux)
         command = subprocess.Popen(
             'ssh igp@' + computer + ' "' + renderpath +
              ' -b -noaudio ' + self.path + ' -f ' + str(frame) + 
@@ -341,8 +341,9 @@ class Job(object):
                 if 0 in self.totalframes:
                     self.totalframes.remove(0)
                 framequeue.task_done()
-                with threadlock:
-                    self._reset_compstatus(computer)
+                #with threadlock:
+                #    self._reset_compstatus(computer)
+                self._reset_compstatus(computer)
                     #self.compstatus[computer] = self._reset_compstatus(computer)
 
                 #get final rendertime from blender's output
@@ -372,7 +373,8 @@ class Job(object):
             cmd_string = (
                 'ssh igp@%s "%s -p %s -hide -exit -r -f %s & pgrep -n '
                 'Terragen&wait"' 
-                %(computer, Config.terragenpath_mac, self.path, frame)
+                %(computer, shlex.quote(Config.terragenpath_mac), self.path, 
+                  frame)
                 )
         else:
             #cmd_string = ('ssh igp@'+computer+' "'+Config.terragenpath_linux+' -p '
@@ -381,7 +383,8 @@ class Job(object):
             cmd_string = (
                 'ssh igp@%s "%s -p %s -hide -exit -r -f %s & pgrep -n '
                 'terragen&wait"' 
-                %(computer, Config.terragenpath_linux, self.path, frame)
+                %(computer, shlex.quote(Config.terragenpath_linux), self.path, 
+                  frame)
                 )
 
         command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, shell=True)
@@ -472,8 +475,9 @@ class Job(object):
                 if 0 in self.totalframes:
                     self.totalframes.remove(0)
                 framequeue.task_done()
-                with threadlock:
-                    self._reset_compstatus(computer)
+                #with threadlock:
+                #    self._reset_compstatus(computer)
+                self._reset_compstatus(computer)
                     #self.compstatus[computer] = self._reset_compstatus(computer)
                 rendertime = str(line.split()[2][:-1])
                 #print('Frame ' + str(frame) + ' finished after ' + rendertime)
@@ -1053,7 +1057,8 @@ class Config(object):
 
     def set_class_vars(self, settings):
         '''Defines the class variables from a tuple formatted to match
-        the one returned by getall().'''
+        the one returned by getall().  Paths are escaped at the time
+        of use so no need to do it here.'''
         (
         Config.computers, Config.renice_list, Config.macs, 
         Config.blenderpath_mac, Config.blenderpath_linux, 
@@ -1092,13 +1097,13 @@ class Config(object):
         renice_list = ['conundrum', 'paradox', 'sherman'] 
         #computers running OSX. Needed because blender uses different path
         macs = ['conundrum', 'paradox', 'sherman'] 
-        blenderpath_mac = '/Applications/blender.app/Contents/MacOS/blender' 
-        blenderpath_linux = '/usr/local/bin/blender' 
+        blenderpath_mac = "/Applications/blender.app/Contents/MacOS/blender" 
+        blenderpath_linux = "/usr/local/bin/blender" 
         terragenpath_mac = (
-            '/mnt/data/software/terragen_rendernode/osx/terragen3.app'                         '/Contents/MacOS/Terragen_3'
+            "/mnt/data/software/terragen_rendernode/osx/Terragen 3.app"                         "/Contents/MacOS/Terragen 3"
             )
         terragenpath_linux = (
-            '/mnt/data/software/terragen_rendernode/linux/terragen'
+            "/mnt/data/software/terragen_rendernode/linux/terragen"
             )
         #allowed file extensions (last 3 chars only) for check_missing_files
         allowed_filetypes = [
@@ -1112,7 +1117,7 @@ class Config(object):
         autostart = 1 
         verbose = 0
         #default directory to hold render log files
-        log_basepath = '/mnt/data/renderlogs/'
+        log_basepath = "/mnt/data/renderlogs/"
     
         return (computers, renice_list, macs, blenderpath_mac, blenderpath_linux, 
                 terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, 
@@ -1583,8 +1588,9 @@ class Server(object):
         index = kwargs['index']
         startnow = kwargs['startnow']
         reply = self.renderjobs[index].resume(startnow)
-        #remove from waitlist
-        #self.waitlist.remove(self.renderjobs[index])
+        #if render is not to be started immediately, add it to the waitlist
+        if reply and not startnow:
+            self.waitlist.append(self.renderjobs[index])
         if reply:
             return 'Resumed render of ' + str(index)
         else:

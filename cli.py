@@ -304,14 +304,14 @@ if __name__ == '__main__':
         dest='start', help='Start render for job witn given ID.', metavar='ID',
         type=int)
     parser.add_argument('--stop', action='store', default=-1, dest='stop',
-        help='Stop render for job with given ID', metavar='ID', type=int)
+        help='Stop render for job with given ID.', metavar='ID', type=int)
     parser.add_argument('--resume', action='store', default=-1, dest='resume',
-        type=int, metavar='ID', help='Resume a stopped job with a given ID')
+        type=int, metavar='ID', help='Resume a stopped job with a given ID.')
     parser.add_argument('--killall', dest='killall', default='',
         type=str, help='Kill all terragen or blender processes on all '
         'computers. Specify "blender" or "terragen".', metavar='PROG')
     parser.add_argument('--toggle', nargs=2, dest='toggle', 
-        metavar=('ID', 'COMP'), help='Toggle computer render status')
+        metavar=('ID', 'COMP'), help='Toggle computer render status.')
     parser.add_argument('--checkframes', action='store_true', default=False,
         dest='checkframes', help='Check a directory for missing frames.')
 

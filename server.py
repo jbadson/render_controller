@@ -50,6 +50,7 @@ class Job(object):
         for computer in Config.computers:
             self._reset_compstatus(computer)
             #self.compstatus[computer] = self._reset_compstatus(computer)
+        self.skiplist = []
         self.path = None
         self.startframe = None
         self.endframe = None
@@ -164,7 +165,7 @@ class Job(object):
         self._start_timer()
         self.renderlog.start()
 
-        self.skiplist = []
+        #self.skiplist = []
         self.killflag = False
 
         master = threading.Thread(target=self._masterthread, args=())
@@ -680,6 +681,8 @@ class Job(object):
             return False
         else:
             self.complist.remove(computer)
+            if computer in self.skiplist:
+                self.skiplist.remove(computer)
             #self.compstatus[computer]['pool'] = False
             if self.status == 'Rendering':
                 with threadlock:
@@ -1679,7 +1682,7 @@ class Server(object):
         for comp in Config.macs:
             linuxlist.remove(comp)
         lt = SSHCommandThread(linuxlist, self.msgq, 'killall terragen')
-        mt = SSHCommandThread(Config.macs, self.msgq, 'killall Terragen_3')
+        mt = SSHCommandThread(Config.macs, self.msgq, "'killall Terragen 3'")
         return 'Attempting to kill all instances of Terragen on all computers.'
 
     def cache_files(self, cachedata):

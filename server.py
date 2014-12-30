@@ -1686,7 +1686,7 @@ class Server(object):
         for comp in Config.macs:
             linuxlist.remove(comp)
         lt = SSHCommandThread(linuxlist, self.msgq, 'killall terragen')
-        mt = SSHCommandThread(Config.macs, self.msgq, "'killall Terragen 3'")
+        mt = SSHCommandThread(Config.macs, self.msgq, "killall 'Terragen 3'")
         return 'Attempting to kill all instances of Terragen on all computers.'
 
     def cache_files(self, cachedata):

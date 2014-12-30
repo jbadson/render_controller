@@ -104,6 +104,10 @@ class Job(object):
         for char in illegal_characters:
             if char in path:
                 return False
+        #deal with relative paths (shlex.quote will escape the ~)
+        #XXX Do this correctly using os.path.abspath when client is written
+        if path[0] == '~':
+            self.path = '~' + shlex.quote(path[1:])
         self._id_ = id(self)
         self.startframe = startframe
         self.endframe = endframe

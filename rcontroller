@@ -53,7 +53,7 @@ if '-s' in sys.argv or '--server' in sys.argv:
             if i.isdigit(): #assume any number in args is the port number
                 port = int(i)
                 break
-    renderserver = server.Server(port=port)
+    renderserver = server.RenderServer(port=port)
 elif '-h' in sys.argv or '--help' in sys.argv:
     print(helptext)
 elif '--cache' in sys.argv:

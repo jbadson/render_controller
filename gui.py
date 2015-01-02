@@ -27,102 +27,36 @@ import tkinter.font as tkfont
 import tkinter.filedialog as tk_filedialog
 import tkinter.messagebox as tk_msgbox
 import tkinter.scrolledtext as tk_st
-import socket
 import time
 import threading
 import os.path
-import ast
-import json
 import cfgfile
 import framechecker
 import tk_extensions as tkx
 import projcache
+import simpleserver as ss
 
 illegal_characters = [';', '&'] #not allowed in path
-
-class ClientSocket(object):
-    '''Wrapper for socket to handle command-response protocol for interacting 
-    with the render controller server.'''
-    HOST = 'localhost'
-    PORT = 2020
-
-    def setup(host, port):
-        ClientSocket.HOST = host
-        ClientSocket.PORT = port
-
-    def __init__(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((ClientSocket.HOST, ClientSocket.PORT))
-
-    def _recvall(self):
-        '''Receives message of specified length, returns it as a string.'''
-        #first 8 bytes contain msg length
-        msglen = int(self.socket.recv(8).decode('UTF-8'))
-        bytes_recvd = 0
-        chunks = []
-        while bytes_recvd < msglen:
-            chunk = self.socket.recv(2048)
-            if not chunk:
-                break
-            chunks.append(chunk.decode('UTF-8'))
-            bytes_recvd += len(chunk)
-        #now having everything be json object for web interface convenience
-        data = json.loads(''.join(chunks))
-        return data
-
-    def _sendmsg(self, message):
-        '''Wrapper for socket.sendall() that formats message for server.
-        Message must be compatible with json.dumps/json.loads.'''
-        #now doing everything in json for web interface convenience
-        message = json.dumps(message)
-        msg = bytes(message, 'UTF-8')
-        msglen = str(len(msg))
-        #first 8 bytes contains message length 
-        while len(msglen) < 8:
-            msglen = '0' + msglen
-        msglen = bytes(msglen, 'UTF-8')
-        self.socket.sendall(msglen)
-        self.socket.sendall(msg)
-
-    def send_cmd(self, command, kwargs={}):
-        '''Sends a command to the server. Command must be a UTF-8 string.
-        Associated args should be supplied as a dict. Returns a string'''
-        #send command first, wait for response, then send args
-        #don't print anything if command is request for status update
-        if not command == 'get_attrs': print('sending command', command) #debug
-        self._sendmsg(command)
-        #check that the command was valid
-        cmd_ok = ast.literal_eval(self._recvall())
-        if not cmd_ok:
-            return 'Invalid command'
-        #if command was valid, send associated arguments
-        if not command == 'get_attrs': print('sending kwargs', str(kwargs))
-        self._sendmsg(kwargs)
-        #collect the return string (True/False for success/fail or requested data)
-        return_str = self._recvall()
-        if not command == 'get_attrs': print('received return_str', return_str)
-        self.socket.close()
-        return return_str
 
 
 def cmdtest():
     '''a basic test of client server command-response protocol'''
     command = 'cmdtest'
     kwargs = {'1':'one', '2':'two'}
-    return_str = ClientSocket().send_cmd(command, kwargs)
+    return_str = ss.ClientSocket().send_cmd(command, kwargs)
     print(return_str)
 
 def job_exists(index):
     '''Returns true if index is in use on server.'''
     command = 'job_exists'
     kwargs = {'index':index}
-    reply = ClientSocket().send_cmd(command, kwargs)
+    reply = ss.ClientSocket().send_cmd(command, kwargs)
     return reply
 
 def get_job_status(index):
     '''Returns the status string for a given job.'''
     kwargs = {'index':index}
-    status = ClientSocket().send_cmd('get_status', kwargs)
+    status = ss.ClientSocket().send_cmd('get_status', kwargs)
     return status
 
 def killall_blender():
@@ -130,7 +64,7 @@ def killall_blender():
     if not Dialog('This will kill ALL instances of Blender on ALL '
                   ' computers. Proceed?').confirm():
         return
-    reply = ClientSocket().send_cmd('killall_blender')
+    reply = ss.ClientSocket().send_cmd('killall_blender')
     print(reply)
 
 def killall_tgn():
@@ -138,7 +72,7 @@ def killall_tgn():
     if not Dialog('This will kill ALL instances of Terragen on ALL '
                   ' computers. Proceed?').confirm():
         return
-    reply = ClientSocket().send_cmd('killall_tgn')
+    reply = ss.ClientSocket().send_cmd('killall_tgn')
     print(reply)
 
 def clear_rendercache():
@@ -148,7 +82,7 @@ def clear_rendercache():
                   'directory on ALL computers.  Are you sure you want to do '
                   'this?').confirm():
         return
-    reply = ClientSocket().send_cmd('clear_rendercache')
+    reply = ss.ClientSocket().send_cmd('clear_rendercache')
     print(reply)
 
 
@@ -221,7 +155,7 @@ class Config(object):
         '''Gets config info from the server. Most of these aren't directly
         used by the GUI, but are here for the preferences window.'''
         try:
-            servercfg = ClientSocket().send_cmd('get_config_vars')
+            servercfg = ss.ClientSocket().send_cmd('get_config_vars')
         except Exception as e:
             return e
         (
@@ -289,9 +223,9 @@ class MasterWin(tk.Tk):
         #initialize local config variables
         Config()
         #put default values where they go
-        ClientSocket.setup(host=Config.default_host, port=Config.default_port)
-        self.tk_host.set(ClientSocket.HOST)
-        self.tk_port.set(ClientSocket.PORT)
+        ss.ClientSocket.setup(host=Config.default_host, port=Config.default_port)
+        self.tk_host.set(ss.ClientSocket.HOST)
+        self.tk_port.set(ss.ClientSocket.PORT)
         ttk.Label(
             self.setupframe, text='Connection Setup', font='TkCaptionFont'
             ).grid(row=0, column=0, columnspan=2, pady=10)
@@ -321,7 +255,7 @@ class MasterWin(tk.Tk):
         '''Apply server config info then build the main window.'''
         print('setup done') #debug
         #configure host and port class attributes
-        ClientSocket.setup(host=self.tk_host.get(), port=int(self.tk_port.get()))
+        ss.ClientSocket.setup(host=self.tk_host.get(), port=int(self.tk_port.get()))
         #get the server config variables
         msg = Config().get_server_cfg()
         if msg:
@@ -469,7 +403,7 @@ class MasterWin(tk.Tk):
         if not Dialog('Delete ' + index + ' from the queue?').confirm():
             return
         kwargs = {'index':index}
-        reply = ClientSocket().send_cmd('clear_job', kwargs)
+        reply = ss.ClientSocket().send_cmd('clear_job', kwargs)
         print(reply)
 
     def _create_job(self, index):
@@ -564,12 +498,12 @@ class MasterWin(tk.Tk):
 
     def _toggle_verbose(self):
         '''Toggles verbose reporting state on the server.'''
-        reply = ClientSocket().send_cmd('toggle_verbose')
+        reply = ss.ClientSocket().send_cmd('toggle_verbose')
         print(reply)
 
     def _toggle_autostart(self):
         '''Toggles the autostart state on the server.'''
-        reply = ClientSocket().send_cmd('toggle_autostart')
+        reply = ss.ClientSocket().send_cmd('toggle_autostart')
         print(reply)
 
 
@@ -640,7 +574,7 @@ class ComputerPanel(ttk.Frame):
     def _edit(self):
         '''Edits job information.'''
         kwargs = {'index':self.index}
-        attrs = ClientSocket().send_cmd('get_attrs', kwargs)
+        attrs = ss.ClientSocket().send_cmd('get_attrs', kwargs)
         denystatuses = ['Rendering', 'Stopped', 'Paused']
         if attrs['status'] in denystatuses:
             Dialog('Job cannot be edited.').warn()
@@ -657,7 +591,7 @@ class ComputerPanel(ttk.Frame):
             Dialog('Cannot start render unless status is "Waiting"').warn()
             return
         kwargs = {'index':self.index}
-        reply = ClientSocket().send_cmd('start_render', kwargs)
+        reply = ss.ClientSocket().send_cmd('start_render', kwargs)
         print(reply)
 
     def _kill_render(self):
@@ -674,7 +608,7 @@ class ComputerPanel(ttk.Frame):
         elif confirm == 'no':
             kill_now = True
         kwargs = {'index':self.index, 'kill_now':kill_now}
-        reply = ClientSocket().send_cmd('kill_render', kwargs)
+        reply = ss.ClientSocket().send_cmd('kill_render', kwargs)
         print(reply)
 
     def _resume_render(self):
@@ -692,18 +626,18 @@ class ComputerPanel(ttk.Frame):
         else:
             return
         kwargs = {'index':self.index, 'startnow':startnow}
-        reply = ClientSocket().send_cmd('resume_render', kwargs)
+        reply = ss.ClientSocket().send_cmd('resume_render', kwargs)
         print(reply)
 
     def _set_priority(self, value='Normal'):
         print('value:', value)
         print('self.tk_priority', self.tk_priority.get())
         kwargs = {'index':self.index, 'priority':value}
-        reply = ClientSocket().send_cmd('set_job_priority', kwargs)
+        reply = ss.ClientSocket().send_cmd('set_job_priority', kwargs)
         print(reply)
 
     def retrieve_frames(self):
-        reply = ClientSocket().send_cmd('retrieve_cached_files', self.index)
+        reply = ss.ClientSocket().send_cmd('retrieve_cached_files', self.index)
         print(reply)
 
     def update(self, attrdict):
@@ -1016,12 +950,12 @@ class CompCube(_statusbox, ttk.LabelFrame):
     def _toggle_pool_state(self):
         '''Adds or removes the computer from the pool.'''
         kwargs = {'index':self.index, 'computer':self.computer}
-        reply = ClientSocket().send_cmd('toggle_comp', kwargs)
+        reply = ss.ClientSocket().send_cmd('toggle_comp', kwargs)
         print(reply)
 
     def _kill_thread(self):
         kwargs = {'index':self.index, 'computer':self.computer}
-        reply = ClientSocket().send_cmd('kill_single_thread', kwargs)
+        reply = ss.ClientSocket().send_cmd('kill_single_thread', kwargs)
         print(reply)
 
     def _change_bgcolor(self, bgcolor):
@@ -1275,6 +1209,8 @@ class InputWindow(tk.Toplevel):
         else:
             rootpath, filepath, renderdirpath = paths
         print('paths:', rootpath, filepath, renderdirpath)#debug
+        #NOTE: Paths are escaped with shlex.quote immediately before being passed
+        #to shell.
         #verify that all paths are accessible from the server
         if not self.path_exists(rootpath):
             Dialog('Server cannot find the root project directory.').warn()
@@ -1284,16 +1220,6 @@ class InputWindow(tk.Toplevel):
             return
         if not self.path_exists(os.path.join(rootpath, renderdirpath)):
             Dialog('Server cannot find the render directory path.').warn()
-            return
-        #verify that none of the paths contain illegal characters
-        if not self.path_legal(rootpath):
-            Dialog('Illegal characters in project root path.').warn()
-            return
-        if not self.path_legal(filepath):
-            Dialog('Illegal characters in file path.').warn()
-            return
-        if not self.path_legal(renderdirpath):
-            Dialog('Illegal characters in render directory path.').warn()
             return
         #If this is a new job, create index based on filename
         if not self.index:
@@ -1335,7 +1261,7 @@ class InputWindow(tk.Toplevel):
             return
         cachedata = {'rootpath':rootpath, 'filepath':filepath, 
                      'renderdirpath':renderdirpath, 'computers':complist}
-        reply = ClientSocket().send_cmd('cache_files', cachedata)
+        reply = ss.ClientSocket().send_cmd('cache_files', cachedata)
         print(reply)
         #XXX Wait for successful reply before putting the project in queue
         #XXX THIS COULD CAUSE A PROBLEM if connection between gui and server is
@@ -1393,7 +1319,7 @@ class InputWindow(tk.Toplevel):
             'complist':complist,
             'cachedata':cachedata
             }
-        reply = ClientSocket().send_cmd('enqueue', render_args)
+        reply = ss.ClientSocket().send_cmd('enqueue', render_args)
         print(reply)
         self.destroy()
     
@@ -1410,7 +1336,7 @@ class InputWindow(tk.Toplevel):
 
     def path_exists(self, path):
         kwargs = {'path':path}
-        reply = ClientSocket().send_cmd('check_path_exists', kwargs)
+        reply = ss.ClientSocket().send_cmd('check_path_exists', kwargs)
         return reply
 
 class NormalPathBlock(ttk.Frame):
@@ -1834,13 +1760,13 @@ class PrefsWin(tk.Toplevel):
             int(self.serverport.get()), self.autostart.get(), self.verbose.get(),
             self.log_basepath.get()
             )
-        reply = ClientSocket().send_cmd('update_server_cfg', servercfg)
+        reply = ss.ClientSocket().send_cmd('update_server_cfg', servercfg)
         print(reply)
 
     def _restore_server_cfg(self):
         '''Instructs the server to reset all config variables to default values
         and overwrite its config file.'''
-        reply = ClientSocket().send_cmd('restore_cfg_defaults')
+        reply = ss.ClientSocket().send_cmd('restore_cfg_defaults')
         print(reply)
         #NOTE: below doesn't work because it re-defines the tk variables before
         #setting values. Need to split up functions or something.
@@ -2048,7 +1974,7 @@ class StatusThread(threading.Thread):
                 print('stopping statusthread')
                 break
             try:
-                serverjobs = ClientSocket().send_cmd('get_attrs')
+                serverjobs = ss.ClientSocket().send_cmd('get_attrs')
             except Exception as e:
                 print('Could not connect to server:', e)
                 time.sleep(Config.refresh_interval)

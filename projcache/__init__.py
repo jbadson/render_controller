@@ -5,6 +5,7 @@ import subprocess
 import os.path
 import platform
 import time
+import shlex
 
 
 '''---NOTES---
@@ -62,7 +63,7 @@ class FileCacher(object):
                           'system')
         #get the absolute path to the blend file
         blendpath = os.path.join(self.projectdir, self.blendpath)
-        command = ('%s  %s --python %s' %(blendexe, blendpath, pathfixer))
+        command = ('%s  %s --python %s' %(blendexe, shlex.quote(blendpath), pathfixer))
         print('make_paths_relative() command:', command) #debug
         output = subprocess.check_output(command, shell=True)
         output = output.decode('UTF-8')
@@ -90,8 +91,8 @@ class FileCacher(object):
             self.computers.append(computer)
         #want to exclude any rendered frames with initial copy
         command = (
-            'ssh igp@%s "rsync -au --exclude=%s --delete %s ~/rendercache/"' 
-            %(computer, self.renderdir, self.projectdir)
+            'ssh igp@%s "rsync -auh --progress --exclude=%s --delete %s ~/rendercache/"' 
+            %(computer, shlex.quote(self.renderdir), shlex.quote(self.projectdir))
             )
         print('cache() command:', command) #debug
         try:
@@ -128,8 +129,8 @@ class FileCacher(object):
         renderdir = os.path.join('~/rendercache/', self.dirname, self.renderdir)
         savedir = os.path.join(self.projectdir, self.renderdir)
         command = (
-            'ssh igp@%s "rsync -au %s/ %s"' 
-            %(computer, renderdir, savedir)
+            'ssh igp@%s "rsync -auh --progress %s/ %s"' 
+            %(computer, shelx.quote(renderdir), shlex.quote(savedir))
             )
         print('retrieve_frames() command:', command) #debug
         try:

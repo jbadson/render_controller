@@ -25,84 +25,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 
-import socket
-import json
-import ast
 import argparse
 import framechecker
-
-
-class ClientSocket(object):
-    '''Wrapper for socket to handle command-response protocol for interacting 
-    with the render controller server.'''
-    HOST = 'localhost'
-    PORT = 2020
-
-    def setup(host, port):
-        ClientSocket.HOST = host
-        ClientSocket.PORT = port
-
-    def __init__(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((ClientSocket.HOST, ClientSocket.PORT))
-
-    def _recvall(self):
-        '''Receives message of specified length, returns it as a string.'''
-        #first 8 bytes contain msg length
-        msglen = int(self.socket.recv(8).decode('UTF-8'))
-        bytes_recvd = 0
-        chunks = []
-        while bytes_recvd < msglen:
-            chunk = self.socket.recv(2048)
-            if not chunk:
-                break
-            chunks.append(chunk.decode('UTF-8'))
-            bytes_recvd += len(chunk)
-        data = json.loads(''.join(chunks))
-        return data
-
-    def _sendmsg(self, message):
-        '''Wrapper for socket.sendall() that formats message for server.
-        Message must be compatible with json.dumps/json.loads.'''
-        #now doing everything in json for web interface convenience
-        message = json.dumps(message)
-        msg = bytes(message, 'UTF-8')
-        msglen = str(len(msg))
-        #first 8 bytes contains message length 
-        while len(msglen) < 8:
-            msglen = '0' + msglen
-        msglen = bytes(msglen, 'UTF-8')
-        self.socket.sendall(msglen)
-        self.socket.sendall(msg)
-
-    def send_cmd(self, command, kwargs={}):
-        '''Sends a command to the server. Command must be a UTF-8 string.
-        Associated args should be supplied as a dict. Returns a string'''
-        #send command first, wait for response, then send args
-        #don't print anything if command is request for status update
-        if not command == 'get_attrs': print('sending command', command) #debug
-        self._sendmsg(command)
-        #check that the command was valid
-        cmd_ok = ast.literal_eval(self._recvall())
-        if not cmd_ok:
-            return 'Invalid command'
-        #if command was valid, send associated arguments
-        if not command == 'get_attrs': print('sending kwargs', str(kwargs))
-        self._sendmsg(kwargs)
-        #collect the return string (True/False for success/fail or requested data)
-        return_str = self._recvall()
-        if not command == 'get_attrs': print('received return_str', return_str)
-        self.socket.close()
-        return return_str
-
-
+import simpleserver as ss
 
 
 class Cli(object):
     '''Master object for command line interface.'''
     def __init__(self):
         #var to contain all current server job attributes
-        self.serverjobs = ClientSocket().send_cmd('get_attrs')
+        self.serverjobs = ss.ClientSocket().send_cmd('get_attrs')
         '''Need a list of integer IDs corresponding to jobs on the server to
         make manipulating them easier from the command line.  Because dict keys
         are not kept in any order, need to sort the list each time to make sure
@@ -117,7 +49,7 @@ class Cli(object):
 
     def list_jobs(self):
         print('Listing all jobs on %s:%s\n' 
-              %(ClientSocket.HOST, ClientSocket.PORT))
+              %(ss.ClientSocket.HOST, ss.ClientSocket.PORT))
         self.fprint.jlist_header()
         for i in range(len(self.job_ids)):
             fname = self.job_ids[i]
@@ -131,7 +63,7 @@ class Cli(object):
 
     def list_all(self):
         print('Printing full status info for all jobs on %s:%s' 
-              %(ClientSocket.HOST, ClientSocket.PORT))
+              %(ss.ClientSocket.HOST, ss.ClientSocket.PORT))
         for i in range(len(self.job_ids)):
             self.fprint.job_separator(i)
             self._print_job_stats(i)
@@ -153,7 +85,7 @@ class Cli(object):
         '''Start job with the given ID'''
         kwargs = {'index':self.job_ids[job_id]}
         print(kwargs)
-        result = ClientSocket().send_cmd('start_render', kwargs)
+        result = ss.ClientSocket().send_cmd('start_render', kwargs)
         print(result)
 
     def kill_render(self, job_id):
@@ -164,13 +96,13 @@ class Cli(object):
             print('Cancelled')
             return
         kwargs = {'index':index, 'kill_now':True}
-        result = ClientSocket().send_cmd('kill_render', kwargs)
+        result = ss.ClientSocket().send_cmd('kill_render', kwargs)
         print(result)
 
     def resume_render(self, job_id):
         '''Resume a stopped render.'''
         kwargs = {'index':self.job_ids[job_id], 'startnow':True}
-        result = ClientSocket().send_cmd('resume_render', kwargs)
+        result = ss.ClientSocket().send_cmd('resume_render', kwargs)
         print(result)
 
     def killall(self, program):
@@ -183,15 +115,15 @@ class Cli(object):
             print('Cancelled')
             return
         if program == 'terragen':
-            result = ClientSocket().send_cmd('killall_tgn')
+            result = ss.ClientSocket().send_cmd('killall_tgn')
         elif program == 'blender':
-            result = ClientSocket().send_cmd('killall_blender')
+            result = ss.ClientSocket().send_cmd('killall_blender')
         print(result)
 
     def toggle_comp(self, job_id, computer):
         '''Toggle status of a computer for a given job.'''
         kwargs = {'index':self.job_ids[int(job_id)], 'computer':computer}
-        result = ClientSocket().send_cmd('toggle_comp', kwargs)
+        result = ss.ClientSocket().send_cmd('toggle_comp', kwargs)
         print(result)
 
     def checkframes(self):

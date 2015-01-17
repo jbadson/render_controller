@@ -34,7 +34,7 @@ import cfgfile
 import framechecker
 import tk_extensions as tkx
 import projcache
-import simpleserver as ss
+import socketwrapper as sw
 
 illegal_characters = [';', '&'] #not allowed in path
 
@@ -43,20 +43,13 @@ def cmdtest():
     '''a basic test of client server command-response protocol'''
     command = 'cmdtest'
     kwargs = {'1':'one', '2':'two'}
-    return_str = ss.ClientSocket().send_cmd(command, kwargs)
+    return_str = sw.ClientSocket(Config.host, Config.port).send_cmd(command, kwargs)
     print(return_str)
-
-def job_exists(index):
-    '''Returns true if index is in use on server.'''
-    command = 'job_exists'
-    kwargs = {'index':index}
-    reply = ss.ClientSocket().send_cmd(command, kwargs)
-    return reply
 
 def get_job_status(index):
     '''Returns the status string for a given job.'''
     kwargs = {'index':index}
-    status = ss.ClientSocket().send_cmd('get_status', kwargs)
+    status = sw.ClientSocket(Config.host, Config.port).send_cmd('get_status', kwargs)
     return status
 
 def killall_blender():
@@ -64,7 +57,7 @@ def killall_blender():
     if not Dialog('This will kill ALL instances of Blender on ALL '
                   ' computers. Proceed?').confirm():
         return
-    reply = ss.ClientSocket().send_cmd('killall_blender')
+    reply = sw.ClientSocket(Config.host, Config.port).send_cmd('killall_blender')
     print(reply)
 
 def killall_tgn():
@@ -72,7 +65,7 @@ def killall_tgn():
     if not Dialog('This will kill ALL instances of Terragen on ALL '
                   ' computers. Proceed?').confirm():
         return
-    reply = ss.ClientSocket().send_cmd('killall_tgn')
+    reply = sw.ClientSocket(Config.host, Config.port).send_cmd('killall_tgn')
     print(reply)
 
 def clear_rendercache():
@@ -82,9 +75,8 @@ def clear_rendercache():
                   'directory on ALL computers.  Are you sure you want to do '
                   'this?').confirm():
         return
-    reply = ss.ClientSocket().send_cmd('clear_rendercache')
+    reply = sw.ClientSocket(Config.host, Config.port).send_cmd('clear_rendercache')
     print(reply)
-
 
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
@@ -122,7 +114,7 @@ class Config(object):
         Config.default_path, Config.default_startframe, 
         Config.default_endframe, Config.default_render_engine,
         Config.input_win_cols, Config.comp_status_panel_cols,
-        Config.default_host, Config.default_port, Config.refresh_interval
+        Config.host, Config.port, Config.refresh_interval
         ) = guisettings
 
     def update_cfgfile(self, guisettings):
@@ -144,18 +136,19 @@ class Config(object):
         input_win_cols = 5
         comp_status_panel_cols = 3
         #default server setup info
-        default_host = 'localhost'
-        default_port = 2020
+        host = 'localhost'
+        port = 2020
         refresh_interval = 0.5 #StatusThread update freq. in seconds
         return (default_path, default_startframe, default_endframe, 
                 default_render_engine, input_win_cols, comp_status_panel_cols,
-                default_host, default_port, refresh_interval)
+                host, port, refresh_interval)
 
     def get_server_cfg(self):
         '''Gets config info from the server. Most of these aren't directly
         used by the GUI, but are here for the preferences window.'''
         try:
-            servercfg = ss.ClientSocket().send_cmd('get_config_vars')
+            servercfg = sw.ClientSocket(Config.host, Config.port
+                                        ).send_cmd('get_config_vars')
         except Exception as e:
             return e
         (
@@ -176,7 +169,7 @@ class Config(object):
             Config.default_path, Config.default_startframe, 
             Config.default_endframe, Config.default_render_engine,
             Config.input_win_cols, Config.comp_status_panel_cols,
-            Config.default_host, Config.default_port, Config.refresh_interval
+            Config.host, Config.port, Config.refresh_interval
             )'''
 
 
@@ -219,13 +212,14 @@ class MasterWin(tk.Tk):
         self.tk_username = tk.StringVar()
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
-        self.statthread = StatusThread(masterwin=self)
         #initialize local config variables
         Config()
         #put default values where they go
-        ss.ClientSocket.setup(host=Config.default_host, port=Config.default_port)
-        self.tk_host.set(ss.ClientSocket.HOST)
-        self.tk_port.set(ss.ClientSocket.PORT)
+        self.socket = sw.ClientSocket(Config.host, Config.port)
+        self.socket.setup(host=Config.host, port=Config.port)
+        self.statthread = StatusThread(masterwin=self)
+        self.tk_host.set(self.socket.host)
+        self.tk_port.set(self.socket.port)
         ttk.Label(
             self.setupframe, text='Connection Setup', font='TkCaptionFont'
             ).grid(row=0, column=0, columnspan=2, pady=10)
@@ -255,7 +249,12 @@ class MasterWin(tk.Tk):
         '''Apply server config info then build the main window.'''
         print('setup done') #debug
         #configure host and port class attributes
-        ss.ClientSocket.setup(host=self.tk_host.get(), port=int(self.tk_port.get()))
+        newhost = self.tk_host.get()
+        newport = int(self.tk_port.get())
+        Config.host = newhost
+        Config.port = newport
+        print('newhost %s; newport %s' %(newhost, newport))
+        self.socket.setup(newhost, newport)
         #get the server config variables
         msg = Config().get_server_cfg()
         if msg:
@@ -403,7 +402,7 @@ class MasterWin(tk.Tk):
         if not Dialog('Delete ' + index + ' from the queue?').confirm():
             return
         kwargs = {'index':index}
-        reply = ss.ClientSocket().send_cmd('clear_job', kwargs)
+        reply = self.socket.send_cmd('clear_job', kwargs)
         print(reply)
 
     def _create_job(self, index):
@@ -498,12 +497,12 @@ class MasterWin(tk.Tk):
 
     def _toggle_verbose(self):
         '''Toggles verbose reporting state on the server.'''
-        reply = ss.ClientSocket().send_cmd('toggle_verbose')
+        reply = self.socket.send_cmd('toggle_verbose')
         print(reply)
 
     def _toggle_autostart(self):
         '''Toggles the autostart state on the server.'''
-        reply = ss.ClientSocket().send_cmd('toggle_autostart')
+        reply = self.socket.send_cmd('toggle_autostart')
         print(reply)
 
 
@@ -511,6 +510,7 @@ class ComputerPanel(ttk.Frame):
     '''Main job info panel with computer boxes.'''
     def __init__(self, master, index):
         self.index = index
+        self.socket = sw.ClientSocket(Config.host, Config.port)
         ttk.Frame.__init__(self, master=master)
         #Create the main job status box at the top of the panel
         self.bigbox = BigBox(master=self, index=self.index)
@@ -574,7 +574,7 @@ class ComputerPanel(ttk.Frame):
     def _edit(self):
         '''Edits job information.'''
         kwargs = {'index':self.index}
-        attrs = ss.ClientSocket().send_cmd('get_attrs', kwargs)
+        attrs = self.socket.send_cmd('get_attrs', kwargs)
         denystatuses = ['Rendering', 'Stopped', 'Paused']
         if attrs['status'] in denystatuses:
             Dialog('Job cannot be edited.').warn()
@@ -591,7 +591,7 @@ class ComputerPanel(ttk.Frame):
             Dialog('Cannot start render unless status is "Waiting"').warn()
             return
         kwargs = {'index':self.index}
-        reply = ss.ClientSocket().send_cmd('start_render', kwargs)
+        reply = self.socket.send_cmd('start_render', kwargs)
         print(reply)
 
     def _kill_render(self):
@@ -608,7 +608,7 @@ class ComputerPanel(ttk.Frame):
         elif confirm == 'no':
             kill_now = True
         kwargs = {'index':self.index, 'kill_now':kill_now}
-        reply = ss.ClientSocket().send_cmd('kill_render', kwargs)
+        reply = self.socket.send_cmd('kill_render', kwargs)
         print(reply)
 
     def _resume_render(self):
@@ -626,18 +626,18 @@ class ComputerPanel(ttk.Frame):
         else:
             return
         kwargs = {'index':self.index, 'startnow':startnow}
-        reply = ss.ClientSocket().send_cmd('resume_render', kwargs)
+        reply = self.socket.send_cmd('resume_render', kwargs)
         print(reply)
 
     def _set_priority(self, value='Normal'):
         print('value:', value)
         print('self.tk_priority', self.tk_priority.get())
         kwargs = {'index':self.index, 'priority':value}
-        reply = ss.ClientSocket().send_cmd('set_job_priority', kwargs)
+        reply = self.socket.send_cmd('set_job_priority', kwargs)
         print(reply)
 
     def retrieve_frames(self):
-        reply = ss.ClientSocket().send_cmd('retrieve_cached_files', self.index)
+        reply = self.socket.send_cmd('retrieve_cached_files', self.index)
         print(reply)
 
     def update(self, attrdict):
@@ -950,12 +950,12 @@ class CompCube(_statusbox, ttk.LabelFrame):
     def _toggle_pool_state(self):
         '''Adds or removes the computer from the pool.'''
         kwargs = {'index':self.index, 'computer':self.computer}
-        reply = ss.ClientSocket().send_cmd('toggle_comp', kwargs)
+        reply = self.socket.send_cmd('toggle_comp', kwargs)
         print(reply)
 
     def _kill_thread(self):
         kwargs = {'index':self.index, 'computer':self.computer}
-        reply = ss.ClientSocket().send_cmd('kill_single_thread', kwargs)
+        reply = self.socket.send_cmd('kill_single_thread', kwargs)
         print(reply)
 
     def _change_bgcolor(self, bgcolor):
@@ -1016,6 +1016,7 @@ class InputWindow(tk.Toplevel):
             start = Config.default_startframe
             end = Config.default_endframe
             engine = Config.default_render_engine
+        self.socket = sw.ClientSocket(Config.host, Config.port)
         #initialize tkinter variables
         #self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
@@ -1225,7 +1226,7 @@ class InputWindow(tk.Toplevel):
         if not self.index:
             self.index = os.path.basename(filepath)
             print('index:', self.index)#debug
-            if job_exists(self.index):
+            if self.job_exists(self.index):
                 if not Dialog('Job with the same index already exists. '
                               'Overwrite?').yesno():
                     return
@@ -1261,7 +1262,7 @@ class InputWindow(tk.Toplevel):
             return
         cachedata = {'rootpath':rootpath, 'filepath':filepath, 
                      'renderdirpath':renderdirpath, 'computers':complist}
-        reply = ss.ClientSocket().send_cmd('cache_files', cachedata)
+        reply = self.socket.send_cmd('cache_files', cachedata)
         print(reply)
         #XXX Wait for successful reply before putting the project in queue
         #XXX THIS COULD CAUSE A PROBLEM if connection between gui and server is
@@ -1287,7 +1288,7 @@ class InputWindow(tk.Toplevel):
         #if this is a new job, create index based on filename
         if not self.index:
             self.index = os.path.basename(path)
-            if job_exists(self.index):
+            if self.job_exists(self.index):
                 if not Dialog('Job with the same index already exists. '
                               'Overwrite?').yesno():
                     return
@@ -1301,7 +1302,7 @@ class InputWindow(tk.Toplevel):
             render_engine = 'tgd'
         else:
             Dialog('File extension not recognized. Project file must end with '
-                   '".blend" for Blender or ".tgd" for Terragen3 files.').warn()
+                   '".blend" for Blender or ".tgd" for Terragen files.').warn()
             return
         self._enqueue(path, startframe, endframe, extraframes, render_engine,
                       complist)
@@ -1319,11 +1320,15 @@ class InputWindow(tk.Toplevel):
             'complist':complist,
             'cachedata':cachedata
             }
-        reply = ss.ClientSocket().send_cmd('enqueue', render_args)
+        reply = self.socket.send_cmd('enqueue', render_args)
         print(reply)
         self.destroy()
-    
-    
+
+    def job_exists(self, index):
+        '''Returns true if index is in use on server.'''
+        reply = self.socket.send_cmd('job_exists', {'index':index})
+        return reply
+
     def path_legal(self, path):
         '''Returns False if there are illegal characters in path.  Otherwise
         returns True.'''
@@ -1331,12 +1336,10 @@ class InputWindow(tk.Toplevel):
             if char in path:
                 return False
         return True
-        
-
 
     def path_exists(self, path):
         kwargs = {'path':path}
-        reply = ss.ClientSocket().send_cmd('check_path_exists', kwargs)
+        reply = self.socket.send_cmd('check_path_exists', kwargs)
         return reply
 
 class NormalPathBlock(ttk.Frame):
@@ -1684,8 +1687,8 @@ class PrefsWin(tk.Toplevel):
         self.render_engine.set(Config.default_render_engine)
         self.input_cols.set(Config.input_win_cols)
         self.comppanel_cols.set(Config.comp_status_panel_cols)
-        self.host.set(Config.default_host)
-        self.port.set(Config.default_port)
+        self.host.set(Config.host)
+        self.port.set(Config.port)
         #convert refresh_interval in sec. to frequency (Hz) for display
         self.refresh_interval.set(1 / Config.refresh_interval)
 
@@ -1760,13 +1763,13 @@ class PrefsWin(tk.Toplevel):
             int(self.serverport.get()), self.autostart.get(), self.verbose.get(),
             self.log_basepath.get()
             )
-        reply = ss.ClientSocket().send_cmd('update_server_cfg', servercfg)
+        reply = self.socket.send_cmd('update_server_cfg', servercfg)
         print(reply)
 
     def _restore_server_cfg(self):
         '''Instructs the server to reset all config variables to default values
         and overwrite its config file.'''
-        reply = ss.ClientSocket().send_cmd('restore_cfg_defaults')
+        reply = self.socket.send_cmd('restore_cfg_defaults')
         print(reply)
         #NOTE: below doesn't work because it re-defines the tk variables before
         #setting values. Need to split up functions or something.
@@ -1966,6 +1969,7 @@ class StatusThread(threading.Thread):
     stop = False
     def __init__(self, masterwin):
         self.masterwin = masterwin
+        self.socket = sw.ClientSocket(Config.host, Config.port)
         threading.Thread.__init__(self, target=self._statusthread)
 
     def _statusthread(self):
@@ -1974,7 +1978,7 @@ class StatusThread(threading.Thread):
                 print('stopping statusthread')
                 break
             try:
-                serverjobs = ss.ClientSocket().send_cmd('get_attrs')
+                serverjobs = self.socket.send_cmd('get_attrs')
             except Exception as e:
                 print('Could not connect to server:', e)
                 time.sleep(Config.refresh_interval)

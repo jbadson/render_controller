@@ -30,7 +30,7 @@ import socket
 import shlex
 import cfgfile
 import projcache
-import simpleserver as ss
+import socketwrapper as sw
 
 illegal_characters = [';', '&'] #not allowed in paths
 class Job(object):
@@ -57,10 +57,11 @@ class Job(object):
         self.totalframes = []
         self.progress = None
         self.cachedata = None #holds info related to local file caching
-        self._id = None #unique job identifier for logging, created at enqueue()
+        self._id = None #unique job identifier for logging, 
 
     def _reset_compstatus(self, computer):
-        '''Creates compstatus dict or resets an existing one to default values'''
+        '''Creates compstatus dict or resets an existing one to 
+        default values'''
         if computer in self.complist:
             pool = True
         else:
@@ -1086,7 +1087,7 @@ class RenderServer(object):
         self.msgq = queue.Queue() #queue for misc. messages to clients
         self._check_restore_state()
         self.updatethread = threading.Thread(target=self.update_loop)
-        self.server = ss.Server(self, port, allowed_commands)
+        self.server = sw.Server(self, port, allowed_commands)
         self.server.start()
         self.updatethread.start()
     
@@ -1312,16 +1313,17 @@ class RenderServer(object):
         #create the job
         if index in self.renderjobs:
             if self.renderjobs[index].status == 'Rendering':
-                return 'Failed to create job'
+                return ('Enqueue failed, job with same index is currently '
+                       'rendering.')
         #place it in queue
         self.renderjobs[index] = Job()
         #put it in ordered list of waiting jobs
         self.waitlist.append(self.renderjobs[index])
-        reply = self.renderjobs[index].enqueue(
+        success = self.renderjobs[index].enqueue(
             path, startframe, endframe, render_engine, complist, 
             extraframes=extras, cachedata=cachedata
             )
-        if reply:
+        if success:
             return (index + ' successfully placed in queue')
         else:
             del self.renderjobs[index]

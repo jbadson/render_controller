@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 
-import argparse
+#import argparse
 import os.path
 import framechecker
 import socketwrapper as sw
@@ -34,9 +34,9 @@ illegal_characters = [';', '&'] #not allowed in path
 
 class Cli(object):
     '''Master object for command line interface.'''
-    def __init__(self):
+    def __init__(self, host='localhost', port=2020):
         #var to contain all current server job attributes
-        self.socket = sw.ClientSocket('localhost', 2020)
+        self.socket = sw.ClientSocket(host, port)
         self.serverjobs = self.socket.send_cmd('get_attrs')
         '''Need a list of integer IDs corresponding to jobs on the server to
         make manipulating them easier from the command line.  Because dict keys
@@ -279,65 +279,8 @@ class FPrinter(object):
 
 
 
-        
-
-
-
 
 if __name__ == '__main__':
-    cli = Cli()
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-l', '--list', action='store_true', default=False, 
-        dest='joblist', help='List all items in render queue.')
-    parser.add_argument('-a', '--listall', action='store_true', default=False,
-        dest='listall', help='Print full status info for all jobs in queue.')
-    parser.add_argument('-i', '--info', action='store', default=-1,
-        dest='info', help='Print full status info for job with given ID.',
-        metavar='ID', type=int)
-    parser.add_argument('--start', action='store', default=-1,
-        dest='start', help='Start render for job witn given ID.', metavar='ID',
-        type=int)
-    parser.add_argument('--stop', action='store', default=-1, dest='stop',
-        help='Stop render for job with given ID.', metavar='ID', type=int)
-    parser.add_argument('--resume', action='store', default=-1, dest='resume',
-        type=int, metavar='ID', help='Resume a stopped job with a given ID.')
-    parser.add_argument('--killall', dest='killall', default='',
-        type=str, help='Kill all terragen or blender processes on all '
-        'computers. Specify "blender" or "terragen".', metavar='PROG')
-    parser.add_argument('-t', '--toggle', nargs=2, dest='toggle', 
-        metavar=('ID', 'COMP'), help='Toggle computer render status.')
-    parser.add_argument('--checkframes', action='store_true', default=False,
-        dest='checkframes', help='Check a directory for missing frames.')
-    parser.add_argument('-e', '--enqueue', action='store_true', default=False,
-        dest='enqueue', help='Create a new job (interactive)')
-
-
-    args = parser.parse_args()
-
-    if args.joblist:
-        cli.list_jobs()
-    if args.info>= 0:
-        cli.print_single_job(args.info)
-    if args.listall:
-        cli.list_all()
-    if args.start >= 0:
-        cli.start_render(args.start)
-    if args.stop >= 0:
-        cli.kill_render(args.stop)
-    if args.resume >= 0:
-        cli.resume_render(args.resume)
-    if args.killall:
-        cli.killall(args.killall)
-    if args.toggle:
-        job_id, comp = args.toggle
-        cli.toggle_comp(job_id, comp)
-    if args.checkframes:
-        cli.checkframes()
-    if args.enqueue:
-        cli.enqueue()
-
-
-
-
+    print('Module containing command line interface methods for the IGP Render Controller.')
 
 

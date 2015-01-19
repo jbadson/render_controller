@@ -32,8 +32,8 @@ class FileCacher(object):
         renderdir: Relative path from projectdir to directory where rendered 
             frames will be saved.
         computers: list of computers that will have files cached on them.  If
-            no computers are specified, they will have to be provided when files
-            are cached or retrieved.'''  
+            no computers are specified, they will have to be provided when 
+            files are cached or retrieved.'''  
         self.projectdir = projectdir
         if self.projectdir[-1] == '/':
             #path.split will give an empty string if there's a trailing slash
@@ -41,7 +41,7 @@ class FileCacher(object):
         self.basepath, self.dirname = os.path.split(self.projectdir)
         self.blendpath = blendpath #RELATIVE path
         self.renderdir = renderdir #RELATIVE path
-        self.computers = computers #list of all computers data has been cached on
+        self.computers = computers #list of all computers with cached data 
 
     def make_paths_relative(self):
         '''Launches blender with a python script to make all paths in the 
@@ -53,17 +53,18 @@ class FileCacher(object):
         #assuming the pathfixer file is in the same directory as this file:
         pathfixer = os.path.join(os.path.dirname(os.path.realpath(__file__)), 
                                  'pathfix.py')
-        #get the correct path to the blender executable based on operating system:
+        #get the correct path to the blender executable based on os
         if platform.system() == 'Darwin':
             blendexe = '/Applications/blender.app/Contents/MacOS/blender'
         elif platform.system() == 'Linux':
             blendexe = 'blender'
         else:
-            raise OSError('Unable to match blender executable path to operating '
-                          'system')
+            raise OSError('Unable to match blender executable path to '
+                          'operating system')
         #get the absolute path to the blend file
         blendpath = os.path.join(self.projectdir, self.blendpath)
-        command = ('%s  %s --python %s' %(blendexe, shlex.quote(blendpath), pathfixer))
+        command = ('%s  %s --python %s' 
+                   %(blendexe, shlex.quote(blendpath), pathfixer))
         print('make_paths_relative() command:', command) #debug
         output = subprocess.check_output(command, shell=True)
         output = output.decode('UTF-8')
@@ -77,7 +78,8 @@ class FileCacher(object):
 
     def get_render_path(self):
         '''Returns a relative path to the file to be rendered.'''
-        renderpath = os.path.join('~/rendercache/', self.dirname, self.blendpath)
+        renderpath = os.path.join('~/rendercache/', self.dirname, 
+                                  self.blendpath)
         return renderpath
 
     def cache_single(self, computer):
@@ -91,22 +93,19 @@ class FileCacher(object):
             self.computers.append(computer)
         #want to exclude any rendered frames with initial copy
         command = (
-            'ssh igp@%s "rsync -auh --progress --exclude=%s --delete %s ~/rendercache/"' 
-            %(computer, shlex.quote(self.renderdir), shlex.quote(self.projectdir))
+            'ssh igp@%s "rsync -auh --progress --exclude=%s --delete %s '
+            '~/rendercache/"' %(computer, shlex.quote(self.renderdir), 
+            shlex.quote(self.projectdir))
             )
         print('cache() command:', command) #debug
-        try:
-            subprocess.check_output(command, shell=True)
-        except Exception as e:
-            #throws exception if a path is inaccessible or user lacks permissions
-            return e
-        return 0
+        exitcode = subprocess.call(command, shell=True)
+        return exitcode
 
     def cache_all(self, computers=None):
-        '''Copies project directory to a list of computers.  If no list is given,
-        it will use self.computers.  If self.computers is also null, an exception
-        will be raised.  Returns 0 if successful, otherwise returns a list in the
-        format computer:error.'''
+        '''Copies project directory to a list of computers.  If no list is
+        given, it will use self.computers.  If self.computers is also null,
+        an exception will be raised.  Returns 0 if successful, otherwise 
+        returns a list in the format computer:error.'''
         if not computers:
             computers = self.computers
         if not computers:
@@ -115,13 +114,10 @@ class FileCacher(object):
         computers = set(computers)
         errors = []
         for computer in computers:
-            result = self.cache_single(computer)
-            if result:
-                errors.append('%s: %s' %(computer, result))
-        if errors:
-            return errors
-        else:
-            return 0
+            exitcode = self.cache_single(computer)
+            if exitcode > 0:
+                errors.append((computer, exitcode))
+        return errors
 
     def retrieve_frames(self, computer):
         '''Copies rendered frames from local ~/rendercache directory
@@ -130,19 +126,17 @@ class FileCacher(object):
         savedir = os.path.join(self.projectdir, self.renderdir)
         command = (
             'ssh igp@%s "rsync -auh --progress %s/ %s"' 
-            %(computer, shelx.quote(renderdir), shlex.quote(savedir))
+            %(computer, shlex.quote(renderdir), shlex.quote(savedir))
             )
         print('retrieve_frames() command:', command) #debug
-        try:
-            subprocess.check_output(command, shell=True)
-        except Exception as e:
-            return e
-        return 0
+        exitcode = subprocess.call(command, shell=True)
+        return exitcode
 
     def retrieve_all(self, computers=None):
-        '''Copies rendered frames from cache directories on a list of computers
-        back to the server.  If no computer list is specified, will use 
-        self.computers. Returns 0 on success or a list of errors on failure.'''
+        '''Copies rendered frames from cache directories on a list of 
+        computers back to the server.  If no computer list is specified, 
+        will use self.computers. Returns 0 on success or a list of errors 
+        on failure.'''
         if not computers:
             computers = self.computers
         if not computers:
@@ -151,13 +145,10 @@ class FileCacher(object):
         computers = set(computers)
         errors = []
         for computer in computers:
-            result = self.retrieve_frames(computer)
-            if result:
-                errors.append('%s: %s' %(computer, result))
-        if errors:
-            return errors
-        else:
-            return 0
+            exitcode = self.retrieve_frames(computer)
+            if exitcode > 0:
+                errors.append((computer, exitcode))
+        return errors
 
 class Interactive(object):
     '''Interactive command line interface for FileCacher.'''
@@ -182,8 +173,8 @@ class Interactive(object):
     
         project_path = input('Absolute path to project root directory: ')
         blendfile = input('Relative path from project root to blend file: ')
-        renderpath = input('Relative path from project root to rendered frames '
-                           'directory: ')
+        renderpath = input('Relative path from project root to rendered '
+                           'frames directory: ')
         complist = input('Computers: ').split()
         print(
             '\nConfirm:'

@@ -113,7 +113,8 @@ class Job(object):
         #Fill list of total frames with zeros
         #used for tracking percent complete
         self.totalframes = []
-        for i in range(self.startframe, self.endframe + len(self.extraframes) + 1):
+        for i in range(self.startframe, self.endframe + 
+                       len(self.extraframes) + 1):
             self.totalframes.append(0)
         #create LifoQueue and put frames
         #using Lifo (last-in-first-out) so that frames returned to queue b/c
@@ -132,7 +133,7 @@ class Job(object):
                 self.queue.put(frame)
         #if project files will be cached locally on render nodes, set up cacher
         if cachedata:
-            print('Request for projcache detected in enqueue()', cachedata)#debug
+            print('Request for projcache detected in enqueue()', cachedata)
             #XXX not sure if there's really any need to maintain both the
             #cachedata dict and the filecacher object.
             self.cachedata = cachedata
@@ -200,7 +201,8 @@ class Job(object):
             if len(self.skiplist) == len(self.complist):
                 #ignore if both lists are empty
                 if not len(self.complist) == 0:
-                    self.prints('All computers in skiplist, popping oldest one')
+                    self.prints('All computers in skiplist, popping oldest '
+                                'one')
                     skipcomp = self.skiplist.pop(0)
                     self._reset_compstatus(skipcomp)
     
@@ -211,7 +213,7 @@ class Job(object):
 
                 elif (not self.compstatus[computer]['active'] and 
                         computer not in self.skiplist):
-                    #break loop if queue becomes empty after new computer is added
+                    #break loop if queue becomes empty after computer added
                     if self.queue.empty():
                         break
                     else:
@@ -223,8 +225,10 @@ class Job(object):
                             self.threads_active = True
                             self.renderlog.frame_sent(frame, computer) 
                         self.prints('Creating renderthread')#debug
-                        rthread = threading.Thread(target=tgt_thread, args=(frame, 
-                                                   computer, self.queue))
+                        rthread = threading.Thread(
+                            target=tgt_thread, args=(frame,  computer, 
+                            self.queue)
+                            )
                         rthread.start()
                 #ignore computers in skiplist
                 elif computer in self.skiplist:
@@ -291,7 +295,7 @@ class Job(object):
                 if computer in Config.renice_list:
                     subprocess.call('ssh igp@' + computer + ' "renice 20 -p ' + 
                                      str(pid) + '"', shell=True)
-                #remove oldest item from skiplist if render started successfully
+                #remove oldest item from skiplist if render starts successfully
                 with threadlock:
                     if len(self.skiplist) > 0:
                         skipcomp = self.skiplist.pop(0)
@@ -312,7 +316,8 @@ class Job(object):
                 break
     
         #NOTE omitting stderr checking for now
-        self.prints('_renderthread() terminated', frame=frame, computer=computer)
+        self.prints('_renderthread() terminated', frame=frame, 
+                    computer=computer)
 
     def _renderthread_tgn(self, frame, computer, framequeue):
         '''Thread to send command, monitor status, and parse return data for a
@@ -335,7 +340,8 @@ class Job(object):
                   frame)
                 )
 
-        command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, shell=True)
+        command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, 
+                                   shell=True)
 
         for line in iter(command.stdout.readline, ''):
             line = line.decode('UTF-8')
@@ -370,7 +376,7 @@ class Job(object):
                                         +str(pid)+'"', shell=True)
                         self.prints('Reniced PID %s to pri 20' %pid, frame, 
                                   computer)
-                    #remove oldest item from skiplist if render starts successfully
+                    #remove oldest item from skiplist if render starts 
                     with threadlock:
                         if len(self.skiplist) > 0:
                             skipcomp = self.skiplist.pop(0)
@@ -453,9 +459,11 @@ class Job(object):
             self._kill_thread(computer, pid)
 
     def _kill_thread(self, computer, pid):
-        '''Handles INTERNAL kill thread requests. Encapsulates kill command in 
-        separate thread to prevent blocking of main if ssh connection is slow.'''
-        kthread = threading.Thread(target=self._threadkiller, args=(computer, pid))
+        '''Handles INTERNAL kill thread requests. Encapsulates kill command
+        in separate thread to prevent blocking of main if ssh connection is
+        slow.'''
+        kthread = threading.Thread(target=self._threadkiller, 
+                                   args=(computer, pid))
         kthread.start()
         with threadlock:
             self.renderlog.process_killed(pid, computer)
@@ -467,7 +475,8 @@ class Job(object):
         self.prints('finished _threadkiller()', computer=computer)
 
     def kill_thread(self, computer):
-        '''Handles EXTERNAL kill thread requests.  Returns PID if successful.'''
+        '''Handles EXTERNAL kill thread requests.  Returns PID if 
+        successful.'''
         try:
             pid = self.compstatus[computer]['pid']
             frame = self.compstatus[computer]['frame']
@@ -504,8 +513,8 @@ class Job(object):
         self.stoptime = time.time()
 
     def get_times(self):
-        '''Returns elapsed time, avg time per frame, and estimated time remaining.
-        Units are float seconds.'''
+        '''Returns elapsed time, avg time per frame, and estimated time 
+        remaining. Units are float seconds.'''
         if not self.starttime:
             return (0, 0, 0)
         if self.status == 'Rendering':
@@ -564,7 +573,7 @@ class Job(object):
                         self.prints('Unable to transfer files: %s' %result, 
                                   computer=computer, error=True)
                         return False
-                    #NOTE: FileCacher should add comp. to its list automatically
+                    #NOTE: FileCacher should add comp to its list automatically
                     self.cachedata['computers'].append(computer)
             self.complist.append(computer)
             if self.status == 'Rendering':
@@ -603,10 +612,10 @@ class Job(object):
 
     def kill_later(self, finalstatus='Stopped'):
         '''Kills job but allows any currently rendering frames to finish.
-        NOTE: Does not monitor progress of currently rendering frames, so if they
-        do not finish there will be missing frames, or if job is immediately
-        resumed there may be multiple render processes running on each computer
-        until the old frames finish.
+        NOTE: Does not monitor progress of currently rendering frames, so 
+        if they do not finish there will be missing frames, or if job is 
+        immediately resumed there may be multiple render processes running 
+        on each computer until the old frames finish.
 
         The finalstatus attribute can be used to pass a special status
         (i.e. 'Paused') to be assigned when the function is complete.'''
@@ -621,7 +630,8 @@ class Job(object):
 
     def resume(self, startnow=True):
         '''Resumes a render that was previously stopped. If startnow == False,
-        render will be placed in queue with status 'Waiting' but not started.'''
+        render will be placed in queue with status 'Waiting' but not 
+        started.'''
         if self.status != 'Stopped':
             return False
         self.killflag = False
@@ -635,7 +645,8 @@ class Job(object):
             return True
 
     def autostart(self):
-        '''Handles starting the current job from the check_autostart function.'''
+        '''Handles starting the current job from the check_autostart 
+        function.'''
         if self.status == 'Waiting':
             self.render()
         else:
@@ -673,8 +684,8 @@ class Job(object):
         if added:
             for comp in added:
                 self._reset_compstatus(comp)
-                self.prints('New computer available, creating compstatus entry', 
-                            computer=comp)
+                self.prints('New computer available, creating compstatus '
+                            'entry', computer=comp)
         #any computers no longer available
         removed = [comp for comp in self.compstatus if not
                    comp in Config.computers]
@@ -684,6 +695,12 @@ class Job(object):
                     self.complist.remove(comp)
                 self.prints('Computer in compstatus no longer available. '
                             'removing compstatus entry.', computer=comp)
+        if self.cachedata:
+            self.filecacher = projcache.FileCacher(
+                self.cachedata['rootpath'], self.cachedata['filepath'], 
+                self.cachedata['renderdirpath'], 
+                self.cachedata['computers']
+                )
         if not self.status == 'Finished':
             self.queue = queue.LifoQueue(0)
             framelist = list(range(self.startframe, self.endframe + 1))
@@ -695,11 +712,6 @@ class Job(object):
                     framelist.remove(frame)
                 else:
                     self.queue.put(frame)
-            if self.cachedata:
-                self.filecacher = projcache.FileCacher(
-                    self.cachedata['rootpath'], self.cachedata['filepath'], 
-                    self.cachedata['renderdirpath'], self.cachedata['computers']
-                    )
             self.prints('Restoring job with frames: %s' %framelist)
             self.renderlog = RenderLog(
                 self.path, self.startframe, self.endframe, 
@@ -719,21 +731,22 @@ class Job(object):
     def retrieve_cached_files(self):
         '''Attempts to copy rendered frames from the rendercache directory
         on each render node back to the shared directory on the server.'''
-        self.prints('Attemptingn to retrieve rendered frames from local '
+        self.prints('Attempting to retrieve rendered frames from local '
                   'rendercahes')
+        if not self.cachedata:
+            return 'Caching not enabled'
         result = self.filecacher.retrieve_all()
         if result:
-            print(result)
+            #errors were received in a list of tuples, print it neatly
+            print('Errors reported:')
+            for i in result:
+                print('%s returned non-zero exit status %s' %i)
             #XXX Need way to report this to GUI
-            #XXX also don't want to write to renderlog if status is waiting
-            self.renderlog.frames_retrieved(self.filecacher.computers, 
-                                            error=result)
+            #XXX removed renderlog stuff b/c it was causing issues.
             return result
         else:
             #print('Cached frames successfully retrieved.')
             self.prints('Cached frames successfully retrieved')
-            self.renderlog.frames_retrieved(self.filecacher.computers,  
-                                            error=None)
             return 0
 
     def gettime(self):
@@ -776,7 +789,8 @@ class RenderLog(Job):
         self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
         self.logpath = (self.log_basepath + self.filename + '.' 
                         + self.enq_time + '.txt')
-        self.total = str(len(range(startframe, endframe)) + 1 + len(extraframes))
+        self.total = str(len(range(startframe, endframe)) + 1 + 
+                         len(extraframes))
 
     def start(self):
         '''Creates initial entry corresponding to render start.'''
@@ -789,7 +803,8 @@ class RenderLog(Job):
             log.write('Render started at ' + self.gettime() + '\n')
             log.write('File: ' + self.path + '\n')
             log.write('Frames: ' + str(self.startframe) + ' - ' 
-                      + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+                      + str(self.endframe) + ', ' + str(self.extraframes) 
+                      + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
             log.write('Job ID: %s\n' %self._id_)
             if self.caching:
@@ -810,7 +825,8 @@ class RenderLog(Job):
     def frame_failed(self, frame, computer, errtxt):
         with open(self.logpath, 'a') as log:
             log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
-                      + computer + ' at ' + self.gettime() + ': ' + errtxt + '\n')
+                      + computer + ' at ' + self.gettime() + ': ' + errtxt 
+                      + '\n')
 
     def process_killed(self, pid, computer):
         with open(self.logpath, 'a') as log:
@@ -834,10 +850,12 @@ class RenderLog(Job):
             log.write(RenderLog.hrule)
             log.write('Render finished at ' + self.gettime() + '\n')
             log.write('Total time: ' + self.format_time(elapsed) + '\n')
-            log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+            log.write('Average time per frame: ' + self.format_time(avg) + 
+                      '\n')
             log.write(RenderLog.hrule)
 
-    def frames_retrieved(self, computers, error=None):
+    #XXX Not currently used
+    def XXXframes_retrieved(self, computers, error=None):
         with open(self.logpath, 'a') as log:
             log.write(RenderLog.hrule)
             log.write('Attempted to retrieve locally cached frames at %s\n'
@@ -856,7 +874,8 @@ class RenderLog(Job):
             log.write(RenderLog.hrule)
             log.write('Render stopped by user at ' + self.gettime() + '\n')
             log.write('Total time: ' + self.format_time(elapsed) + '\n')
-            log.write('Average time per frame: ' + self.format_time(avg) + '\n')
+            log.write('Average time per frame: ' + self.format_time(avg) + 
+                      '\n')
             log.write(RenderLog.hrule)
 
     def _resume(self):
@@ -867,7 +886,8 @@ class RenderLog(Job):
             log.write('Render resumed at ' + self.gettime() + '\n')
             log.write('File: ' + self.path + '\n')
             log.write('Frames: ' + str(self.startframe) + ' - ' 
-                      + str(self.endframe) + ', ' + str(self.extraframes) + '\n')
+                      + str(self.endframe) + ', ' + str(self.extraframes) 
+                      + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
             log.write(RenderLog.hrule)
 
@@ -982,8 +1002,7 @@ class Config(object):
         #create list of all computers available for rendering
         computers = [ 
             'bierstadt', 'massive', 'sneffels', 'sherman', 'the-holy-cross', 
-            'eldiente', 'lindsey', 'wetterhorn', 'lincoln', 'humberto', 
-            'tabeguache', 'smaug', 'conundrum', 'paradox'
+            'eldiente', 'lindsey', 'conundrum', 'paradox'
             ] 
         #list of computer to renice processes to lowest priority. 
         renice_list = ['conundrum', 'paradox', 'sherman'] 
@@ -1011,9 +1030,11 @@ class Config(object):
         #default directory to hold render log files
         log_basepath = "/mnt/data/renderlogs/"
     
-        return (computers, renice_list, macs, blenderpath_mac, blenderpath_linux, 
-                terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, 
-                serverport, autostart, verbose, log_basepath) 
+        return (
+            computers, renice_list, macs, blenderpath_mac, blenderpath_linux, 
+            terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, 
+            serverport, autostart, verbose, log_basepath
+            ) 
 
 
 
@@ -1024,44 +1045,9 @@ class Config(object):
 
 #----------SERVER INTERFACE----------
 
-'''
-Client-server command-response protocol:
-
-### Client ###      ### Server ###
-send command   -->  receive command
-                        |
-                    validate command
-                        |
-receive report <--  report validation
-    |
-    |
-send cmd args  -->  execute command w/args
-                        |
-                        |
-receive result <--  report return string/result
-
-Each connection from a client receives its own instance of ClientThread. This
-thread checks the command against a list of valid commands, reports success or
-failure of validation to the client, then executes the command with arguments 
-supplied in a dict (kwargs) transmitted as a JSON string. It then reports the 
-data returned from the function to the client. This can be a simple success/fail 
-indicator, or it can be whatever data the client has requested also formatted as 
-a JSON string..
-
-For this reason, there are some rules for functions that directly carry out 
-requests from client threads:
-
-    1. The name of the function must be in the allowed_commands list.
-
-    2. The function must accept the kwargs argument, even if it isn't used.
-
-    3. The function must return something on completion. It can be any type of 
-       object as long as it's compatible with python's json.dumps and json.loads.
-
-'''
 
 allowed_commands= [
-'cmdtest', 'get_attrs', 'job_exists', 'enqueue',
+'get_attrs', 'job_exists', 'enqueue',
 'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
 'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
 'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority',
@@ -1072,9 +1058,10 @@ allowed_commands= [
 
 class RenderServer(object):
     '''This is the master class for this module. Instantiate this class to
-    start a server. The Job class and its methods can be used directly without
-    a RenderServer instance, however an instance of Config MUST be created first to 
-    define the global configuration variables on which Job's methods depend.'''
+    start a server. The Job class and its methods can be used directly 
+    without a RenderServer instance, however an instance of Config MUST be 
+    created first to define the global configuration variables on which 
+    Job's methods depend.'''
     def __init__(self, port=None):
         #read config file & set up config variables
         self.conf = Config()
@@ -1095,8 +1082,8 @@ class RenderServer(object):
     def _check_logpath(self):
         #look for the renderlog base path and verify it's accessible
         if not os.path.exists(Config.log_basepath):
-            print('WARNING: Path to renderlog directory: "'+Config.log_basepath
-                    +'" could not be found.')
+            print('WARNING: Path to renderlog directory: "' + 
+                    Config.log_basepath +'" could not be found.')
             if input('Do you want to specify a new path now? (Y/n): ') == 'Y':
                 Config.log_basepath = input('Path:')
                 if not os.path.exists(Config.log_basepath):
@@ -1117,8 +1104,9 @@ class RenderServer(object):
             return True
 
     def update_loop(self):
-        '''Handles miscellaneous tasks that need to be carried out on a regular
-        interval. Runs in separate thread to prevent blocking other processes.'''
+        '''Handles miscellaneous tasks that need to be carried out on a 
+        regular interval. Runs in separate thread to prevent blocking other 
+        processes.'''
         #while True:
         while self.server.islistening():
             self.save_state()
@@ -1207,7 +1195,8 @@ class RenderServer(object):
         '''Writes the current state of all Job instances on the server
         to a file. Used for restoring queue contents and server state in
         case the server crashes or needs to be restarted.  The update_loop
-        method periodically calls this function whenever the server is running.'''
+        method periodically calls this function whenever the server is 
+        running.'''
         statevars = {'verbose':Config.verbose, 'autostart':Config.autostart}
         jobs = {}
         for index in self.renderjobs:
@@ -1246,18 +1235,11 @@ class RenderServer(object):
                     print('Unable to restore job ', index)
             print('Server state restored')
 
-    def cmdtest(self, kwargs):
-        '''a basic test of client-server command-response protocol'''
-        print('cmdtest() called')
-        for arg in kwargs:
-            print('arg:', arg, kwargs[arg])
-        return 'cmdtest() success'
-    
     def get_attrs(self, kwargs=None):
-        '''Returns dict of attributes for a given index. If no index is specified,
-        returns a dict containing key:dictionary pairs for every job instance
-        on the server where key is the job's index and the dict contains all of
-        its attributes.
+        '''Returns dict of attributes for a given index. If no index is 
+        specified, returns a dict containing key:dictionary pairs for every 
+        job instance on the server where key is the job's index and the 
+        dict contains all of its attributes.
     
         Also if no index is specified, an entry called __STATEVARS__ will be 
         appended that contains non-job-related information about the server 
@@ -1283,7 +1265,8 @@ class RenderServer(object):
         if not self.msgq.empty():
             attrdict['__MESSAGE__'] = self.msgq.get()
             self.msgq.task_done()
-            #XXX need to get client ID and put messages back in queue if not match
+            #XXX need to get client ID and put messages back in queue if 
+            #they don't match
         else:
             attrdict['__MESSAGE__'] = None
         return attrdict
@@ -1348,7 +1331,8 @@ class RenderServer(object):
         #if self.renderjobs[index].get_comp_status(computer)['pool']:
         if computer in self.renderjobs[index].complist:
             reply = self.renderjobs[index].remove_computer(computer)
-            if reply: return computer+' removed from render pool for '+str(index)
+            if reply: return (computer+' removed from render pool for ' + 
+                              str(index))
         else:
             reply = self.renderjobs[index].add_computer(computer)
             if reply: return computer+ ' added to render pool for '+str(index)
@@ -1359,8 +1343,6 @@ class RenderServer(object):
         computer = kwargs['computer']
         #first remove computer from the pool
         remove = self.renderjobs[index].remove_computer(computer)
-        #if not reply:
-        #    return 'Failed to kill thread, unable to remove computer from pool.'
         kill = self.renderjobs[index].kill_thread(computer)
         #remove computer
         if kill:
@@ -1386,7 +1368,8 @@ class RenderServer(object):
         if kill_now:
             reply = self.renderjobs[index].kill_now()
             if reply:
-                return 'Killed render and all associated processes for %s' %index
+                return ('Killed render and all associated processes for %s'
+                        %index)
         else:
             reply = self.renderjobs[index].kill_later()
             if reply:
@@ -1420,7 +1403,8 @@ class RenderServer(object):
         return index + ' deleted.'
     
     def get_config_vars(self, kwargs=None):
-        '''Gets server-side configuration variables and returns them as a list.'''
+        '''Gets server-side configuration variables and returns them as 
+        a list.'''
         cfgvars = self.conf.getall()
         return cfgvars
     
@@ -1480,12 +1464,14 @@ class RenderServer(object):
         return 'Server settings restored to defaults'
 
     def killall_blender(self, kwargs=None):
-        '''Attempts to kill all running instances of blender on all computers.'''
+        '''Attempts to kill all running instances of blender on all 
+        computers.'''
         t = SSHCommandThread(Config.computers, self.msgq, 'killall blender')
         return 'Attempting to kill all instances of Blender on all computers.'
 
     def killall_tgn(self, kwargs=None):
-        '''Attempts to kill all running instances of terragen on all computers.'''
+        '''Attempts to kill all running instances of terragen on all 
+        computers.'''
         linuxlist = Config.computers
         for comp in Config.macs:
             linuxlist.remove(comp)
@@ -1514,16 +1500,11 @@ class RenderServer(object):
         if not index in self.renderjobs:
             return '%s not found on server' %index
         job = self.renderjobs[index]
-        self.msgq.put(('all', 'balsejr'))
-        if not job.cachedata:
-            return 'File caching not enabled for %s' %index
-        else:
-            result = job.retrieve_cached_files()
+        result = job.retrieve_cached_files()
         if result:
-            return ('Attempted to retrieve files, the following errors were '
-                    'reported: %s' %result)
+            return result
         else:
-            return 'Files retrieved without errors'
+            return 0
 
     def clear_rendercache(self, kwargs=None):
         '''Attempts to delete the contents of the ~/rendercache directory on
@@ -1536,7 +1517,8 @@ class RenderServer(object):
             except Exception as e:
                 errors.append(e)
         if errors:
-            return 'Clear rendercache returned the following errors: %s' %errors
+            return ('Clear rendercache returned the following errors: %s' 
+                    %errors)
         else:
             return 'Clear rendercache finished without errors.'
 

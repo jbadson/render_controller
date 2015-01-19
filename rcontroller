@@ -26,40 +26,88 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #####################################################################
 '''
 
-import sys
+import argparse
+import cli
 import server
 import gui
-import projcache
 
 
-helptext = (
-'IGP Render Controller\n'
-'Usage: rcontroller [-s] [-h] [-p] [port#]\n'
-'Execute with no options to start the GUI client.\n'
-'-s --server\tStart the server.\n'
-'-p --port\tUse the specified port when starting the server.\n'
-'\t\tMust be used with -s or --server.\n'
-'--cache\t\tCopy files to local rendercaches (interactive).\n'
-'--retrieve\tRetrieve rendered files from local rendercaches (interactive).\n'
-'-h --help\tDisplay this help message.'
-)
+class Parser(argparse.ArgumentParser):
+    def __init__(self):
+        argparse.ArgumentParser.__init__(self)
+
+        self.add_argument('-s', '--server', action='store_true',
+            help='Start the render server.')
+        self.add_argument('-g', '--gui', action='store_true', dest='gui',
+            default=False, help='Start client graphical user interface')
+        self.add_argument('-l', '--list', action='store_true', default=False, 
+            dest='joblist', help='List all items in render queue.')
+        self.add_argument('-a', '--listall', action='store_true', 
+            default=False, dest='listall', 
+            help='Print full status info for all jobs in queue.')
+        self.add_argument('-i', '--info', action='store', default=-1,
+            dest='info', help='Print full status info for job with given ID.',
+            metavar='ID', type=int)
+        self.add_argument('--start', action='store', default=-1,
+            dest='start', help='Start render for job witn given ID.', 
+            metavar='ID', type=int)
+        self.add_argument('--stop', action='store', default=-1, dest='stop',
+            help='Stop render for job with given ID.', metavar='ID', type=int)
+        self.add_argument('--resume', action='store', default=-1, 
+            dest='resume', type=int, metavar='ID', 
+            help='Resume a stopped job with a given ID.')
+        self.add_argument('--killall', dest='killall', default='',
+            type=str, help='Kill all terragen or blender processes on all '
+            'computers. Specify "blender" or "terragen".', metavar='PROG')
+        self.add_argument('-t', '--toggle', nargs=2, dest='toggle', 
+            metavar=('ID', 'COMP'), help='Toggle computer render status.')
+        self.add_argument('--checkframes', action='store_true', default=False,
+            dest='checkframes', help='Check a directory for missing frames.')
+        self.add_argument('-e', '--enqueue', action='store_true', default=False,
+            dest='enqueue', help='Create a new job (interactive)')
+        self.add_argument('-p', '--port', action='store', dest='port', 
+            default=2020, type=int, help='Port number.')
+        self.add_argument('-c', '--connect_to', action='store', dest='host',
+            type=str, default='localhost', help='Hostname or IP for command-'
+            'line interface to connect to. If none is specified, the '
+            'default "localhost" will be used. This option is ignored if '
+            '-s or -g options are used.')
+
+    def parse(self):
+        args = self.parse_args()
+        if args.server:
+            rserver = server.RenderServer(port=args.port)
+            return
+        elif args.gui:
+            masterwin = gui.MasterWin()
+            masterwin.mainloop()
+            return
+
+        #all other options require a server running on the local machine
+        interface = cli.Cli(args.host, args.port)
+        if args.joblist:
+            interface.list_jobs()
+        if args.info>= 0:
+            interface.print_single_job(args.info)
+        if args.listall:
+            interface.list_all()
+        if args.start >= 0:
+            interface.start_render(args.start)
+        if args.stop >= 0:
+            interface.kill_render(args.stop)
+        if args.resume >= 0:
+            interface.resume_render(args.resume)
+        if args.killall:
+            interface.killall(args.killall)
+        if args.toggle:
+            job_id, comp = args.toggle
+            interface.toggle_comp(job_id, comp)
+        if args.checkframes:
+            interface.checkframes()
+        if args.enqueue:
+            interface.enqueue()
 
 
-port = None
-
-if '-s' in sys.argv or '--server' in sys.argv:
-    if '-p' in sys.argv or '--port' in sys.argv:
-        for i in sys.argv:
-            if i.isdigit(): #assume any number in args is the port number
-                port = int(i)
-                break
-    renderserver = server.RenderServer(port=port)
-elif '-h' in sys.argv or '--help' in sys.argv:
-    print(helptext)
-elif '--cache' in sys.argv:
-    projcache.Interactive(mode='send')
-elif '--retrieve' in sys.argv:
-    projcache.Interactive(mode='retrieve')
-else:
-    masterwin = gui.MasterWin()
-    masterwin.mainloop()
+if __name__ == '__main__':
+    parser = Parser()
+    parser.parse()

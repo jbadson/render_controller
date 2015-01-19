@@ -39,17 +39,11 @@ import socketwrapper as sw
 illegal_characters = [';', '&'] #not allowed in path
 
 
-def cmdtest():
-    '''a basic test of client server command-response protocol'''
-    command = 'cmdtest'
-    kwargs = {'1':'one', '2':'two'}
-    return_str = sw.ClientSocket(Config.host, Config.port).send_cmd(command, kwargs)
-    print(return_str)
-
 def get_job_status(index):
     '''Returns the status string for a given job.'''
     kwargs = {'index':index}
-    status = sw.ClientSocket(Config.host, Config.port).send_cmd('get_status', kwargs)
+    status = sw.ClientSocket(Config.host, Config.port
+        ).send_cmd('get_status', kwargs)
     return status
 
 def killall_blender():
@@ -57,7 +51,8 @@ def killall_blender():
     if not Dialog('This will kill ALL instances of Blender on ALL '
                   ' computers. Proceed?').confirm():
         return
-    reply = sw.ClientSocket(Config.host, Config.port).send_cmd('killall_blender')
+    reply = sw.ClientSocket(Config.host, Config.port
+        ).send_cmd('killall_blender')
     print(reply)
 
 def killall_tgn():
@@ -75,7 +70,8 @@ def clear_rendercache():
                   'directory on ALL computers.  Are you sure you want to do '
                   'this?').confirm():
         return
-    reply = sw.ClientSocket(Config.host, Config.port).send_cmd('clear_rendercache')
+    reply = sw.ClientSocket(Config.host, Config.port
+        ).send_cmd('clear_rendercache')
     print(reply)
 
 def quit(event=None):
@@ -225,8 +221,8 @@ class MasterWin(tk.Tk):
             ).grid(row=0, column=0, columnspan=2, pady=10)
         ttk.Label(self.setupframe, text='Username:').grid(
             row=1, column=0, sticky=tk.E, pady=5)
-        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_username).grid(
-            row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_username
+            ).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
         ttk.Label(self.setupframe, text='Server address:').grid(
             row=2, column=0, sticky=tk.E, pady=5
             )
@@ -353,7 +349,8 @@ class MasterWin(tk.Tk):
         dellist = []
         for index in self.jobboxes:
             if not index in serverjobs:
-                #can't directly delete here b/c dict length will change-->exception
+                #can't directly delete here b/c dict length will change,
+                #raising an exception
                 dellist.append(index)
         for index in dellist:
             self._remove_job(index)
@@ -362,9 +359,9 @@ class MasterWin(tk.Tk):
             attrdict = serverjobs[index]
             #update job box
             self.jobboxes[index].update(
-                attrdict['status'], attrdict['startframe'], attrdict['endframe'], 
-                attrdict['path'], attrdict['progress'], attrdict['times'],
-                attrdict['queuetime']
+                attrdict['status'], attrdict['startframe'], 
+                attrdict['endframe'], attrdict['path'], attrdict['progress'], 
+                attrdict['times'], attrdict['queuetime']
                 )
             #update comp panel
             self.comppanels[index].update(attrdict)
@@ -376,19 +373,18 @@ class MasterWin(tk.Tk):
 
 
     def _new_job(self):
-        '''Opens an instance of InputWindow to create a new job on the server.
-
-        GUI elements are not created directly by this function. They are created 
-        by self.update() when called by the status thread to ensure that the GUI 
-        state is only changed if the server state was successfully changed.'''
+        '''Opens an instance of InputWindow to create a new job on the 
+        server. GUI elements are not created directly by this function. 
+        They are created by self.update() when called by the status thread 
+        to ensure that the GUI state is only changed if the server state was 
+        successfully changed.'''
         newjob = InputWindow()
 
     def _delete_job(self):
-        '''Deletes the selected job from the server.
-
-        GUI elements are not removed directly by this function. They are deleted
-        by self.update() when called by the status thread to ensure that the GUI 
-        state is only changed if the server state was successfully changed.'''
+        '''Deletes the selected job from the server. GUI elements are not 
+        removed directly by this function. They are deleted by self.update() 
+        when called by the status thread to ensure that the GUI state is 
+        only changed if the server state was successfully changed.'''
         nojobs = True
         for index in self.jobboxes:
             if self.jobboxes[index].selected:
@@ -408,8 +404,9 @@ class MasterWin(tk.Tk):
     def _create_job(self, index):
         '''Creates GUI elements for a given index.'''
         #create job box
-        self.jobboxes[index] = SmallBox(masterwin=self, master=self.jobbox_frame, 
-                                        index=index)
+        self.jobboxes[index] = SmallBox(
+            masterwin=self, master=self.jobbox_frame, index=index
+            )
         self.jobboxes[index].pack()
         #let sort_jobboxes pack everything in the correct place
         #put box in list (at top for now)
@@ -518,8 +515,10 @@ class ComputerPanel(ttk.Frame):
         #Create job control buttons
         buttonbox = ttk.Frame(self)
         buttonbox.pack(anchor=tk.W, expand=True, fill=tk.X, padx=5, pady=5)
-        ttk.Button(buttonbox, text='Edit', command=self._edit).pack(side=tk.LEFT)
-        ttk.Button(buttonbox, text='Start', command=self._start).pack(side=tk.LEFT)
+        ttk.Button(buttonbox, text='Edit', command=self._edit
+            ).pack(side=tk.LEFT)
+        ttk.Button(buttonbox, text='Start', command=self._start
+            ).pack(side=tk.LEFT)
         ttk.Button(
             buttonbox, text='Stop', command=self._kill_render
             ).pack(side=tk.LEFT)
@@ -579,10 +578,18 @@ class ComputerPanel(ttk.Frame):
         if attrs['status'] in denystatuses:
             Dialog('Job cannot be edited.').warn()
             return
+        if attrs['cachedata']:
+            caching = True
+            paths = (attrs['cachedata']['rootpath'],
+                     attrs['cachedata']['filepath'],
+                     attrs['cachedata']['renderdirpath'])
+        else:
+            caching = False
+            paths = attrs['path']
         editjob = InputWindow(
-            index=self.index, path=attrs['path'], start=attrs['startframe'],
-            end=attrs['endframe'], extras=attrs['extraframes'],
-            engine=attrs['render_engine'], complist=attrs['complist']
+            index=self.index, caching=caching, paths=paths, 
+            start=attrs['startframe'], end=attrs['endframe'], 
+            extras=attrs['extraframes'], complist=attrs['complist']
             )
 
     def _start(self):
@@ -597,10 +604,11 @@ class ComputerPanel(ttk.Frame):
     def _kill_render(self):
         '''Kill the current render.'''
         if get_job_status(self.index) != 'Rendering':
-            Dialog('Cannot stop a render unless its status is "Rendering"').warn()
+            Dialog('Cannot stop a render unless its status is "Rendering"'
+                ).warn()
             return
-        confirm = Dialog('Stopping render. Allow currently rendering frames to '
-                         'finish?').yesnocancel()
+        confirm = Dialog('Stopping render. Allow currently rendering frames '
+                         'to finish?').yesnocancel()
         if confirm == 'cancel':
             return
         elif confirm == 'yes':
@@ -637,8 +645,15 @@ class ComputerPanel(ttk.Frame):
         print(reply)
 
     def retrieve_frames(self):
-        reply = self.socket.send_cmd('retrieve_cached_files', self.index)
-        print(reply)
+        errors = self.socket.send_cmd('retrieve_cached_files', self.index)
+        if errors:
+            print('Attempted to retrieve files for %s. The following errors '
+                  'were returned:' %self.index)
+            if isinstance(errors, list):
+                for i in errors:
+                    print('%s returned non-zero exit status %s' %tuple(i))
+            else:
+                print(errors)
 
     def update(self, attrdict):
         '''Calls the update methods for all child elements.'''
@@ -737,13 +752,15 @@ class BigBox(_statusbox, ttk.LabelFrame):
         self.extraslabel = tk.Label(toprow, font=self.font, text='None', 
                                     wraplength=400)
         self.extraslabel.pack(side=tk.RIGHT)
-        tk.Label(toprow, font=self.font, text='Extra frames:').pack(side=tk.RIGHT)
+        tk.Label(toprow, font=self.font, text='Extra frames:'
+            ).pack(side=tk.RIGHT)
         self.endlabel = tk.Label(toprow, font=self.font, text='1000')
         self.endlabel.pack(side=tk.RIGHT, padx=(0, 30))
         tk.Label(toprow, font=self.font, text='End frame:').pack(side=tk.RIGHT)
         self.startlabel = tk.Label(toprow, font=self.font, text='0000')
         self.startlabel.pack(side=tk.RIGHT, padx=(0, 30))
-        tk.Label(toprow, font=self.font, text='Start frame:').pack(side=tk.RIGHT)
+        tk.Label(toprow, font=self.font, text='Start frame:'
+            ).pack(side=tk.RIGHT)
 
         pathrow = tk.Frame(container)
         pathrow.pack(padx=5, anchor=tk.W)
@@ -771,7 +788,8 @@ class BigBox(_statusbox, ttk.LabelFrame):
             ).pack(side=tk.LEFT, padx=(220, 0))
         self.avg_time_lbl = tk.Label(bottomrow, text='')
         self.avg_time_lbl.pack(side=tk.LEFT)
-        self.rem_time_lbl = tk.Label(bottomrow, font=self.font, text='0d0h0m0s')
+        self.rem_time_lbl = tk.Label(bottomrow, font=self.font, 
+                                     text='0d0h0m0s')
         self.rem_time_lbl.pack(side=tk.RIGHT)
         tk.Label(
             bottomrow, font=self.font, text='Time remaining:'
@@ -823,8 +841,9 @@ class SmallBox(_statusbox, tk.Frame):
         '''Creates a small status box for the left window pane.'''
         toprow = tk.Frame(self, bg=self.bgcolor)
         toprow.pack(padx=5, expand=True, fill=tk.X)
-        self.namelabel = tk.Label(toprow, font=self.font, text='filename' + ':', 
-                                  bg=self.bgcolor)
+        self.namelabel = tk.Label(
+            toprow, font=self.font, text='filename:', bg=self.bgcolor
+            )
         self.namelabel.pack(side=tk.LEFT)
         self.statuslbl = tk.Label(toprow, font=self.font, text='Empty', 
                                   bg=self.bgcolor)
@@ -842,8 +861,9 @@ class SmallBox(_statusbox, tk.Frame):
                  bg=self.bgcolor).pack(side=tk.LEFT)
         tk.Label(bottomrow, font=self.font, text='Remaining', 
                  bg=self.bgcolor).pack(side=tk.RIGHT)
-        self.rem_time_lbl = tk.Label(bottomrow, font=self.font, text='0d0h0m0s', 
-                                     bg=self.bgcolor)
+        self.rem_time_lbl = tk.Label(
+            bottomrow, font=self.font, text='0d0h0m0s', bg=self.bgcolor
+            )
         self.rem_time_lbl.pack(side=tk.RIGHT)
         for child in self.winfo_children():
             child.bind('<Button-1>', self.toggle)
@@ -936,7 +956,8 @@ class CompCube(_statusbox, ttk.LabelFrame):
             command=self._toggle_pool_state, bg=self.bgcolor,
             ).pack()
         tk.Button(buttonblock, text='Kill', command=self._kill_thread,
-                  highlightbackground=self.bgcolor, highlightthickness=0).pack()
+                  highlightbackground=self.bgcolor, highlightthickness=0
+                  ).pack()
         errblock = tk.Frame(self, bg=self.bgcolor)
         errblock.pack(expand=True, fill=tk.X)
         tk.Label(errblock, text='Status:', font=self.font).pack(side=tk.LEFT)
@@ -1000,9 +1021,14 @@ class CompCube(_statusbox, ttk.LabelFrame):
 class InputWindow(tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.
     If passed optional arguments, these will be used to populate the fields
-    in the new window.'''
-    def __init__(self, index=None, path=None, start=None, end=None, extras=None, 
-                 engine=None, complist=None):
+    in the new window.
+
+    If rendernode file caching is enabled, 
+    paths=(rootdir, filepath, renderdir). Otherwise paths=path'''
+    def __init__(
+            self, index=None, caching=False, paths=None, start=None, 
+            end=None, extras=None, complist=None
+            ):
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
@@ -1012,31 +1038,30 @@ class InputWindow(tk.Toplevel):
         self.config(bg='gray90')
         self.index = index
         if not self.index:
-            path = Config.default_path
             start = Config.default_startframe
             end = Config.default_endframe
-            engine = Config.default_render_engine
+        #if resuming a job, create instance variables
         self.socket = sw.ClientSocket(Config.host, Config.port)
         #initialize tkinter variables
         #self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
         self.tk_extraframes = tk.StringVar()
-        self.tk_render_engine = tk.StringVar()
         self.tk_cachefiles = tk.IntVar()
+        if caching:
+            self.tk_cachefiles.set(1)
         self.complist = complist
         #populate text fields
         #self.tk_path.set(path)
         self.tk_startframe.set(start)
         self.tk_endframe.set(end)
-        self.tk_render_engine.set(engine)
         if extras:
             self.tk_extraframes.set(' '.join(str(i) for i in extras))
         container = ttk.LabelFrame(self)
         container.pack(padx=10, pady=10)
-        self._build(container)
+        self._build(container, paths)
 
-    def _build(self, master):
+    def _build(self, master, paths):
         #cacherow = ttk.LabelFrame(master, text='Local File Caching')
         #cacherow.pack(expand=True, fill=tk.X, padx=10, pady=5)
         ttk.Checkbutton(
@@ -1048,7 +1073,13 @@ class InputWindow(tk.Toplevel):
         self.rows = [] #list to hold row objects for sorting
         self.normalrow = NormalPathBlock(master)
         self.cacherow = CacheFilesPathBlock(master)
-        self.rows.append(self.normalrow)
+        if self.tk_cachefiles.get() == 1:
+            rootdir, filepath, renderdir = paths
+            self.cacherow.set_paths(rootdir, filepath, renderdir)
+            self.rows.append(self.cacherow)
+        else:
+            self.normalrow.set_path(paths)
+            self.rows.append(self.normalrow)
 
         framesrow = ttk.Frame(master)
         self.rows.append(framesrow)
@@ -1193,25 +1224,26 @@ class InputWindow(tk.Toplevel):
                                       complist)    
     
     
-    def _process_cache_paths(self, startframe, endframe, extraframes, complist):
+    def _process_cache_paths(self, startframe, endframe, extraframes, 
+                             complist):
         if not complist:
             Dialog('At least one computer must be specified to cache files '
                    'locally.').warn()
             return
         paths = self.cacherow.get_paths()
         if paths == 1:
-            Dialog('Paths to render file and rendered frames directory must be '
-                   'relative to the project root directory.').warn()
+            Dialog('Paths to render file and rendered frames directory must '
+                   'be relative to the project root directory.').warn()
             return
         elif paths == 2:
-            Dialog('Render file and rendered frames directory cannot be located '
-                   'above the project root directory.').warn()
+            Dialog('Render file and rendered frames directory cannot be '
+                   'located above the project root directory.').warn()
             return
         else:
             rootpath, filepath, renderdirpath = paths
         print('paths:', rootpath, filepath, renderdirpath)#debug
-        #NOTE: Paths are escaped with shlex.quote immediately before being passed
-        #to shell.
+        #NOTE: Paths are escaped with shlex.quote immediately before being 
+        #passed to shell.
         #verify that all paths are accessible from the server
         if not self.path_exists(rootpath):
             Dialog('Server cannot find the root project directory.').warn()
@@ -1231,25 +1263,29 @@ class InputWindow(tk.Toplevel):
                               'Overwrite?').yesno():
                     return
                 if get_job_status(self.index) == 'Rendering':
-                    Dialog("Can't overwrite a job while it's rendering.").warn()
+                    Dialog("Can't overwrite a job while it's rendering."
+                           ).warn()
                     return
         #set the render engine based on file suffix
-        #NOTE currently filename fixing only works with blender, but as long as
-        #paths are manually made relative in a Terragen file, that should work too
+        #NOTE currently filename fixing only works with blender, but as 
+        #long as paths are manually made relative in a Terragen file, that 
+        #should work too
         if filepath.endswith('blend'):
             render_engine = 'blend'
         elif filepath.endswith('tgd'):
             render_engine = 'tgd'
         else:
-            Dialog('File extension not recognized. Project file must end with '
-                   '".blend" for Blender or ".tgd" for Terragen3 files.').warn()
+            Dialog('File extension not recognized. Project file must end '
+                   'with ".blend" for Blender or ".tgd" for Terragen3 '
+                   'files.').warn()
             return
         #Ask user if they want to set blender paths to relative now
-        #NOTE blend file MUST be accessible from the given paths from the machine
-        #on which the GUI is running because Blender must be able to open its GUI.
+        #NOTE blend file MUST be accessible from the given paths from the 
+        #machine on which the GUI is running because Blender must be able 
+        #to open its GUI.
         cacher = projcache.FileCacher(rootpath, filepath, renderdirpath)
-        if Dialog('Attempt to set blend file paths to relative now?  NOTE: File '
-                  'MUST be accessible from this computer.').yesno():
+        if Dialog('Attempt to set blend file paths to relative now? '
+                  'File MUST be accessible from this computer.').yesno():
             result = cacher.make_paths_relative()
             if result: #there was an error
                 Dialog('Unable to make paths relative. Error message: "%s"' 
@@ -1276,7 +1312,8 @@ class InputWindow(tk.Toplevel):
                       render_engine, complist, cachedata)
     
     
-    def _process_normal_path(self, startframe, endframe, extraframes, complist):
+    def _process_normal_path(self, startframe, endframe, extraframes, 
+                             complist):
         path = self.normalrow.get_path()
         #verify that path exists and is accessible from the server
         if not self.path_exists(path):
@@ -1293,7 +1330,8 @@ class InputWindow(tk.Toplevel):
                               'Overwrite?').yesno():
                     return
                 if get_job_status(self.index) == 'Rendering':
-                    Dialog("Can't overwrite a job while it's rendering.").warn()
+                    Dialog("Can't overwrite a job while it's rendering."
+                           ).warn()
                     return
         #set the render enging based on the file suffix
         if path.endswith('blend'):
@@ -1344,11 +1382,9 @@ class InputWindow(tk.Toplevel):
 
 class NormalPathBlock(ttk.Frame):
     '''Path input UI elements for normal (centrally-shared) files.'''
-    def __init__(self, master, *args, **kwargs):
-        ttk.Frame.__init__(self, master=master, *args, **kwargs)
-
+    def __init__(self, master):
+        ttk.Frame.__init__(self, master=master)
         self.tk_path = tk.StringVar()
-
         ttk.Label(
             self, text='Path:').grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(
@@ -1362,6 +1398,11 @@ class NormalPathBlock(ttk.Frame):
         path = tk_filedialog.askopenfilename(title='Open File')
         self.tk_path.set(path)
 
+    def set_path(self, path):
+        if not path:
+            path = Config.default_path
+        self.tk_path.set(path)
+
     def get_path(self):
         '''Returns contents of path field.'''
         return self.tk_path.get()
@@ -1369,13 +1410,12 @@ class NormalPathBlock(ttk.Frame):
 class CacheFilesPathBlock(ttk.Frame):
     '''Alternate path input UI elements & associated methods for use if
     project files will be cached locally on render nodes.'''
-    def __init__(self, master, *args, **kwargs):
-        ttk.Frame.__init__(self, master=master, *args, **kwargs)
+    def __init__(self, master, rootdir=None, filepath=None, renderdir=None):
+        ttk.Frame.__init__(self, master=master)
 
         self.tk_rootpath = tk.StringVar()
         self.tk_filepath = tk.StringVar()
         self.tk_renderdirpath = tk.StringVar()
-
         row1 = ttk.Frame(self)
         row1.pack()
         ttk.Label(
@@ -1438,6 +1478,14 @@ class CacheFilesPathBlock(ttk.Frame):
                 title='Rendered Frames Directory'
                 )
         self.tk_renderdirpath.set(renderdir)
+
+    def set_paths(self, rootdir, filepath, renderdir):
+        if rootdir:
+            self.tk_rootpath.set(rootdir)
+            self.tk_filepath.set(filepath)
+            self.tk_renderdirpath.set(renderdir)
+        else: #don't want to put 'None' string in text fields
+            return
 
     def get_paths(self):
         '''Returns absolute path to project root directory and relative paths
@@ -1507,7 +1555,8 @@ class MissingFramesWindow(tk.Toplevel):
         ttk.Entry(
             outerframe, width=20, textvariable=self.check_endframe
             ).grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
-        sliderframe = ttk.LabelFrame(outerframe, text='Adjust filename parsing')
+        sliderframe = ttk.LabelFrame(outerframe, 
+                                     text='Adjust filename parsing')
         sliderframe.grid(row=1, rowspan=3, column=2, columnspan=2, padx=5, 
                          pady=5, sticky=tk.W)
         self.nameleft = tk.Label(sliderframe, bg=LightBGColor)
@@ -1544,11 +1593,14 @@ class MissingFramesWindow(tk.Toplevel):
             ).grid(row=0, column=1, sticky=tk.W)
         self.expFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
         self.expFrames.grid(row=1, column=1)
-        ttk.Label(outputframe, text='Found:').grid(row=0, column=2, sticky=tk.W)
+        ttk.Label(outputframe, text='Found:'
+            ).grid(row=0, column=2, sticky=tk.W)
         self.foundFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
         self.foundFrames.grid(row=1, column=2)
-        ttk.Label(outputframe, text='Missing:').grid(row=0, column=3, sticky=tk.W)
-        self.missingFrames = tk_st.ScrolledText(outputframe, width=15, height=15)
+        ttk.Label(outputframe, text='Missing:'
+            ).grid(row=0, column=3, sticky=tk.W)
+        self.missingFrames = tk_st.ScrolledText(outputframe, width=15, 
+                                                height=15)
         self.missingFrames.grid(row=1, column=3)
         ttk.Button(
             self, text='Done', command=self.destroy, style='Toolbutton'
@@ -1598,8 +1650,9 @@ class MissingFramesWindow(tk.Toplevel):
         self.bind('<KP_Enter>', self._recheck_directory)
 
     def _recheck_directory(self, event=None):
-        '''If the script didn't parse the filenames correctly, get new indices
-        from the sliders the user has used to isolate the sequential numbers.'''
+        '''If the script didn't parse the filenames correctly, get new 
+        indices from the sliders the user has used to isolate the 
+        sequential numbers.'''
         if not self.checked:
             print('must check before rechecking')#debug
             return
@@ -1660,7 +1713,8 @@ class PrefsWin(tk.Toplevel):
         #create window elements
         self.nb = ttk.Notebook(self)
         self.nb.pack()
-        self.nb.add(self._local_pane(), text='GUI Client Settings', sticky=tk.N)
+        self.nb.add(self._local_pane(), text='GUI Client Settings', 
+                    sticky=tk.N)
         self.nb.add(self._server_pane(), text='Server Settings')
         btnbar = ttk.Frame(self)
         btnbar.pack(anchor=tk.W, expand=True, fill=tk.X)
@@ -1696,16 +1750,17 @@ class PrefsWin(tk.Toplevel):
         '''Sets the local Config class variables based on their tk variable
         counterparts.'''
         guisettings = (
-            self.path.get(), int(self.startframe.get()), int(self.endframe.get()),
-            self.render_engine.get(), int(self.input_cols.get()),
-            int(self.comppanel_cols.get()), self.host.get(), int(self.port.get()), 
+            self.path.get(), int(self.startframe.get()), 
+            int(self.endframe.get()), self.render_engine.get(), 
+            int(self.input_cols.get()), int(self.comppanel_cols.get()), 
+            self.host.get(), int(self.port.get()), 
             float(self.refresh_interval.get()),
             )
         Config().update_cfgfile(guisettings)
 
     def _restore_local_cfg(self):
-        '''Restores local Config class variables to defaults and overwrites the
-        config file.'''
+        '''Restores local Config class variables to defaults and overwrites
+        the config file.'''
         guisettings = Config().defaults()
         Config().update_cfgfile(guisettings)
         print('Restored local config vars to defaults.')
@@ -1760,19 +1815,19 @@ class PrefsWin(tk.Toplevel):
             self.blenderpath_mac.get(), self.blenderpath_linux.get(),
             self.terragenpath_mac.get(), self.terragenpath_linux.get(),
             self.allowed_filetypes.get(), int(self.timeout.get()),
-            int(self.serverport.get()), self.autostart.get(), self.verbose.get(),
-            self.log_basepath.get()
+            int(self.serverport.get()), self.autostart.get(), 
+            self.verbose.get(), self.log_basepath.get()
             )
         reply = self.socket.send_cmd('update_server_cfg', servercfg)
         print(reply)
 
     def _restore_server_cfg(self):
-        '''Instructs the server to reset all config variables to default values
-        and overwrite its config file.'''
+        '''Instructs the server to reset all config variables to default 
+        values and overwrite its config file.'''
         reply = self.socket.send_cmd('restore_cfg_defaults')
         print(reply)
-        #NOTE: below doesn't work because it re-defines the tk variables before
-        #setting values. Need to split up functions or something.
+        #NOTE: below doesn't work because it re-defines the tk variables 
+        #before setting values. Need to split up functions or something.
         #self._get_server_vars()
 
     def _local_pane(self):
@@ -1840,8 +1895,14 @@ class PrefsWin(tk.Toplevel):
 
         btns = ttk.Frame(lpane)
         btns.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
-        ttk.Button(btns, text='Save Client Settings', command=self._set_local_vars, style='Toolbutton').pack(side=tk.LEFT)
-        ttk.Button(btns, text='Restore Client Defaults', command=self._restore_local_cfg, style='Toolbutton').pack(side=tk.LEFT)
+        ttk.Button(
+            btns, text='Save Client Settings', command=self._set_local_vars, 
+            style='Toolbutton'
+            ).pack(side=tk.LEFT)
+        ttk.Button(
+            btns, text='Restore Client Defaults', 
+            command=self._restore_local_cfg, style='Toolbutton'
+            ).pack(side=tk.LEFT)
         return lpane
 
     def _server_pane(self):
@@ -1897,8 +1958,14 @@ class PrefsWin(tk.Toplevel):
 
         btns = ttk.Frame(spane)
         btns.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
-        ttk.Button(btns, text='Save Server Settings', command=self._set_server_vars, style='Toolbutton').pack(side=tk.LEFT)
-        ttk.Button(btns, text='Restore Server Defaults', command=self._restore_server_cfg, style='Toolbutton').pack(side=tk.LEFT)
+        ttk.Button(
+            btns, text='Save Server Settings', command=self._set_server_vars,
+            style='Toolbutton'
+            ).pack(side=tk.LEFT)
+        ttk.Button(
+            btns, text='Restore Server Defaults', 
+            command=self._restore_server_cfg, style='Toolbutton'
+            ).pack(side=tk.LEFT)
         return spane
 
     def _complist_frame(self, master):
@@ -1986,7 +2053,8 @@ class StatusThread(threading.Thread):
             try:
                 self.masterwin.update(serverjobs)
             except Exception as e:
-                print('MasterWin.update() failed:', e.__class__.__name__+':', e)
+                print('MasterWin.updat() failed: %s:%s' 
+                      %(e.__class__.__name__, e))
             #refresh interval in seconds
             time.sleep(Config.refresh_interval)
 

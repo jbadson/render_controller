@@ -769,6 +769,9 @@ class Job(object):
         else:
             print('%s%s| %s | %s' %(errstr, self._id_, event, self.gettime()))
 
+    def getstatus(self):
+        return self.status
+
 
 class RenderLog(Job):
     '''Logs render progress for a given job.  Log instance is created when
@@ -1228,9 +1231,10 @@ class RenderServer(object):
                 if reply:
                     print('Restored job ', index)
                     #add job to waitlist if necessary
-                    if (self.renderjobs[index].status == 'Waiting' \
-                        or self.renderjobs[index].status == 'Paused'):
+                    if self.renderjobs[index].getstatus() == ('Waiting' 
+                                                              or 'Paused'):
                         self.waitlist.append(self.renderjobs[index])
+                        print('added %s to waitlist' %index)
                 else:
                     print('Unable to restore job ', index)
             print('Server state restored')
@@ -1295,7 +1299,7 @@ class RenderServer(object):
         cachedata = kwargs['cachedata']
         #create the job
         if index in self.renderjobs:
-            if self.renderjobs[index].status == 'Rendering':
+            if self.renderjobs[index].getstatus() == 'Rendering':
                 return ('Enqueue failed, job with same index is currently '
                        'rendering.')
         #place it in queue
@@ -1393,8 +1397,7 @@ class RenderServer(object):
     def get_status(self, kwargs):
         '''Returns status string for a given job.'''
         index = kwargs['index']
-        status = self.renderjobs[index].status
-        return status
+        return self.renderjobs[index].getstatus()
     
     def clear_job(self, kwargs):
         '''Clears an existing job from a queue slot.'''

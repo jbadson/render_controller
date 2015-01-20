@@ -1231,7 +1231,10 @@ class RenderServer(object):
                 if reply:
                     print('Restored job ', index)
                     #add job to waitlist if necessary
-                    if jobs[index]['status'] == ('Waiting' or 'Paused'):
+                    if jobs[index]['status'] == 'Waiting':
+                        self.waitlist.append(self.renderjobs[index])
+                        print('added %s to waitlist' %index)
+                    if jobs[index]['status'] == 'Paused':
                         self.waitlist.append(self.renderjobs[index])
                         print('added %s to waitlist' %index)
                 else:

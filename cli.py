@@ -44,7 +44,7 @@ class Cli(object):
         that job IDs don't change between listing and running a command.'''
         self.job_ids = sorted(self.serverjobs.keys())
         #remove the metadata
-        self.statevars = self.job_ids
+        self.autostart = self.serverjobs['__STATEVARS__']['autostart']
         self.job_ids.remove('__STATEVARS__')
         self.job_ids.remove('__MESSAGE__')
         self.fprint = FPrinter() #formatted printer object
@@ -203,6 +203,32 @@ class Cli(object):
             }
         reply = self.socket.send_cmd('enqueue', kwargs)
         print(reply)
+
+    def toggle_autostart(self, mode):
+        '''Attempts to set the server's autostart variable.  Mode can be
+        "off", "on" or "get".  If mode is "get", the server's autostart
+        status will be printed.'''
+        print('called with', mode)
+        print('self.autostart:', self.autostart)
+        if mode == 'get':
+            if not self.autostart:
+                print('Autostart is currently disabled.')
+            else:
+                print('Autostart is currently enabled.')
+        elif mode == 'on':
+            if self.autostart:
+                print('Autostart is currently enabled.')
+            else:
+                reply = self.socket.send_cmd('toggle_autostart')
+                print(reply)
+        elif mode == 'off':
+            if self.autostart:
+                reply = self.socket.send_cmd('toggle_autostart')
+                print(reply)
+            else:
+                print('Autostart is currently disabled')
+        else:
+            print('Incorrect input. Optional switch values are "on" and "off".')
 
 
 

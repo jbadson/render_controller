@@ -72,6 +72,11 @@ class Parser(argparse.ArgumentParser):
             'line interface to connect to. If none is specified, the '
             'default "localhost" will be used. This option is ignored if '
             '-s or -g options are used.')
+        self.add_argument('--autostart', action='store', dest='autostart',
+            default=None, nargs='?', const='get',
+            help='Without any additional options, prints the '
+            'current autostart status. If "on" or "off" is specified, sets '
+            'the autostart mode to the specified state.')
 
     def parse(self):
         args = self.parse_args()
@@ -106,6 +111,8 @@ class Parser(argparse.ArgumentParser):
             interface.checkframes()
         if args.enqueue:
             interface.enqueue()
+        if args.autostart:
+            interface.toggle_autostart(args.autostart)
 
 
 if __name__ == '__main__':

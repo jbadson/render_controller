@@ -155,8 +155,8 @@ class Job(object):
 
     def render(self, time_offset=None):
         '''Starts a render for a given job.
-        time_offset: correction factor in seconds used when restoring a running
-        job after server restart.'''
+        time_offset: correction factor in seconds used when restoring a 
+        running job after server restart.'''
         self.prints(event='entered render()') #debug
         if self.status != 'Waiting':
             return False
@@ -484,7 +484,7 @@ class Job(object):
             self.prints('Exception caught in Job.kill_thread() while getting '
                       'pid: %s' %e, computer=computer, error=True)
             return False
-        if pid == None or frame == None:
+        if (pid == None or frame == None):
             self.prints('Job.kill_thread() failed, no frame or PID assigned', 
                       computer=computer)
             return False
@@ -502,7 +502,7 @@ class Job(object):
         if offset:
             self.starttime = time.time() - offset
             print('Offsetting job start time by %s seconds') #debug
-        if self.status == 'Stopped' or self.status == 'Paused':
+        if (self.status == 'Stopped' or self.status == 'Paused'):
             #account for time elapsed since render was stopped
             self.starttime = time.time() - (self.stoptime - self.starttime)
         else:
@@ -632,7 +632,7 @@ class Job(object):
         '''Resumes a render that was previously stopped. If startnow == False,
         render will be placed in queue with status 'Waiting' but not 
         started.'''
-        if self.status != 'Stopped':
+        if not (self.status == 'Stopped' or self.status == 'Paused'):
             return False
         self.killflag = False
         for computer in Config.computers:
@@ -1077,9 +1077,10 @@ class RenderServer(object):
         self.msgq = queue.Queue() #queue for misc. messages to clients
         self._check_restore_state()
         self.updatethread = threading.Thread(target=self.update_loop)
+        self.updatethread.start()
         self.server = sw.Server(self, port, allowed_commands)
         self.server.start()
-        self.updatethread.start()
+        self.shutdown_server()
     
 
     def _check_logpath(self):
@@ -1110,17 +1111,26 @@ class RenderServer(object):
         '''Handles miscellaneous tasks that need to be carried out on a 
         regular interval. Runs in separate thread to prevent blocking other 
         processes.'''
-        #while True:
-        while self.server.islistening():
+        self.stop_update_loop = False
+        print('started update_loop')
+        while not self.stop_update_loop:
+            #run tasks every 20 seconds, but subdivide loop into smaller
+            #units so it's immediately interruptable when server shuts down.
+            #waits for 0.5 sec 40 times on each pass
+            for i in range(40):
+                time.sleep(0.5)
+                if self.stop_update_loop:
+                    break
             self.save_state()
             if Config.autostart:
                 self.check_autostart()
-            time.sleep(30)
-        #loop broken means server shutting down
+        print('update_loop done')
         self.shutdown_server()
 
     def shutdown_server(self):
         '''Saves the server state then shuts it down cleanly.'''
+        #shut down the update loop
+        self.stop_update_loop = True
         #check for any unfinished jobs, note the shutdown in their logs
         log_statuses = ['Rendering', 'Stopped', 'Paused']
         for i in self.renderjobs:
@@ -1133,6 +1143,7 @@ class RenderServer(object):
 
     def check_autostart(self):
         #handle high priority renders
+        print('entered check_autostart')
         times = {}
         for i in self.renderjobs:
             job = self.renderjobs[i]
@@ -1231,17 +1242,15 @@ class RenderServer(object):
                 if reply:
                     print('Restored job ', index)
                     #add job to waitlist if necessary
-                    if jobs[index]['status'] == 'Waiting':
-                        self.waitlist.append(self.renderjobs[index])
-                        print('added %s to waitlist' %index)
-                    if jobs[index]['status'] == 'Paused':
+                    status = jobs[index]['status']
+                    if (status == 'Waiting' or status == 'Paused'):
                         self.waitlist.append(self.renderjobs[index])
                         print('added %s to waitlist' %index)
                 else:
                     print('Unable to restore job ', index)
             print('Server state restored')
 
-    def get_attrs(self, kwargs=None):
+    def get_attrs(self, index=None):
         '''Returns dict of attributes for a given index. If no index is 
         specified, returns a dict containing key:dictionary pairs for every 
         job instance on the server where key is the job's index and the 
@@ -1254,8 +1263,7 @@ class RenderServer(object):
         '''If there are any outgoing messages waiting in self.msgq, they will
         be sent to the client, but will only be removed from the queue if
         the client id matches the intended recipient of the message.'''
-        if kwargs:
-            index = kwargs['index']
+        if index:
             if not index in self.renderjobs:
                 return 'Index not found.'
             else:
@@ -1277,9 +1285,8 @@ class RenderServer(object):
             attrdict['__MESSAGE__'] = None
         return attrdict
     
-    def job_exists(self, kwargs):
+    def job_exists(self, index):
         '''Returns True if index is in self.renderjobs.'''
-        index = kwargs['index']
         if index in self.renderjobs:
             return True
         else:
@@ -1318,9 +1325,8 @@ class RenderServer(object):
             del self.renderjobs[index]
             return 'Enqueue failed, job deleted'
     
-    def start_render(self, kwargs):
+    def start_render(self, index):
         '''Start a render at the request of client.'''
-        index = kwargs['index']
         reply = self.renderjobs[index].render()
         #remove job from waitlist
         self.waitlist.remove(self.renderjobs[index])
@@ -1329,9 +1335,7 @@ class RenderServer(object):
         else:
             return 'Failed to start render.'
     
-    def toggle_comp(self, kwargs):
-        index = kwargs['index']
-        computer = kwargs['computer']
+    def toggle_comp(self, index, computer):
         if not computer in Config.computers:
             return 'Computer "%s" not recognized.' %computer
         #if self.renderjobs[index].get_comp_status(computer)['pool']:
@@ -1344,9 +1348,7 @@ class RenderServer(object):
             if reply: return computer+ ' added to render pool for '+str(index)
         return 'Failed to toggle computer status.'
     
-    def kill_single_thread(self, kwargs):
-        index = kwargs['index']
-        computer = kwargs['computer']
+    def kill_single_thread(self, index, computer):
         #first remove computer from the pool
         remove = self.renderjobs[index].remove_computer(computer)
         kill = self.renderjobs[index].kill_thread(computer)
@@ -1368,9 +1370,7 @@ class RenderServer(object):
                 rstr += ', unable to remove %s from render pool.' %computer
         return rstr
     
-    def kill_render(self, kwargs):
-        index = kwargs['index']
-        kill_now = kwargs['kill_now']
+    def kill_render(self, index, kill_now):
         if kill_now:
             reply = self.renderjobs[index].kill_now()
             if reply:
@@ -1384,9 +1384,7 @@ class RenderServer(object):
                         'to finish.')
         return 'Failed to kill render for job '+str(index)
     
-    def resume_render(self, kwargs):
-        index = kwargs['index']
-        startnow = kwargs['startnow']
+    def resume_render(self, index, startnow):
         reply = self.renderjobs[index].resume(startnow)
         #if render is not to be started immediately, add it to the waitlist
         if reply and not startnow:
@@ -1396,45 +1394,49 @@ class RenderServer(object):
         else:
             return 'Failed to resume render of ' + str(index)
     
-    def get_status(self, kwargs):
+    def get_status(self, index):
         '''Returns status string for a given job.'''
-        index = kwargs['index']
         return self.renderjobs[index].getstatus()
     
-    def clear_job(self, kwargs):
+    def clear_job(self, index):
         '''Clears an existing job from a queue slot.'''
-        index = kwargs['index']
+        job = self.renderjobs[index]
+        if self.renderjobs[index] in self.waitlist:
+            self.waitlist.remove(self.renderjobs[index])
         del self.renderjobs[index]
         return index + ' deleted.'
     
-    def get_config_vars(self, kwargs=None):
+    def get_config_vars(self):
         '''Gets server-side configuration variables and returns them as 
         a list.'''
         cfgvars = self.conf.getall()
         return cfgvars
     
-    def toggle_verbose(self, kwargs=None):
+    def toggle_verbose(self):
         '''Toggles the state of the verbose variable.'''
         if Config.verbose == 0:
             Config.verbose = 1
+            print('Verbose reporting enabled')
             return 'verbose reporting enabled'
         else:
             Config.verbose = 0
+            print('Verbose reporting disabled')
             return 'verbose reporting disabled'
     
-    def toggle_autostart(self, kwargs=None):
+    def toggle_autostart(self):
         '''Toggles the state of the autostart variable.'''
         if Config.autostart == 0:
             Config.autostart = 1
             return 'autostart enabled'
+            print('Autostart enabled')
         else:
             Config.autostart = 0
+            print('Autostart disabled')
             return 'autostart disabled'
     
-    def check_path_exists(self, kwargs=None):
+    def check_path_exists(self, path):
         '''Checks if a path is accessible from the server (exists) and that 
         it's an regular file. Returns True if yes.'''
-        path = kwargs['path']
         #if os.path.exists(path) and os.path.isfile(path):
         #XXX No longer checking that path is to a file b/c also need to check
         #for the root project directory if file caching is turned on.
@@ -1444,10 +1446,8 @@ class RenderServer(object):
         else:
             return False
     
-    def set_job_priority(self, kwargs):
+    def set_job_priority(self, index, priority):
         '''Sets the render priority for a given index.'''
-        index = kwargs['index']
-        priority = kwargs['priority']
         if not index in self.renderjobs:
             return 'Index not found'
         if self.renderjobs[index].set_priority(priority):
@@ -1461,20 +1461,20 @@ class RenderServer(object):
         Config().update_cfgfile(settings)
         return 'Server settings updated'
 
-    def restore_cfg_defaults(self, kwargs=None):
+    def restore_cfg_defaults(self):
         '''Resets server config variables to default values and overwrites
         the config file.'''
         cfgsettings = Config().defaults()
         Config().update_cfgfile(cfgsettings)
         return 'Server settings restored to defaults'
 
-    def killall_blender(self, kwargs=None):
+    def killall_blender(self):
         '''Attempts to kill all running instances of blender on all 
         computers.'''
         t = SSHCommandThread(Config.computers, self.msgq, 'killall blender')
         return 'Attempting to kill all instances of Blender on all computers.'
 
-    def killall_tgn(self, kwargs=None):
+    def killall_tgn(self):
         '''Attempts to kill all running instances of terragen on all 
         computers.'''
         linuxlist = Config.computers
@@ -1511,7 +1511,7 @@ class RenderServer(object):
         else:
             return 0
 
-    def clear_rendercache(self, kwargs=None):
+    def clear_rendercache(self):
         '''Attempts to delete the contents of the ~/rendercache directory on
         all computers.'''
         errors = []

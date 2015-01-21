@@ -39,40 +39,11 @@ import socketwrapper as sw
 illegal_characters = [';', '&'] #not allowed in path
 
 
-def get_job_status(index):
-    '''Returns the status string for a given job.'''
-    kwargs = {'index':index}
-    status = sw.ClientSocket(Config.host, Config.port
-        ).send_cmd('get_status', kwargs)
-    return status
 
-def killall_blender():
-    '''Attempts to kill all running instances of Blender on all computers.'''
-    if not Dialog('This will kill ALL instances of Blender on ALL '
-                  ' computers. Proceed?').confirm():
-        return
-    reply = sw.ClientSocket(Config.host, Config.port
-        ).send_cmd('killall_blender')
-    print(reply)
 
-def killall_tgn():
-    '''Attempts to kill all running instances of Terragen on all computers.'''
-    if not Dialog('This will kill ALL instances of Terragen on ALL '
-                  ' computers. Proceed?').confirm():
-        return
-    reply = sw.ClientSocket(Config.host, Config.port).send_cmd('killall_tgn')
-    print(reply)
 
-def clear_rendercache():
-    '''Attempts to delete all contents from the ~/rendercache directory on
-    all computers.'''
-    if not Dialog('This will delete ALL contents of the ~/rendercache '
-                  'directory on ALL computers.  Are you sure you want to do '
-                  'this?').confirm():
-        return
-    reply = sw.ClientSocket(Config.host, Config.port
-        ).send_cmd('clear_rendercache')
-    print(reply)
+
+
 
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
@@ -107,10 +78,10 @@ class Config(object):
         '''Defines the client class variables based on a tuple formatted to
         match the one returned by defaults().'''
         (
-        Config.default_path, Config.default_startframe, 
-        Config.default_endframe, Config.default_render_engine,
-        Config.input_win_cols, Config.comp_status_panel_cols,
-        Config.host, Config.port, Config.refresh_interval
+        self.default_path, self.default_startframe, 
+        self.default_endframe, self.default_render_engine,
+        self.input_win_cols, self.comp_status_panel_cols,
+        self.host, self.port, self.refresh_interval
         ) = guisettings
 
     def update_cfgfile(self, guisettings):
@@ -143,42 +114,85 @@ class Config(object):
         '''Gets config info from the server. Most of these aren't directly
         used by the GUI, but are here for the preferences window.'''
         try:
-            servercfg = sw.ClientSocket(Config.host, Config.port
+            servercfg = sw.ClientSocket(self.host, self.port
                                         ).send_cmd('get_config_vars')
         except Exception as e:
             return e
         (
-        Config.computers, Config.renice_list, 
-        Config.macs, Config.blenderpath_mac, Config.blenderpath_linux, 
-        Config.terragenpath_mac, Config.terragenpath_linux, 
-        Config.allowed_filetypes, Config.timeout, Config.serverport,
-        Config.autostart, Config.verbose, Config.log_basepath 
+        self.computers, self.renice_list, 
+        self.macs, self.blenderpath_mac, self.blenderpath_linux, 
+        self.terragenpath_mac, self.terragenpath_linux, 
+        self.allowed_filetypes, self.timeout, self.serverport,
+        self.autostart, self.verbose, self.log_basepath 
         ) = servercfg
         return False
 
 
-    
-    #def get_gui_vars(self):
-        '''Returns an n-tuple of all current GUI config vars.'''
-        '''
-        return (
-            Config.default_path, Config.default_startframe, 
-            Config.default_endframe, Config.default_render_engine,
-            Config.input_win_cols, Config.comp_status_panel_cols,
-            Config.host, Config.port, Config.refresh_interval
-            )'''
-
-
-
 
 #----------GUI----------
-#XXX Some additional config stuff, decide where to put it later
-MidBGColor = '#%02x%02x%02x' % (190, 190, 190)
-LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
-HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
+
+class _gui_(object):
+    '''Master class for gui-related objects. Holds methods 
+    related to output formatting and other common tasks.'''
+    MidBGColor = '#%02x%02x%02x' % (190, 190, 190)
+    LightBGColor = '#%02x%02x%02x' % (232, 232, 232)
+    HighlightColor = '#%02x%02x%02x' % (74, 139, 222)
+
+    def format_time(self, time):
+        '''Converts time in decimal seconds to human-friendly strings.
+        format is ddhhmmss.s'''
+        if time < 60:
+            newtime = [round(time, 1)]
+        elif time < 3600:
+            m, s = time / 60, time % 60
+            newtime = [int(m), round(s, 1)]
+        elif time < 86400:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            newtime = [int(h), int(m), round(s, 1)]
+        else:
+            m, s = time / 60, time % 60
+            h, m = m / 60, m % 60
+            d, h = h / 24, h % 24
+            newtime = [int(d), int(h), int(m), round(s, 1)]
+        if len(newtime) == 1:
+            timestr = str(newtime[0])+'s'
+        elif len(newtime) == 2:
+            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
+        elif len(newtime) == 3:
+            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m ' +
+                       str(newtime[2])+'s')
+        else:
+            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
+                       str(newtime[2])+'m '+str(newtime[3])+'s')
+        return timestr
+
+    def getcolor(self, status):
+        if status == 'Rendering':
+            color = 'DarkGreen'
+            barcolor = '#00E600'
+        elif status == 'Waiting':
+            color = 'DarkGoldenrod'
+            barcolor = '#F5DC00'
+        elif status == 'Paused':
+            color = 'DarkOrchid'
+            barcolor = '#9932CC'
+        elif status =='Stopped':
+            color = 'FireBrick'
+            barcolor = '#F01E1E'
+        elif status == 'Finished':
+            color = 'DarkGray'
+            barcolor = '#646464'
+        #barcolor = None
+        return (color, barcolor)
+
+    def get_job_status(self, index):
+        '''Returns the status string for a given job.'''
+        status = self.socket.send_cmd('get_status', index)
+        return status
 
 
-class MasterWin(tk.Tk):
+class MasterWin(_gui_, tk.Tk):
     '''This is the master class for this module. To create a new GUI,
     create an instance of this class then call the mainloop() method on it.
     Other classes and methods within this module are not intended to be used
@@ -190,7 +204,7 @@ class MasterWin(tk.Tk):
         #self.bind('<Command-w>', quit)
         #self.bind('<Control-w>', quit)
         self.title('IGP Render Controller Client')
-        self.config(bg=LightBGColor)
+        self.config(bg=_gui_.LightBGColor)
         self.minsize(width=1257, height=730)
         #create dictionaries to hold job-specific GUI elements
         #format is {'index':object}
@@ -209,11 +223,12 @@ class MasterWin(tk.Tk):
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
         #initialize local config variables
-        Config()
+        self.cfg = Config() #config properties to be used by all children
         #put default values where they go
-        self.socket = sw.ClientSocket(Config.host, Config.port)
-        self.socket.setup(host=Config.host, port=Config.port)
-        self.statthread = StatusThread(masterwin=self)
+        self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
+        self.socket.setup(host=self.cfg.host, port=self.cfg.port)
+        self.statthread = StatusThread(masterwin=self, config=self.cfg, 
+                                       socket=self.socket)
         self.tk_host.set(self.socket.host)
         self.tk_port.set(self.socket.port)
         ttk.Label(
@@ -247,12 +262,11 @@ class MasterWin(tk.Tk):
         #configure host and port class attributes
         newhost = self.tk_host.get()
         newport = int(self.tk_port.get())
-        Config.host = newhost
-        Config.port = newport
-        print('newhost %s; newport %s' %(newhost, newport))
+        self.cfg.host = newhost
+        self.cfg.port = newport
         self.socket.setup(newhost, newport)
         #get the server config variables
-        msg = Config().get_server_cfg()
+        msg = self.cfg.get_server_cfg()
         if msg:
             print('Could not retrieve config vars form server:', msg)
             ttk.Label(
@@ -260,9 +274,9 @@ class MasterWin(tk.Tk):
                 ).pack()
             return
         self.verbosity = tk.IntVar()
-        self.verbosity.set(Config.verbose)
+        self.verbosity.set(self.cfg.verbose)
         self.autostart = tk.IntVar()
-        self.autostart.set(Config.autostart)
+        self.autostart.set(self.cfg.autostart)
         self.username = self.tk_username.get()
         self.setupframe.destroy()
         self._build_main()
@@ -272,7 +286,7 @@ class MasterWin(tk.Tk):
 
     def _build_main(self):
         '''Creates the main window elements.'''
-        topbar = tk.Frame(self, bg=MidBGColor)
+        topbar = tk.Frame(self, bg=_gui_.MidBGColor)
         topbar.pack(fill=tk.BOTH)
         ttk.Checkbutton(
             topbar, text='Verbose', command=self._toggle_verbose,
@@ -290,33 +304,33 @@ class MasterWin(tk.Tk):
             topbar, text='Preferences', command=PrefsWin, style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
-            topbar, text='Killall Blender', command=killall_blender,
+            topbar, text='Killall Blender', command=self.killall_blender,
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
-            topbar, text='Killall Terragen', command=killall_tgn,
+            topbar, text='Killall Terragen', command=self.killall_tgn,
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
-            topbar, text='Clear Rendercache', command=clear_rendercache,
+            topbar, text='Clear Rendercache', command=self.clear_rendercache,
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
-        midblock = tk.Frame(self, bg=LightBGColor)
+        midblock = tk.Frame(self, bg=_gui_.LightBGColor)
         midblock.pack(padx=15, pady=(10, 20), expand=True, fill=tk.BOTH)
         
-        left_frame = tk.Frame(midblock, bg=LightBGColor)
+        left_frame = tk.Frame(midblock, bg=_gui_.LightBGColor)
         left_frame.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
         tk.Label(
-            left_frame, text='Queue:', bg=LightBGColor
+            left_frame, text='Queue:', bg=_gui_.LightBGColor
             ).pack(padx=5, anchor=tk.W)
-        left_frame_inner = tk.LabelFrame(left_frame, bg=LightBGColor)
+        left_frame_inner = tk.LabelFrame(left_frame, bg=_gui_.LightBGColor)
         left_frame_inner.pack(padx=5, side=tk.LEFT, expand=True, fill=tk.Y)
         
         self.jobbox_frame = tk.Frame(left_frame_inner, width=260)
         self.jobbox_frame.pack(expand=True, fill=tk.BOTH)
-        jobbtns = tk.Frame(left_frame_inner, bg=LightBGColor)
+        jobbtns = tk.Frame(left_frame_inner, bg=_gui_.LightBGColor)
         jobbtns.pack(fill=tk.X)
         ttk.Separator(jobbtns).pack(fill=tk.X)
         tkx.RectButton(jobbtns, text='+', command=self._new_job
@@ -378,7 +392,7 @@ class MasterWin(tk.Tk):
         They are created by self.update() when called by the status thread 
         to ensure that the GUI state is only changed if the server state was 
         successfully changed.'''
-        newjob = InputWindow()
+        newjob = InputWindow(config=self.cfg, socket=self.socket)
 
     def _delete_job(self):
         '''Deletes the selected job from the server. GUI elements are not 
@@ -392,13 +406,12 @@ class MasterWin(tk.Tk):
                 break
         if nojobs: #do nothing if no job is selected
             return
-        if get_job_status(index) == 'Rendering':
+        if self.get_job_status(index) == 'Rendering':
             Dialog("Can't delete a job while it's rendering.").warn()
             return
         if not Dialog('Delete ' + index + ' from the queue?').confirm():
             return
-        kwargs = {'index':index}
-        reply = self.socket.send_cmd('clear_job', kwargs)
+        reply = self.socket.send_cmd('clear_job', index)
         print(reply)
 
     def _create_job(self, index):
@@ -412,8 +425,9 @@ class MasterWin(tk.Tk):
         #put box in list (at top for now)
         self.boxlist.insert(0, self.jobboxes[index])
         #create comp panel
-        self.comppanels[index] = ComputerPanel(master=self.right_frame, 
-                                               index=index)
+        self.comppanels[index] = ComputerPanel(
+            master=self.right_frame, index=index, config=self.cfg,
+            socket=self.socket)
 
     def _remove_job(self, index):
         '''Permanently removes GUI elements for a given index.'''
@@ -487,10 +501,10 @@ class MasterWin(tk.Tk):
                 print(index, 'selected, populating checkframes fields')
                 job = self.serverjobs[index]
                 self.checkwin = MissingFramesWindow(
-                    job['path'], job['startframe'], job['endframe']
+                    self.cfg, job['path'], job['startframe'], job['endframe']
                     )
                 return
-        self.checkwin = MissingFramesWindow()
+        self.checkwin = MissingFramesWindow(self.cfg)
 
     def _toggle_verbose(self):
         '''Toggles verbose reporting state on the server.'''
@@ -502,12 +516,46 @@ class MasterWin(tk.Tk):
         reply = self.socket.send_cmd('toggle_autostart')
         print(reply)
 
+    def killall_blender(self):
+        '''Attempts to kill all running instances of Blender on all 
+        computers.'''
+        if not Dialog('This will kill ALL instances of Blender on ALL '
+                      ' computers. Proceed?').confirm():
+            return
+        reply = self.socket.send_cmd('killall_blender')
+        print(reply)
+    
+    def killall_tgn(self):
+        '''Attempts to kill all running instances of Terragen on all 
+        computers.'''
+        if not Dialog('This will kill ALL instances of Terragen on ALL '
+                      ' computers. Proceed?').confirm():
+            return
+        reply = self.socket.send_cmd('killall_tgn')
+        print(reply)
+    
+    def clear_rendercache(self):
+        '''Attempts to delete all contents from the ~/rendercache 
+        directory onall computers.'''
+        if not Dialog('This will delete ALL contents of the ~/rendercache '
+                      'directory on ALL computers.  Are you sure you want '
+                      'to do this?').confirm():
+            return
+        reply = self.socket.send_cmd('clear_rendercache')
+        print(reply)
 
-class ComputerPanel(ttk.Frame):
+
+
+
+class ComputerPanel(_gui_, ttk.Frame):
     '''Main job info panel with computer boxes.'''
-    def __init__(self, master, index):
+    def __init__(self, master, index, config, socket):
+        '''config is Config instance from parent.
+        socket is ClientSocket instance from parent'''
         self.index = index
-        self.socket = sw.ClientSocket(Config.host, Config.port)
+        self.cfg = config
+        #self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
+        self.socket = socket
         ttk.Frame.__init__(self, master=master)
         #Create the main job status box at the top of the panel
         self.bigbox = BigBox(master=self, index=self.index)
@@ -547,16 +595,16 @@ class ComputerPanel(ttk.Frame):
         self.compcubes = {}
         #changing the number of cols should automatically generate the rest
         #of the layout correctly. 
-        self.cols = Config.comp_status_panel_cols
+        self.cols = self.cfg.comp_status_panel_cols
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(Config.computers):
+        while n < len(self.cfg.computers):
             (x, y) = self._getcoords(n, row)
-            self.compcubes[Config.computers[n]] = CompCube(
-                master=self.compframe, computer=Config.computers[n], 
-                index=self.index
+            self.compcubes[self.cfg.computers[n]] = CompCube(
+                socket=self.socket, master=self.compframe, 
+                computer=self.cfg.computers[n], index=self.index
                 )
-            self.compcubes[Config.computers[n]].grid(row=y, column=x, padx=5)
+            self.compcubes[self.cfg.computers[n]].grid(row=y, column=x, padx=5)
             n += 1
             if x == self.cols - 1:
                 row += 1
@@ -572,8 +620,7 @@ class ComputerPanel(ttk.Frame):
 
     def _edit(self):
         '''Edits job information.'''
-        kwargs = {'index':self.index}
-        attrs = self.socket.send_cmd('get_attrs', kwargs)
+        attrs = self.socket.send_cmd('get_attrs', index)
         denystatuses = ['Rendering', 'Stopped', 'Paused']
         if attrs['status'] in denystatuses:
             Dialog('Job cannot be edited.').warn()
@@ -587,23 +634,23 @@ class ComputerPanel(ttk.Frame):
             caching = False
             paths = attrs['path']
         editjob = InputWindow(
-            index=self.index, caching=caching, paths=paths, 
-            start=attrs['startframe'], end=attrs['endframe'], 
-            extras=attrs['extraframes'], complist=attrs['complist']
+            config=self.cfg, socket=self.socket, index=self.index, 
+            caching=caching, paths=paths, start=attrs['startframe'], 
+            end=attrs['endframe'], extras=attrs['extraframes'], 
+            complist=attrs['complist']
             )
 
     def _start(self):
         '''Starts the render.'''
-        if not get_job_status(self.index) == 'Waiting':
+        if not self.get_job_status(self.index) == 'Waiting':
             Dialog('Cannot start render unless status is "Waiting"').warn()
             return
-        kwargs = {'index':self.index}
-        reply = self.socket.send_cmd('start_render', kwargs)
+        reply = self.socket.send_cmd('start_render', self.index)
         print(reply)
 
     def _kill_render(self):
         '''Kill the current render.'''
-        if get_job_status(self.index) != 'Rendering':
+        if self.get_job_status(self.index) != 'Rendering':
             Dialog('Cannot stop a render unless its status is "Rendering"'
                 ).warn()
             return
@@ -615,13 +662,12 @@ class ComputerPanel(ttk.Frame):
             kill_now = False
         elif confirm == 'no':
             kill_now = True
-        kwargs = {'index':self.index, 'kill_now':kill_now}
-        reply = self.socket.send_cmd('kill_render', kwargs)
+        reply = self.socket.send_cmd('kill_render', self.index, kill_now)
         print(reply)
 
     def _resume_render(self):
         resumestatuses = ['Stopped', 'Paused']
-        if get_job_status(self.index) not in resumestatuses:
+        if self.get_job_status(self.index) not in resumestatuses:
             Dialog('Can only resume renders that have been stopped or '
                    'paused.').warn()
             return
@@ -633,15 +679,13 @@ class ComputerPanel(ttk.Frame):
             startnow = False
         else:
             return
-        kwargs = {'index':self.index, 'startnow':startnow}
-        reply = self.socket.send_cmd('resume_render', kwargs)
+        reply = self.socket.send_cmd('resume_render', self.index, startnow)
         print(reply)
 
     def _set_priority(self, value='Normal'):
         print('value:', value)
         print('self.tk_priority', self.tk_priority.get())
-        kwargs = {'index':self.index, 'priority':value}
-        reply = self.socket.send_cmd('set_job_priority', kwargs)
+        reply = self.socket.send_cmd('set_job_priority', self.index, value)
         print(reply)
 
     def retrieve_frames(self):
@@ -667,7 +711,7 @@ class ComputerPanel(ttk.Frame):
             attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
             attrdict['progress'], attrdict['times']
             )
-        for computer in Config.computers:
+        for computer in self.cfg.computers:
             if computer in attrdict['complist']:
                 pool = True
             else:
@@ -678,60 +722,8 @@ class ComputerPanel(ttk.Frame):
                 compstatus['active'], compstatus['error'])
 
 
-class _statusbox(object):
-    '''Master class for status box-related objects. Holds shared methods 
-    related to output formatting.'''
-    def format_time(self, time):
-        '''Converts time in decimal seconds to human-friendly strings.
-        format is ddhhmmss.s'''
-        if time < 60:
-            newtime = [round(time, 1)]
-        elif time < 3600:
-            m, s = time / 60, time % 60
-            newtime = [int(m), round(s, 1)]
-        elif time < 86400:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            newtime = [int(h), int(m), round(s, 1)]
-        else:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            d, h = h / 24, h % 24
-            newtime = [int(d), int(h), int(m), round(s, 1)]
-        if len(newtime) == 1:
-            timestr = str(newtime[0])+'s'
-        elif len(newtime) == 2:
-            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
-        elif len(newtime) == 3:
-            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m ' +
-                       str(newtime[2])+'s')
-        else:
-            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
-                       str(newtime[2])+'m '+str(newtime[3])+'s')
-        return timestr
 
-    def getcolor(self, status):
-        if status == 'Rendering':
-            color = 'DarkGreen'
-            barcolor = '#00E600'
-        elif status == 'Waiting':
-            color = 'DarkGoldenrod'
-            barcolor = '#F5DC00'
-        elif status == 'Paused':
-            color = 'DarkOrchid'
-            barcolor = '#9932CC'
-        elif status =='Stopped':
-            color = 'FireBrick'
-            barcolor = '#F01E1E'
-        elif status == 'Finished':
-            color = 'DarkGray'
-            barcolor = '#646464'
-        #barcolor = None
-        return (color, barcolor)
-
-
-
-class BigBox(_statusbox, ttk.LabelFrame):
+class BigBox(_gui_, ttk.LabelFrame):
     '''Large status box for top of comp panel.'''
     def __init__(self, master=None, index=None):
         self.index = index
@@ -824,7 +816,7 @@ class BigBox(_statusbox, ttk.LabelFrame):
         self.rem_time_lbl.config(text=time_rem)
 
 
-class SmallBox(_statusbox, tk.Frame):
+class SmallBox(_gui_, tk.Frame):
     '''Small job status box for the left window pane.'''
     def __init__(self, masterwin, master=None, index='0'):
         self.masterwin = masterwin
@@ -881,7 +873,7 @@ class SmallBox(_statusbox, tk.Frame):
     def select(self):
         '''Changes background colors to selected state.'''
         self.selected = True
-        self._changecolor(HighlightColor)
+        self._changecolor(_gui_.HighlightColor)
 
     def deselect(self):
         '''Changes background colors to deselected state.'''
@@ -916,13 +908,14 @@ class SmallBox(_statusbox, tk.Frame):
         self.rem_time_lbl.config(text=time_rem)
 
 
-class CompCube(_statusbox, ttk.LabelFrame):
+class CompCube(_gui_, ttk.LabelFrame):
     '''Class representing box to display computer status.'''
-    def __init__(self, index, computer, master=None):
+    def __init__(self, socket, index, computer, master=None):
         self.index = index
+        self.socket = socket
         self.computer = computer
         #self.bgcolor = 'white' 
-        self.bgcolor = LightBGColor #color changes to white when frame assigned
+        self.bgcolor = _gui_.LightBGColor #color changes to white when frame assigned
         self.font = 'TkSmallCaptionFont'
         self.progress = tk.IntVar()
         self.pool = tk.IntVar()
@@ -970,13 +963,12 @@ class CompCube(_statusbox, ttk.LabelFrame):
 
     def _toggle_pool_state(self):
         '''Adds or removes the computer from the pool.'''
-        kwargs = {'index':self.index, 'computer':self.computer}
-        reply = self.socket.send_cmd('toggle_comp', kwargs)
+        reply = self.socket.send_cmd('toggle_comp', self.index, self.computer)
         print(reply)
 
     def _kill_thread(self):
-        kwargs = {'index':self.index, 'computer':self.computer}
-        reply = self.socket.send_cmd('kill_single_thread', kwargs)
+        reply = self.socket.send_cmd('kill_single_thread', self.index, 
+                                     self.computer)
         print(reply)
 
     def _change_bgcolor(self, bgcolor):
@@ -1004,7 +996,7 @@ class CompCube(_statusbox, ttk.LabelFrame):
             #self._change_bgcolor('white')
             self.statlabel.config(text='Active')
         else:
-            #self._change_bgcolor(LightBGColor)
+            #self._change_bgcolor(_gui_.LightBGColor)
             #Job._thread_failed() leaves frame assigned while status inactive
             if frame:
                 self.statlabel.config(text='FAILED')
@@ -1026,9 +1018,10 @@ class InputWindow(tk.Toplevel):
     If rendernode file caching is enabled, 
     paths=(rootdir, filepath, renderdir). Otherwise paths=path'''
     def __init__(
-            self, index=None, caching=False, paths=None, start=None, 
-            end=None, extras=None, complist=None
+            self, config, socket, index=None, caching=False, paths=None, 
+            start=None, end=None, extras=None, complist=None
             ):
+        '''config is Config instance belonginng to parent'''
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
@@ -1037,11 +1030,13 @@ class InputWindow(tk.Toplevel):
         self.bind('<Escape>', lambda x: self.destroy())
         self.config(bg='gray90')
         self.index = index
+        self.cfg = config
+        self.socket = socket
         if not self.index:
-            start = Config.default_startframe
-            end = Config.default_endframe
+            start = self.cfg.default_startframe
+            end = self.cfg.default_endframe
         #if resuming a job, create instance variables
-        self.socket = sw.ClientSocket(Config.host, Config.port)
+        #self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
         #initialize tkinter variables
         #self.tk_path = tk.StringVar()
         self.tk_startframe = tk.StringVar()
@@ -1071,7 +1066,7 @@ class InputWindow(tk.Toplevel):
             ).pack(expand=True, fill=tk.X, padx=10, pady=5)
 
         self.rows = [] #list to hold row objects for sorting
-        self.normalrow = NormalPathBlock(master)
+        self.normalrow = NormalPathBlock(master, self.cfg)
         self.cacherow = CacheFilesPathBlock(master)
         if self.tk_cachefiles.get() == 1:
             rootdir, filepath, renderdir = paths
@@ -1134,7 +1129,7 @@ class InputWindow(tk.Toplevel):
         '''Generates grid of computer checkboxes.'''
         #create variables for computer buttons
         self.compvars = {}
-        for computer in Config.computers:
+        for computer in self.cfg.computers:
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
         if self.complist:
@@ -1148,14 +1143,14 @@ class InputWindow(tk.Toplevel):
             master, text='Deselect All', command=self._uncheck_all
             ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         #generate a grid with specified number of columns
-        self.cols = Config.input_win_cols
+        self.cols = self.cfg.input_win_cols
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(Config.computers):
+        while n < len(self.cfg.computers):
             (x, y) = self._getcoords(n, row)
             ttk.Checkbutton(
-                master, text=Config.computers[n], 
-                variable=self.compvars[Config.computers[n]]
+                master, text=self.cfg.computers[n], 
+                variable=self.compvars[self.cfg.computers[n]]
                 ).grid(row=y+1, column=x, padx=5, pady=5, sticky=tk.W)
             n += 1
             if x == self.cols - 1:
@@ -1173,12 +1168,12 @@ class InputWindow(tk.Toplevel):
     def _check_all(self):
         '''Sets all computer buttons to the checked state.'''
         self._uncheck_all()
-        for computer in Config.computers:
+        for computer in self.cfg.computers:
             self.compvars[computer].set(1)
 
     def _uncheck_all(self):
         '''Sets all computer buttons to the unchecked state.'''
-        for computer in Config.computers:
+        for computer in self.cfg.computers:
             self.compvars[computer].set(0)
 
     def _process_inputs(self, event=None):
@@ -1262,7 +1257,7 @@ class InputWindow(tk.Toplevel):
                 if not Dialog('Job with the same index already exists. '
                               'Overwrite?').yesno():
                     return
-                if get_job_status(self.index) == 'Rendering':
+                if self.get_job_status(self.index) == 'Rendering':
                     Dialog("Can't overwrite a job while it's rendering."
                            ).warn()
                     return
@@ -1329,7 +1324,7 @@ class InputWindow(tk.Toplevel):
                 if not Dialog('Job with the same index already exists. '
                               'Overwrite?').yesno():
                     return
-                if get_job_status(self.index) == 'Rendering':
+                if self.get_job_status(self.index) == 'Rendering':
                     Dialog("Can't overwrite a job while it's rendering."
                            ).warn()
                     return
@@ -1364,7 +1359,7 @@ class InputWindow(tk.Toplevel):
 
     def job_exists(self, index):
         '''Returns true if index is in use on server.'''
-        reply = self.socket.send_cmd('job_exists', {'index':index})
+        reply = self.socket.send_cmd('job_exists', index)
         return reply
 
     def path_legal(self, path):
@@ -1376,14 +1371,15 @@ class InputWindow(tk.Toplevel):
         return True
 
     def path_exists(self, path):
-        kwargs = {'path':path}
-        reply = self.socket.send_cmd('check_path_exists', kwargs)
+        reply = self.socket.send_cmd('check_path_exists', path)
         return reply
 
 class NormalPathBlock(ttk.Frame):
     '''Path input UI elements for normal (centrally-shared) files.'''
-    def __init__(self, master):
+    def __init__(self, master, config):
         ttk.Frame.__init__(self, master=master)
+        self.cfg = config
+        self._path = None #indicates no path was set by parent
         self.tk_path = tk.StringVar()
         ttk.Label(
             self, text='Path:').grid(row=0, column=0, sticky=tk.W)
@@ -1395,12 +1391,26 @@ class NormalPathBlock(ttk.Frame):
             ).grid(row=1, column=1, sticky=tk.W)
 
     def _browse_path(self):
-        path = tk_filedialog.askopenfilename(title='Open File')
+        oldpath = self.tk_path.get()
+        if self._path:
+            path = tk_filedialog.askopenfilename(
+                title='Open File', initialdir=os.path.dirname(self._path)
+                )
+        else:
+            path = tk_filedialog.askopenfilename(title='Open File')
+        #if user clicks cancel, put the old path back in the input field
+        if not path:
+            path = oldpath
+        else:
+            self._path = path
         self.tk_path.set(path)
 
     def set_path(self, path):
-        if not path:
-            path = Config.default_path
+        if path:
+            #only want to set this value if a NEW path is being specified
+            self._path = path
+        else:
+            path = self.cfg.default_path
         self.tk_path.set(path)
 
     def get_path(self):
@@ -1509,9 +1519,11 @@ class CacheFilesPathBlock(ttk.Frame):
 class MissingFramesWindow(tk.Toplevel):
     '''UI for utility to check for missing frames within a specified start-end
     range in a given directory.'''
-    def __init__(self, renderpath=None, startframe=None, endframe=None):
+    def __init__(self, config, renderpath=None, startframe=None, 
+                 endframe=None):
         tk.Toplevel.__init__(self)
-        self.config(bg=LightBGColor)
+        self.config(bg=_gui_.LightBGColor)
+        self.cfg = config
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
         self.bind('<Return>', self._start)
@@ -1559,11 +1571,11 @@ class MissingFramesWindow(tk.Toplevel):
                                      text='Adjust filename parsing')
         sliderframe.grid(row=1, rowspan=3, column=2, columnspan=2, padx=5, 
                          pady=5, sticky=tk.W)
-        self.nameleft = tk.Label(sliderframe, bg=LightBGColor)
+        self.nameleft = tk.Label(sliderframe, bg=_gui_.LightBGColor)
         self.nameleft.grid(row=0, column=0, sticky=tk.E)
-        self.nameseq = tk.Label(sliderframe, bg=LightBGColor)
+        self.nameseq = tk.Label(sliderframe, bg=_gui_.LightBGColor)
         self.nameseq.grid(row=0, column=1)
-        self.nameright = tk.Label(sliderframe, bg=LightBGColor)
+        self.nameright = tk.Label(sliderframe, bg=_gui_.LightBGColor)
         self.nameright.grid(row=0, column=2, sticky=tk.W)
         self.slider_left = ttk.Scale(
             sliderframe, from_=0, to=100, orient=tk.HORIZONTAL, 
@@ -1639,7 +1651,7 @@ class MissingFramesWindow(tk.Toplevel):
             return
         self.checker = framechecker.Framechecker(
             renderpath, startframe, endframe,
-            allowed_extensions=Config.allowed_filetypes
+            allowed_extensions=self.cfg.allowed_filetypes
             )
         self.left, self.right = self.checker.calculate_indices()
         lists = self.checker.generate_lists()
@@ -1668,10 +1680,10 @@ class MissingFramesWindow(tk.Toplevel):
             return
         self.left = int(self.slider_left.get())
         self.right = int(self.slider_right.get())
-        self.nameleft.config(text=self.filename[0:self.left], bg=LightBGColor)
+        self.nameleft.config(text=self.filename[0:self.left], bg=_gui_.LightBGColor)
         self.nameseq.config(text=self.filename[self.left:self.right], 
                             bg='DodgerBlue')
-        self.nameright.config(text=self.filename[self.right:], bg=LightBGColor)
+        self.nameright.config(text=self.filename[self.right:], bg=_gui_.LightBGColor)
 
     def _put_text(self, lists):
         '''Populates the scrolled text boxes with relevant data and configures
@@ -1686,10 +1698,10 @@ class MissingFramesWindow(tk.Toplevel):
         self.slider_right.config(to=len(self.filename))
         self.slider_left.set(self.left)
         self.slider_right.set(self.right)
-        self.nameleft.config(text=self.filename[0:self.left], bg=LightBGColor)
+        self.nameleft.config(text=self.filename[0:self.left], bg=_gui_.LightBGColor)
         self.nameseq.config(text=self.filename[self.left:self.right], 
                             bg='DodgerBlue')
-        self.nameright.config(text=self.filename[self.right:], bg=LightBGColor)
+        self.nameright.config(text=self.filename[self.right:], bg=_gui_.LightBGColor)
         #put text in the scrolled text fields
         for item in dir_contents:
             self.dirconts.insert(tk.END, item + '\n')
@@ -1703,12 +1715,14 @@ class MissingFramesWindow(tk.Toplevel):
 
 class PrefsWin(tk.Toplevel):
     def __init__(self):
-        tk.Toplevel.__init__(self)
+        '''config is instance of Config from parent'''
+        tk.Toplevel.__init__(self, config)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
         self.bind('<Return>', self._apply)
         self.bind('<KP_Enter>', self._apply)
         self.bind('<Escape>', lambda x: self.destroy())
+        self.cfg = config
         self._get_local_vars()
         #create window elements
         self.nb = ttk.Notebook(self)
@@ -1735,16 +1749,16 @@ class PrefsWin(tk.Toplevel):
         self.host = tk.StringVar()
         self.port = tk.StringVar()
         self.refresh_interval = tk.IntVar()
-        self.path.set(Config.default_path)
-        self.startframe.set(Config.default_startframe)
-        self.endframe.set(Config.default_endframe)
-        self.render_engine.set(Config.default_render_engine)
-        self.input_cols.set(Config.input_win_cols)
-        self.comppanel_cols.set(Config.comp_status_panel_cols)
-        self.host.set(Config.host)
-        self.port.set(Config.port)
+        self.path.set(self.cfg.default_path)
+        self.startframe.set(self.cfg.default_startframe)
+        self.endframe.set(self.cfg.default_endframe)
+        self.render_engine.set(self.cfg.default_render_engine)
+        self.input_cols.set(self.cfg.input_win_cols)
+        self.comppanel_cols.set(self.cfg.comp_status_panel_cols)
+        self.host.set(self.cfg.host)
+        self.port.set(self.cfg.port)
         #convert refresh_interval in sec. to frequency (Hz) for display
-        self.refresh_interval.set(1 / Config.refresh_interval)
+        self.refresh_interval.set(1 / self.cfg.refresh_interval)
 
     def _set_local_vars(self):
         '''Sets the local Config class variables based on their tk variable
@@ -1756,29 +1770,29 @@ class PrefsWin(tk.Toplevel):
             self.host.get(), int(self.port.get()), 
             float(self.refresh_interval.get()),
             )
-        Config().update_cfgfile(guisettings)
+        self.cfg.update_cfgfile(guisettings)
 
     def _restore_local_cfg(self):
         '''Restores local Config class variables to defaults and overwrites
         the config file.'''
-        guisettings = Config().defaults()
-        Config().update_cfgfile(guisettings)
+        guisettings = self.cfg.defaults()
+        self.cfg.update_cfgfile(guisettings)
         print('Restored local config vars to defaults.')
 
     def _get_server_vars(self):
         '''Gets current server vars and sets tkinter vars from them.'''
-        msg = Config().get_server_cfg()
+        msg = self.cfg.get_server_cfg()
         if msg:
             print('Failed to get latest server config. Using previous '
                   'values.', msg)
         self.renice = {}
         self.macs = {}
-        for comp in Config.computers:
+        for comp in self.cfg.computers:
             self.renice[comp] = tk.IntVar()
-            if comp in Config.renice_list:
+            if comp in self.cfg.renice_list:
                 self.renice[comp].set(1)
             self.macs[comp] = tk.IntVar()
-            if comp in Config.macs:
+            if comp in self.cfg.macs:
                 self.macs[comp].set(1)
         self.blenderpath_mac = tk.StringVar()
         self.blenderpath_linux = tk.StringVar()
@@ -1791,27 +1805,27 @@ class PrefsWin(tk.Toplevel):
         self.log_basepath = tk.StringVar()
         self.serverport = tk.StringVar()
 
-        self.blenderpath_mac.set(Config.blenderpath_mac)
-        self.blenderpath_linux.set(Config.blenderpath_linux)
-        self.terragenpath_mac.set(Config.terragenpath_mac)
-        self.terragenpath_linux.set(Config.terragenpath_linux)
-        self.allowed_filetypes.set(Config.allowed_filetypes)
-        self.timeout.set(Config.timeout)
-        self.serverport.set(Config.serverport)
+        self.blenderpath_mac.set(self.cfg.blenderpath_mac)
+        self.blenderpath_linux.set(self.cfg.blenderpath_linux)
+        self.terragenpath_mac.set(self.cfg.terragenpath_mac)
+        self.terragenpath_linux.set(self.cfg.terragenpath_linux)
+        self.allowed_filetypes.set(self.cfg.allowed_filetypes)
+        self.timeout.set(self.cfg.timeout)
+        self.serverport.set(self.cfg.serverport)
         #XXX this autostart is runtime-changeable, need DEFAULT
         #maybe just need to pass this to server to update cfgfile without
         #updating runtime state
-        self.autostart.set(Config.autostart)
+        self.autostart.set(self.cfg.autostart)
         #XXX same as autostart above
-        self.verbose.set(Config.verbose)
-        self.log_basepath.set(Config.log_basepath)
+        self.verbose.set(self.cfg.verbose)
+        self.log_basepath.set(self.cfg.log_basepath)
 
     def _set_server_vars(self):
         '''Gets values from tk variables and sets Config values from them.'''
         #XXX Allowing editing of blender paths is a significant security hole
         #XXX Need way to get new computers, renice, macs list
         servercfg = (
-            Config.computers, Config.renice_list, Config.macs,
+            self.cfg.computers, self.cfg.renice_list, self.cfg.macs,
             self.blenderpath_mac.get(), self.blenderpath_linux.get(),
             self.terragenpath_mac.get(), self.terragenpath_linux.get(),
             self.allowed_filetypes.get(), int(self.timeout.get()),
@@ -1832,7 +1846,7 @@ class PrefsWin(tk.Toplevel):
 
     def _local_pane(self):
         '''Pane for local preferences (does not affect server).'''
-        #self.lpane = tk.LabelFrame(self.nb, bg=LightBGColor)
+        #self.lpane = tk.LabelFrame(self.nb, bg=_gui_.LightBGColor)
         lpane = ttk.Frame(self.nb)
         fr1 = ttk.LabelFrame(lpane, text='Connection Defaults')
         #fr1.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
@@ -1907,7 +1921,7 @@ class PrefsWin(tk.Toplevel):
 
     def _server_pane(self):
         '''Pane for server-specific preferences.'''
-        #self.spane = tk.LabelFrame(self.nb, bg=LightBGColor)
+        #self.spane = tk.LabelFrame(self.nb, bg=_gui_.LightBGColor)
         self._get_server_vars()
         spane = ttk.Frame(self.nb)
         #ttk.Label(spane, text='Server settings').pack()
@@ -1973,13 +1987,13 @@ class PrefsWin(tk.Toplevel):
         ttk.Label(cframe, text='Computer').grid(row=0, column=0, sticky=tk.W)
         ttk.Label(cframe, text='OSX').grid(row=0, column=1)
         ttk.Label(cframe, text='Renice').grid(row=0, column=2)
-        for i in range(len(Config.computers)):
+        for i in range(len(self.cfg.computers)):
             ttk.Label(
-                cframe, text=Config.computers[i]
+                cframe, text=self.cfg.computers[i]
                 ).grid(row=i+1, column=0, sticky=tk.W, padx=5)
-            ttk.Checkbutton(cframe, variable=self.macs[Config.computers[i]]
+            ttk.Checkbutton(cframe, variable=self.macs[self.cfg.computers[i]]
                 ).grid(row=i+1, column=1)
-            ttk.Checkbutton(cframe, variable=self.renice[Config.computers[i]]
+            ttk.Checkbutton(cframe, variable=self.renice[self.cfg.computers[i]]
                 ).grid(row=i+1, column=2)
 
         return cframe
@@ -2034,9 +2048,13 @@ class StatusThread(threading.Thread):
     '''Obtains current status info from all queue slots on server and updates
     GUI accordingly.'''
     stop = False
-    def __init__(self, masterwin):
+    def __init__(self, masterwin, config, socket):
+        '''masterwin = parent instance of MasterWin
+        config = instance of Config from parent''' 
         self.masterwin = masterwin
-        self.socket = sw.ClientSocket(Config.host, Config.port)
+        self.cfg = config
+        #self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
+        self.socket = socket
         threading.Thread.__init__(self, target=self._statusthread)
 
     def _statusthread(self):
@@ -2048,7 +2066,7 @@ class StatusThread(threading.Thread):
                 serverjobs = self.socket.send_cmd('get_attrs')
             except Exception as e:
                 print('Could not connect to server:', e)
-                time.sleep(Config.refresh_interval)
+                time.sleep(self.cfg.refresh_interval)
                 continue
             try:
                 self.masterwin.update(serverjobs)
@@ -2056,7 +2074,7 @@ class StatusThread(threading.Thread):
                 print('MasterWin.updat() failed: %s:%s' 
                       %(e.__class__.__name__, e))
             #refresh interval in seconds
-            time.sleep(Config.refresh_interval)
+            time.sleep(self.cfg.refresh_interval)
 
 
 

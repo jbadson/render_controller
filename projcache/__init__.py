@@ -5,7 +5,7 @@ import subprocess
 import os.path
 import platform
 import time
-import shlex
+#import shlex
 
 
 '''---NOTES---
@@ -18,7 +18,8 @@ RETURNS
     new path to blendfile for renderscript to act on
 '''
 
-
+#XXX Removed all shlex.quote() satatements b/c it was causing trouble with
+#paths being run through multiple times & getting excessive quotes.
 
 class FileCacher(object):
     '''Moves Blender project files to local storage on rendernodes to
@@ -64,7 +65,7 @@ class FileCacher(object):
         #get the absolute path to the blend file
         blendpath = os.path.join(self.projectdir, self.blendpath)
         command = ('%s  %s --python %s' 
-                   %(blendexe, shlex.quote(blendpath), pathfixer))
+                   %(blendexe, blendpath, pathfixer))
         print('make_paths_relative() command:', command) #debug
         output = subprocess.check_output(command, shell=True)
         output = output.decode('UTF-8')
@@ -94,8 +95,7 @@ class FileCacher(object):
         #want to exclude any rendered frames with initial copy
         command = (
             'ssh igp@%s "rsync -auh --progress --exclude=%s --delete %s '
-            '~/rendercache/"' %(computer, shlex.quote(self.renderdir), 
-            shlex.quote(self.projectdir))
+            '~/rendercache/"' %(computer, self.renderdir, self.projectdir)
             )
         print('cache() command:', command) #debug
         exitcode = subprocess.call(command, shell=True)
@@ -126,7 +126,7 @@ class FileCacher(object):
         savedir = os.path.join(self.projectdir, self.renderdir)
         command = (
             'ssh igp@%s "rsync -auh --progress %s/ %s"' 
-            %(computer, shlex.quote(renderdir), shlex.quote(savedir))
+            %(computer, renderdir, savedir)
             )
         print('retrieve_frames() command:', command) #debug
         exitcode = subprocess.call(command, shell=True)

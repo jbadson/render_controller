@@ -88,9 +88,7 @@ class Cli(object):
 
     def start_render(self, job_id):
         '''Start job with the given ID'''
-        kwargs = {'index':self.job_ids[job_id]}
-        print(kwargs)
-        result = self.socket.send_cmd('start_render', kwargs)
+        result = self.socket.send_cmd('start_render', self.job_ids[job_id])
         print(result)
 
     def kill_render(self, job_id):
@@ -100,14 +98,13 @@ class Cli(object):
                      'related processes.  Continue? (Y/n): ' %index) == 'Y':
             print('Cancelled')
             return
-        kwargs = {'index':index, 'kill_now':True}
-        result = self.socket.send_cmd('kill_render', kwargs)
+        result = self.socket.send_cmd('kill_render', index, True)
         print(result)
 
     def resume_render(self, job_id):
         '''Resume a stopped render.'''
-        kwargs = {'index':self.job_ids[job_id], 'startnow':True}
-        result = self.socket.send_cmd('resume_render', kwargs)
+        result = self.socket.send_cmd('resume_render', self.job_ids[job_id], 
+                                      True)
         print(result)
 
     def killall(self, program):
@@ -127,8 +124,8 @@ class Cli(object):
 
     def toggle_comp(self, job_id, computer):
         '''Toggle status of a computer for a given job.'''
-        kwargs = {'index':self.job_ids[int(job_id)], 'computer':computer}
-        result = self.socket.send_cmd('toggle_comp', kwargs)
+        result = self.socket.send_cmd('toggle_comp', 
+                                      self.job_ids[int(job_id)], computer)
         print(result)
 
     def checkframes(self):
@@ -158,7 +155,7 @@ class Cli(object):
                 print('Path contains illegal character(s)')
                 return
         index = os.path.basename(path)
-        if self.socket.send_cmd('job_exists', {'index':index}):
+        if self.socket.send_cmd('job_exists', index):
             if input('Job with same index already exists. '
                      'Overwrite? (Y/n): ') != 'Y':
                 return

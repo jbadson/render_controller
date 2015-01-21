@@ -40,19 +40,18 @@ receive result <--  report return string/result
 Each connection from a client receives its own instance of ClientThread. This
 thread checks the command against a list of valid commands, reports success or
 failure of validation to the client, then executes the command with arguments 
-supplied in a dict (kwargs) transmitted as a JSON string. It then reports the 
+supplied as a JSON string. It then reports the 
 data returned from the function to the client. This can be a simple 
 success/fail indicator, or it can be whatever data the client has requested 
-also formatted as a JSON string..
+also formatted as a JSON string. JSON was originally used for web portability,
+but that's probably not going to happen so it could be removed if needed.
 
 For this reason, there are some rules for functions that directly carry out 
 requests from client threads:
 
     1. The name of the function must be in the allowed_commands list.
 
-    2. The function must accept the kwargs argument, even if it isn't used.
-
-    3. The function must return something on completion. It can be any type of 
+    2. The function must return something on completion. It can be any type of 
        object as long as it's compatible with python's json.dumps and 
        json.loads.
 
@@ -163,8 +162,9 @@ class ClientThread(threading.Thread):
         else:
             self._sendmsg('True')
         #now get the args
-        kwargs = self._recvall()
-        return_str = eval('self.master.' + command)(kwargs)
+        #convert to tuple for formatting in next step
+        args = tuple(self._recvall())
+        return_str = eval('self.master.%s%s' %(command, args))
         #send the return string (T/F for success or fail, or other requested 
         #data)
         self._sendmsg(return_str)
@@ -218,7 +218,7 @@ class ClientSocket(object):
         self.socket.sendall(msglen)
         self.socket.sendall(msg)
 
-    def send_cmd(self, command, kwargs={}):
+    def send_cmd(self, command, *args):
         '''Sends a command to the server. Command must be a UTF-8 string.
         Associated args should be supplied as a dict. Returns a string'''
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -230,7 +230,7 @@ class ClientSocket(object):
         if not cmd_ok:
             return 'Invalid command'
         #if command was valid, send associated arguments
-        self._sendmsg(kwargs)
+        self._sendmsg(args)
         #collect the return string (True/False for success/fail or requested 
         #data)
         return_str = self._recvall()

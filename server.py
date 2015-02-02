@@ -1143,7 +1143,6 @@ class RenderServer(object):
 
     def check_autostart(self):
         #handle high priority renders
-        print('entered check_autostart')
         times = {}
         for i in self.renderjobs:
             job = self.renderjobs[i]

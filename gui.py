@@ -620,7 +620,7 @@ class ComputerPanel(_gui_, ttk.Frame):
 
     def _edit(self):
         '''Edits job information.'''
-        attrs = self.socket.send_cmd('get_attrs', index)
+        attrs = self.socket.send_cmd('get_attrs', self.index)
         denystatuses = ['Rendering', 'Stopped', 'Paused']
         if attrs['status'] in denystatuses:
             Dialog('Job cannot be edited.').warn()
@@ -1010,7 +1010,7 @@ class CompCube(_gui_, ttk.LabelFrame):
             self.errlabel.config(text=error)
 
 
-class InputWindow(tk.Toplevel):
+class InputWindow(_gui_, tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.
     If passed optional arguments, these will be used to populate the fields
     in the new window.

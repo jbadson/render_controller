@@ -227,8 +227,8 @@ class MasterWin(_gui_, tk.Tk):
         #put default values where they go
         self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
         self.socket.setup(host=self.cfg.host, port=self.cfg.port)
-        self.statthread = StatusThread(masterwin=self, config=self.cfg, 
-                                       socket=self.socket)
+        #self.statthread = StatusThread(masterwin=self, config=self.cfg, 
+        #                               socket=self.socket)
         self.tk_host.set(self.socket.host)
         self.tk_port.set(self.socket.port)
         ttk.Label(
@@ -280,6 +280,9 @@ class MasterWin(_gui_, tk.Tk):
         self.username = self.tk_username.get()
         self.setupframe.destroy()
         self._build_main()
+        self.statthread = StatusThread(
+            masterwin=self, config=self.cfg, host=newhost, port=newport
+            )
         self.statthread.start()
         self.unbind('<Return>')
         self.unbind('<KP_Enter>')
@@ -2048,13 +2051,14 @@ class StatusThread(threading.Thread):
     '''Obtains current status info from all queue slots on server and updates
     GUI accordingly.'''
     stop = False
-    def __init__(self, masterwin, config, socket):
+    def __init__(self, masterwin, config, host, port):
         '''masterwin = parent instance of MasterWin
         config = instance of Config from parent''' 
         self.masterwin = masterwin
         self.cfg = config
-        #self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
-        self.socket = socket
+        #Must have its own instance of ClientSocket to prevent
+        #asynchronous calls to socket.close().
+        self.socket = sw.ClientSocket(host, port)
         threading.Thread.__init__(self, target=self._statusthread)
 
     def _statusthread(self):

@@ -92,10 +92,22 @@ class FileCacher(object):
         or scp to copy directly from the machine this script is running on.'''
         if not computer in self.computers:
             self.computers.append(computer)
+
+        #check project root directory for a cache_exclude file
+        #format is same as exclude file for rsync
+        #XXX this requires that the proj dir have the same path on the local
+        #XXX machine as the remote.  Fix this later (will be easier w/ client)
+        if os.path.exists(os.path.join(self.projectdir, "cache_exclude.txt")):
+            excludefile = '--exclude-from %s' %os.path.join(self.projectdir, 
+                                                            "cache_exclude.txt")
+            print('cache_exclude.txt found')
+        else:
+            excludefile = ''
         #want to exclude any rendered frames with initial copy
         command = (
-            'ssh igp@%s "rsync -auh --progress --exclude=%s --delete %s '
-            '~/rendercache/"' %(computer, self.renderdir, self.projectdir)
+            'ssh igp@%s "rsync -auh --progress --exclude=%s %s --delete %s '
+            '~/rendercache/"' %(computer, self.renderdir, excludefile, 
+            self.projectdir)
             )
         print('cache() command:', command) #debug
         exitcode = subprocess.call(command, shell=True)

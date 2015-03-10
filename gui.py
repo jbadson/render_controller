@@ -1224,10 +1224,6 @@ class InputWindow(_gui_, tk.Toplevel):
     
     def _process_cache_paths(self, startframe, endframe, extraframes, 
                              complist):
-        if not complist:
-            Dialog('At least one computer must be specified to cache files '
-                   'locally.').warn()
-            return
         paths = self.cacherow.get_paths()
         if paths == 1:
             Dialog('Paths to render file and rendered frames directory must '
@@ -1290,10 +1286,11 @@ class InputWindow(_gui_, tk.Toplevel):
                        %result).warn()
                 return
         #Now ready to start transferring files
-        if not Dialog('Click OK to start transferring files. This may take a '
-                      'while. Do not start render until the file transfer is '
-                      'complete.').confirm():
-            return
+        if complist: #don't ask to start transfer if there are no computers
+            if not Dialog('Click OK to start transferring files. This may take a '
+                          'while. Do not start render until the file transfer is '
+                          'complete.').confirm():
+                return
         cachedata = {'rootpath':rootpath, 'filepath':filepath, 
                      'renderdirpath':renderdirpath, 'computers':complist}
         reply = self.socket.send_cmd('cache_files', cachedata)

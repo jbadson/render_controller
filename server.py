@@ -1492,7 +1492,10 @@ class RenderServer(object):
             cachedata['rootpath'], cachedata['filepath'], 
             cachedata['renderdirpath'], cachedata['computers']
             )
-        result = cacher.cache_all()
+        if not cachedata['computers']:
+            return 'Cache data stored but no computer list specified.'
+        else:
+            result = cacher.cache_all()
         if result:
             return 'Cache returned the following errors: %s' %result
         else:

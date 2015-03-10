@@ -25,7 +25,7 @@ class FileCacher(object):
     '''Moves Blender project files to local storage on rendernodes to
     speed up rendering of large scenes and reduce server IO.'''
 
-    def __init__(self, projectdir, blendpath, renderdir, computers=None):
+    def __init__(self, projectdir, blendpath, renderdir, computers=[]):
         '''
         projectdir: Absolute path to the project's base directory. This 
             directory and its conents will be cached locally on each machine.

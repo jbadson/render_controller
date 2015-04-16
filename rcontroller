@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/local/bin/python3
 
 '''IGP Render Controller Version 5
 
@@ -29,7 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import argparse
 import cli
 import server
-import gui
+#import gui
 
 
 class Parser(argparse.ArgumentParser):
@@ -84,6 +84,7 @@ class Parser(argparse.ArgumentParser):
             rserver = server.RenderServer(port=args.port)
             return
         elif args.gui:
+            import gui
             masterwin = gui.MasterWin()
             masterwin.mainloop()
             return

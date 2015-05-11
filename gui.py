@@ -307,11 +307,7 @@ class MasterWin(_gui_, tk.Tk):
             topbar, text='Preferences', command=PrefsWin, style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
-            topbar, text='Killall Blender', command=self.killall_blender,
-            style='Toolbutton'
-            ).pack(padx=5, side=tk.LEFT)
-        ttk.Button(
-            topbar, text='Killall Terragen', command=self.killall_tgn,
+            topbar, text='Kill Processes', command=self.killall,
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
@@ -519,23 +515,10 @@ class MasterWin(_gui_, tk.Tk):
         reply = self.socket.send_cmd('toggle_autostart')
         print(reply)
 
-    def killall_blender(self):
-        '''Attempts to kill all running instances of Blender on all 
-        computers.'''
-        if not Dialog('This will kill ALL instances of Blender on ALL '
-                      ' computers. Proceed?').confirm():
-            return
-        reply = self.socket.send_cmd('killall_blender')
-        print(reply)
-    
-    def killall_tgn(self):
-        '''Attempts to kill all running instances of Terragen on all 
-        computers.'''
-        if not Dialog('This will kill ALL instances of Terragen on ALL '
-                      ' computers. Proceed?').confirm():
-            return
-        reply = self.socket.send_cmd('killall_tgn')
-        print(reply)
+    def killall(self):
+        '''Creates instance of KillProcWindow to kill render processes
+        on specified computers.'''
+        KillProcWindow(self.socket, self.cfg)
     
     def clear_rendercache(self):
         '''Attempts to delete all contents from the ~/rendercache 
@@ -1513,6 +1496,115 @@ class CacheFilesPathBlock(ttk.Frame):
 
 
 
+class KillProcWindow(tk.Toplevel):
+    '''Interface for sending kill process commands to nodes.'''
+    def __init__(self, socket, config):
+        tk.Toplevel.__init__(self)
+        self.config(bg=_gui_.LightBGColor)
+        self.socket = socket
+        self.cfg = config
+        self.bind('<Command-q>', quit) 
+        self.bind('<Control-q>', quit)
+        self.bind('<Return>', self._killall)
+        self.bind('<KP_Enter>', self._killall)
+        self.bind('<Escape>', lambda x: self.destroy())
+        self.process = tk.StringVar() # Tk variable to hold process name
+        self.process.set('blender')
+        ttk.Label(
+            self, text='Attempt to kill all instances of the specified program '
+            'on the following computers.'
+            ).pack(padx=15, pady=(10, 0), anchor=tk.W)
+        self._build_window()
+
+    def _build_window(self):
+        outerframe = ttk.LabelFrame(self)
+        outerframe.pack(padx=15, pady=(0, 10))
+        progframe = ttk.LabelFrame(outerframe, text='Program')
+        progframe.pack(padx=15, pady=(0, 10), expand=True, fill=tk.X)
+        ttk.Radiobutton(
+            progframe, text='Blender', variable=self.process, value='blender'
+            ).pack(side=tk.LEFT)
+        ttk.Radiobutton(
+            progframe, text='Terragen', variable=self.process, value='terragen'
+            ).pack(side=tk.LEFT)
+        compframe = ttk.LabelFrame(outerframe, text='Computers')
+        compframe.pack(padx=10, pady=(0, 10), expand=True, fill=tk.X)
+        self._compgrid(compframe)
+        buttonframe = ttk.Frame(self)
+        buttonframe.pack(
+            padx=15, pady=(0, 15), anchor=tk.W, expand=True, fill=tk.X
+            )
+        ttk.Button(
+            buttonframe, text='Kill all processes', style='Toolbutton', 
+            command=self._killall
+            ).pack(padx=0, pady=0, side=tk.LEFT)
+        ttk.Button(
+            buttonframe, text='Cancel', command=self.destroy, style='Toolbutton'
+            ).pack(padx=10, pady=0, side=tk.LEFT)
+
+    def _compgrid(self, master):
+        '''Generates grid of computer checkboxes.'''
+        #create variables for computer buttons
+        self.compvars = {}
+        for computer in self.cfg.computers:
+            self.compvars[computer] = tk.IntVar()
+            self.compvars[computer].set(0)
+        #First row is for select/deselect all buttons
+        ttk.Button(
+            master, text='Select All', command=self._check_all
+            ).grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Button(
+            master, text='Deselect All', command=self._uncheck_all
+            ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        #generate a grid with specified number of columns
+        self.cols = self.cfg.input_win_cols
+        n = 0 #index of computer in computers list
+        row = 0 #starting position
+        while n < len(self.cfg.computers):
+            (x, y) = self._getcoords(n, row)
+            ttk.Checkbutton(
+                master, text=self.cfg.computers[n], 
+                variable=self.compvars[self.cfg.computers[n]]
+                ).grid(row=y+1, column=x, padx=5, pady=5, sticky=tk.W)
+            n += 1
+            if x == self.cols - 1:
+                row += 1
+            
+    def _getcoords(self, n, row):
+        '''Returns coordinates (column, row) for complist checkbox.
+        n = index of that computer in the list.
+        row = current row
+        cols = number of columns in layout'''
+        x = n - self.cols * row
+        y = n - n + row 
+        return (x, y)
+
+    def _check_all(self):
+        '''Sets all computer buttons to the checked state.'''
+        self._uncheck_all()
+        for computer in self.cfg.computers:
+            self.compvars[computer].set(1)
+
+    def _uncheck_all(self):
+        '''Sets all computer buttons to the unchecked state.'''
+        for computer in self.cfg.computers:
+            self.compvars[computer].set(0)
+
+    def _killall(self, callback=None):
+        '''Sends the kill all command to the server'''
+        complist = []
+        for comp in self.cfg.computers:
+            if self.compvars[comp].get() == 1:
+                complist.append(comp)
+        procname = self.process.get()
+        print('procname: ', procname)
+        if not Dialog('Kill all instances of %s on %s?' 
+            %(procname, ', '.join(complist))).confirm():
+            return
+        else:
+            reply = self.socket.send_cmd('killall', complist, procname)
+        print(reply)
+        self.destroy()
 
 
 

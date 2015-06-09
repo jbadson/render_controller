@@ -254,6 +254,7 @@ class Job(object):
     def _renderthread(self, frame, computer, framequeue):
         '''Thread to send command, montor status, and parse return data for a
         single frame in Blender's Cycles render engine.  NOTE: This will not
+
         parse output from Blender's internal engine correctly.'''
 
         self.prints('started _renderthread()', frame, computer)
@@ -282,7 +283,7 @@ class Job(object):
                     self.prints(line)
             #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
-                progress = self._parseline(line)
+                progress = self._parseline(line, frame, computer)
                 with threadlock:
                     self.compstatus[computer]['progress'] = progress
             #detect PID at first line
@@ -427,7 +428,7 @@ class Job(object):
             #NOTE: omitting stderr testing for now
         self.prints('_renderthread_tgn() terminated', frame, computer)
 
-    def _parseline(self, line):
+    def _parseline(self, line, frame, computer):
         '''Parses Blender cycles progress and returns it in a compact form.'''
         tiles, total = line.split('|')[-1].split(' ')[-1].split('/')
         tiles = float(tiles)
@@ -1584,9 +1585,36 @@ class SSHKillThread(object):
 
 
 
+class NodeTest(object):
+    '''Tests new render node functions.'''
+    def __init__(self):
+        #self.cfg = Config()
+        self.nodesocket = sw.ClientSocket('localhost', 2030)
+        self.nodelist = ['localhost'] # list of avail. render nodes
 
+    def nodeloop(self):
+        '''Polls render nodes for current status'''
+        while True:
+            for node in self.nodelist:
+                reply = self.get_status(node)
+                print('reply received from %s: %s' %(node, reply))
+                time.sleep(0.5)
+
+    def check_node(self):
+        '''Attempts to get a response from the rendernode'''
+        # Send a request to rendernode on localhost, print repsonse
+        reply = self.nodesocket.send_cmd('cmdtest')
+        print(reply)
+
+    def get_status(self, node):
+        '''Gets status from the node.'''
+        status = self.nodesocket.send_cmd('get_status')
+        print('Received status from %s: %s' %(node, status))
+        
     
 
 
 if __name__ == '__main__':
-    server = RenderServer()
+    #server = RenderServer()
+    test = NodeTest()
+    test.nodeloop()

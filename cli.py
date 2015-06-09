@@ -1,7 +1,5 @@
-#!/usr/bin/python3
-
-#command line interface for IGP Render Controller
-#must run in python 3
+# Command line interface for IGP Render Controller
+# Must run in python 3
 
 '''
 #####################################################################
@@ -26,17 +24,42 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 #import argparse
-import os.path
+import os
 import framechecker
 import socketwrapper as sw
 
 illegal_characters = [';', '&'] #not allowed in path
+
+class Config(object):
+    '''Object to hold config variables imported from server.'''
+    def __init__(self, socket):
+        self.sock = socket
+        pass
+
+    def get_server_cfg(self):
+        '''Gets config info from the server.'''
+        try:
+            servercfg = self.sock.send_cmd('get_config_vars')
+        except Exception as e:
+            return e
+        (
+        self.computers, self.renice_list, 
+        self.macs, self.blenderpath_mac, self.blenderpath_linux, 
+        self.terragenpath_mac, self.terragenpath_linux, 
+        self.allowed_filetypes, self.timeout, self.serverport,
+        self.autostart, self.verbose, self.log_basepath 
+        ) = servercfg
+        return False
+
+
 
 class Cli(object):
     '''Master object for command line interface.'''
     def __init__(self, host='localhost', port=2020):
         #var to contain all current server job attributes
         self.socket = sw.ClientSocket(host, port)
+        self.cfg = Config(self.socket)
+        self.cfg.get_server_cfg()
         self.serverjobs = self.socket.send_cmd('get_attrs')
         '''Need a list of integer IDs corresponding to jobs on the server to
         make manipulating them easier from the command line.  Because dict keys
@@ -47,7 +70,7 @@ class Cli(object):
         self.autostart = self.serverjobs['__STATEVARS__']['autostart']
         self.job_ids.remove('__STATEVARS__')
         self.job_ids.remove('__MESSAGE__')
-        self.fprint = FPrinter() #formatted printer object
+        self.fprint = FPrinter(self.cfg) #formatted printer object
 
 
     def list_jobs(self):
@@ -62,7 +85,6 @@ class Cli(object):
 
     def print_single_job(self, job_id):
         '''Prints header for a single job, then prints its status info.'''
-        print('Full status info for ID %s\n' %job_id)
         self._print_job_info(job_id)
 
     def list_all(self):
@@ -77,14 +99,23 @@ class Cli(object):
         index = self.job_ids[job_id]
         job = self.serverjobs[index]
         elapsed, avg, remaining = job['times']
-        self.fprint.jobsummary(index, job['status'], job['progress'], elapsed, 
-                               avg, remaining)
-        print('\nComputer status info:\n')
-        self.fprint.complist_header()
-        for comp in self.serverjobs[index]['complist']:
+        self.fprint.jobsummary(
+            job['path'], job['status'], job['progress'], elapsed, avg, remaining
+            )
+        colwidth = self.fprint.get_maxlen(self.cfg.computers) + 3
+        self.fprint.complist_header(colwidth)
+        for comp in self.cfg.computers:
             cs = self.serverjobs[index]['compstatus'][comp]
-            self.fprint.complist(comp, cs['frame'], cs['progress'], cs['active'],
-                                 cs['error'])
+            if cs['active']:
+                status = 'Active'
+            else:
+                if cs['frame']:
+                    status = 'FAILED'
+                else:
+                    status = 'Inactive'
+            self.fprint.complist(comp, status, cs['frame'], cs['progress'], 
+                                 cs['error'], colwidth)
+            
 
     def start_render(self, job_id):
         '''Start job with the given ID'''
@@ -230,10 +261,11 @@ class Cli(object):
 
 
 
-
-
 class FPrinter(object):
     '''Prints formatted data to stdout.'''
+
+    def __init__(self, config):
+        self.cfg = config
 
     def format_time(self, time):
         '''Converts time in decimal seconds to human-friendly strings.
@@ -287,20 +319,86 @@ class FPrinter(object):
         formatstr = '{:<4} {:<30} {:<10} {:<10}'
         print(formatstr.format(job_id, filename, status, round(progress, 1)))
 
-    def complist_header(self):
-        formatstr = '{:<20} {:<10} {:<10} {:<10} {}'
-        print(formatstr.format('Computer', 'Frame', 'Progress', 'Active', 'Error'))
-        print('-'*70)
-
-    def complist(self, computer, frame, progress, active, error):
-        formatstr = '{!s:<20} {!s:<10} {!s:<10} {!s:<10} {}'
-        print(formatstr.format(computer, frame, round(progress, 1), active, 
-              error))
-
     def job_separator(self, job_id):
         print('\n%s ID: %s %s' %('#'*30, job_id, '#'*30))
 
+    def get_maxlen(self, input_list):
+        '''Accepts a list of strings, ints, or floats. Converts all to strings
+        and returns the length of the longest item.'''
+        maxlen = max([len(str(x)) for x in input_list])
+        return maxlen
 
+    def complist_header(self, colwidth):
+        '''Print the header for a computer status list.  colwidth is the width
+        of the first column in chars, used to keep lables aligned with computer
+        lines.  All other columns are fixed width.'''
+        formatstr = '{:<%s} {:<11} {:8} {:11} {:15}' %colwidth
+        print(formatstr.format('Computer', 'Status', 'Frame', 'Progress', 
+             'Error'))
+        # Determine width of separator line based on col widths
+        sep = colwidth + 11 + 8 + 11 + 15
+        print('-'*sep)
+
+
+    def complist(self, computer, status, frame, progress, error, colwidth):
+        '''Print one line of status info for one computer.  colwidth is the 
+        width of the first column in chars.  All others are fixed width.'''
+        formatstr = '{!s:<%s} {!s:<11} {!s:<8} {!s:<11} {!s:<15}' %colwidth
+        print(formatstr.format(computer, status, frame, round(progress, 1), 
+              error))
+
+
+    def truncate_filepath(self, path):
+        '''Returns filepath truncated to fit current terminal width -4 chars.'''
+        # Get current console width
+        tsize = os.get_terminal_size() # returns obj with attrs columns and lines
+        if len(path) > tsize.columns:
+            head, tail = os.path.split(path)
+            hlen = len(head)
+            tlen = len(tail)
+            n = 0
+            while len(os.path.join(head, tail)) > tsize.columns - 4:
+                # Try to truncate the head first, keeping at least 5 chars
+                if hlen >= 5:
+                    head = '%s...' %head[0:hlen]
+                    hlen -= 1
+                else:
+                    # Truncate tail from the middle
+                    tail = '%s...%s' %(tail[:tlen // 2 -n ], tail[tlen // 2 +n:])
+                    n += 1
+            path = os.path.join(head, tail)
+        return path
+
+    def get_time_width(self, timestring):
+        '''Returns column width for a given time string.'''
+        # Header needs at least 10 cols
+        if len(timestring) > 6:
+            width = len(timestring) + 4
+        else:
+            width = 10
+        return width
+
+
+    def jobsummary(self, filepath, status, progress, time_elapsed, 
+                   time_avg, time_remaining):    
+        header = ('Status:', 'Progress:', 'Elapsed:', 'Avg./Fr.:',
+                  'Remaining:')
+
+        etime = self.format_time(time_elapsed)
+        avtime = self.format_time(time_avg)
+        remtime = self.format_time(time_remaining)
+
+        # Get widths of times
+        ew = self.get_time_width(etime)
+        aw = self.get_time_width(avtime)
+        rw = self.get_time_width(remtime)
+
+        formatstr = '{:<10} {:<10} {:<%s} {:<%s} {:<%s}' %(ew, aw, rw)
+        print('File:')
+        print(self.truncate_filepath(filepath) + '\n')
+        print(formatstr.format(*header))
+        print(formatstr.format(status, round(progress, 1), etime, 
+              avtime, remtime) + '\n')
 
 
 if __name__ == '__main__':

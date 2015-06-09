@@ -304,7 +304,7 @@ class MasterWin(_gui_, tk.Tk):
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
-            topbar, text='Preferences', command=PrefsWin, style='Toolbutton'
+            topbar, text='Preferences', command=self._prefs, style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
             topbar, text='Kill Processes', command=self.killall,
@@ -529,6 +529,10 @@ class MasterWin(_gui_, tk.Tk):
             return
         reply = self.socket.send_cmd('clear_rendercache')
         print(reply)
+
+    def _prefs(self, callback=None):
+        '''Passes config and socket objects to a new instance of PrefsWin'''
+        PrefsWin(self.cfg, self.socket)
 
 
 
@@ -901,7 +905,8 @@ class CompCube(_gui_, ttk.LabelFrame):
         self.socket = socket
         self.computer = computer
         #self.bgcolor = 'white' 
-        self.bgcolor = _gui_.LightBGColor #color changes to white when frame assigned
+        #change color to white when frame assigned
+        self.bgcolor = _gui_.LightBGColor 
         self.font = 'TkSmallCaptionFont'
         self.progress = tk.IntVar()
         self.pool = tk.IntVar()
@@ -1772,10 +1777,15 @@ class MissingFramesWindow(tk.Toplevel):
             return
         self.left = int(self.slider_left.get())
         self.right = int(self.slider_right.get())
-        self.nameleft.config(text=self.filename[0:self.left], bg=_gui_.LightBGColor)
-        self.nameseq.config(text=self.filename[self.left:self.right], 
-                            bg='DodgerBlue')
-        self.nameright.config(text=self.filename[self.right:], bg=_gui_.LightBGColor)
+        self.nameleft.config(
+            text=self.filename[0:self.left], bg=_gui_.LightBGColor
+            )
+        self.nameseq.config(
+            text=self.filename[self.left:self.right], bg='DodgerBlue'
+            )
+        self.nameright.config(
+            text=self.filename[self.right:], bg=_gui_.LightBGColor
+            )
 
     def _put_text(self, lists):
         '''Populates the scrolled text boxes with relevant data and configures
@@ -1790,10 +1800,15 @@ class MissingFramesWindow(tk.Toplevel):
         self.slider_right.config(to=len(self.filename))
         self.slider_left.set(self.left)
         self.slider_right.set(self.right)
-        self.nameleft.config(text=self.filename[0:self.left], bg=_gui_.LightBGColor)
-        self.nameseq.config(text=self.filename[self.left:self.right], 
-                            bg='DodgerBlue')
-        self.nameright.config(text=self.filename[self.right:], bg=_gui_.LightBGColor)
+        self.nameleft.config(
+            text=self.filename[0:self.left], bg=_gui_.LightBGColor
+            )
+        self.nameseq.config(
+            text=self.filename[self.left:self.right], bg='DodgerBlue'
+            )
+        self.nameright.config(
+            text=self.filename[self.right:], bg=_gui_.LightBGColor
+            )
         #put text in the scrolled text fields
         for item in dir_contents:
             self.dirconts.insert(tk.END, item + '\n')
@@ -1806,15 +1821,17 @@ class MissingFramesWindow(tk.Toplevel):
 
 
 class PrefsWin(tk.Toplevel):
-    def __init__(self):
+    def __init__(self, config, socket):
+        # XXX Need way for this to inherit config object
         '''config is instance of Config from parent'''
-        tk.Toplevel.__init__(self, config)
+        tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
-        self.bind('<Return>', self._apply)
-        self.bind('<KP_Enter>', self._apply)
+        #self.bind('<Return>', self._apply)
+        #self.bind('<KP_Enter>', self._apply)
         self.bind('<Escape>', lambda x: self.destroy())
         self.cfg = config
+        self.socket = socket
         self._get_local_vars()
         #create window elements
         self.nb = ttk.Notebook(self)
@@ -1825,7 +1842,7 @@ class PrefsWin(tk.Toplevel):
         btnbar = ttk.Frame(self)
         btnbar.pack(anchor=tk.W, expand=True, fill=tk.X)
         ttk.Button(
-            btnbar, text='Close', command=self._apply, style='Toolbutton'
+            btnbar, text='Close', command=self.destroy, style='Toolbutton'
             ).pack(side=tk.LEFT, padx=(15, 5), pady=(0, 15))
 
 
@@ -2089,10 +2106,6 @@ class PrefsWin(tk.Toplevel):
                 ).grid(row=i+1, column=2)
 
         return cframe
-
-    def _apply(self, event=None):
-        print("_apply() called, this doesn't exist yet")
-        self.destroy()
 
     def _restore_defaults(self):
         print("_restore_defaults() called, doesn't exist yet")

@@ -23,7 +23,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 
-#import argparse
 import os
 import framechecker
 import socketwrapper as sw
@@ -126,7 +125,7 @@ class Cli(object):
         '''Kill render and all associated processes for given ID'''
         index = self.job_ids[job_id]
         if not input('This will stop rendering %s and attempt to kill all '
-                     'related processes.  Continue? (Y/n): ' %index) == 'Y':
+                     'related processes.  Continue? (y/N): ' %index) == 'y':
             print('Cancelled')
             return
         result = self.socket.send_cmd('kill_render', index, True)
@@ -144,7 +143,7 @@ class Cli(object):
             print('Invalid argument. Must be "terragen" or "blender".')
             return
         if not input('This will attempt to kill all instances of %s '
-                     'on all computers. Proceed? (Y/n): ' %program) == 'Y':
+                     'on all computers. Proceed? (y/N): ' %program) == 'y':
             print('Cancelled')
             return
         if program == 'terragen':
@@ -187,8 +186,8 @@ class Cli(object):
                 return
         index = os.path.basename(path)
         if self.socket.send_cmd('job_exists', index):
-            if input('Job with same index already exists. '
-                     'Overwrite? (Y/n): ') != 'Y':
+            if not input('Job with same index already exists. '
+                     'Overwrite? (y/N): ') == 'y':
                 return
         if path.endswith('blend'):
             render_engine = 'blend'
@@ -206,23 +205,20 @@ class Cli(object):
             extraframes = [int(i) for i in extras.split()]
         else:
             extraframes = []
-        comps = input('Computers (type "list" for a list of available '
-                      'computers): ')
-        if comps == 'list':
-            print('This feature doesnt work yet')
-            complist = input('Computers: ').split()
-        else:
-            complist = comps.split()
-        for char in complist:
-            if char in illegal_characters:
-                print('Computer list contains illegal character(s)')
-                return
+        # Get the computer list
+        print('Enter a space-separated list of computers to render on. Type '
+              '"list" to see available computers, type "all" to select them all.')
+        while True:
+            complist = self._get_complist()
+            if complist:
+                break
         #All info collected. Ready to confirm then enqueue.
         print('Ready to place %s into queue.' %index)
         print('Path: %s\n'
               'Start frame: %s\t End frame: %s\t Extras: %s\n'
-              'On %s' %(path, start, end, extras, ', '.join(complist)))
-        if not input('Proceed? (Y/n): ') == 'Y':
+              'On computers:' %(path, start, end, extras))
+        self.fprint.print_complist(complist)
+        if input('Proceed? (Y/n): ') == 'n':
             return
         kwargs = {
             'index':index,'path':path,'startframe':start, 'endframe':end,
@@ -231,6 +227,24 @@ class Cli(object):
             }
         reply = self.socket.send_cmd('enqueue', kwargs)
         print(reply)
+
+    def _get_complist(self):
+        '''Internal method for getting computer list when creating a new job.'''
+        txt = input('Computers: ')
+        if txt == 'list':
+            self.fprint.print_complist(self.cfg.computers)
+            return False
+        elif txt == 'all':
+            return self.cfg.computers
+        elif not txt:
+            return False
+        else:
+            comps = txt.split()
+            for comp in comps:
+                if not comp in self.cfg.computers:
+                    print('%s is not a recognized computer name' %comp)
+                    return False
+        return comps
 
     def toggle_autostart(self, mode):
         '''Attempts to set the server's autostart variable.  Mode can be
@@ -347,7 +361,6 @@ class FPrinter(object):
         print(formatstr.format(computer, status, frame, round(progress, 1), 
               error))
 
-
     def truncate_filepath(self, path):
         '''Returns filepath truncated to fit current terminal width -4 chars.'''
         # Get current console width
@@ -378,27 +391,52 @@ class FPrinter(object):
             width = 10
         return width
 
-
     def jobsummary(self, filepath, status, progress, time_elapsed, 
                    time_avg, time_remaining):    
         header = ('Status:', 'Progress:', 'Elapsed:', 'Avg./Fr.:',
                   'Remaining:')
-
         etime = self.format_time(time_elapsed)
         avtime = self.format_time(time_avg)
         remtime = self.format_time(time_remaining)
-
         # Get widths of times
         ew = self.get_time_width(etime)
         aw = self.get_time_width(avtime)
         rw = self.get_time_width(remtime)
-
         formatstr = '{:<10} {:<10} {:<%s} {:<%s} {:<%s}' %(ew, aw, rw)
         print('File:')
         print(self.truncate_filepath(filepath) + '\n')
         print(formatstr.format(*header))
         print(formatstr.format(status, round(progress, 1), etime, 
               avtime, remtime) + '\n')
+
+    def print_complist(self, complist):
+        '''Prints a formatted list of computers.'''
+        # Determine how many columns to print
+        longest = self.get_maxlen(complist) + 2 # add 2 chars space
+        cols = os.get_terminal_size().columns // longest
+        if cols < 1:
+            cols = 1
+        # Add empty strings until all rows are full
+        while not (len(complist) % cols) == 0:
+            complist.append('')
+        # Print the rows
+        n = 0
+        while n < len(complist):
+            elements = []
+            for i in range(cols):
+                elements.append(complist[n])
+                n += 1
+            print(self._pad_line(elements, longest))
+
+    def _pad_line(self, elements, maxlength):
+        '''Returns a string containing an arbitrary number of elements
+        left justified and padded to maxlength'''
+        line = ''
+        for e in elements:
+            line = line + e.ljust(maxlength)
+        return line
+
+        
 
 
 if __name__ == '__main__':

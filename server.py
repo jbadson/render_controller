@@ -28,6 +28,7 @@ import subprocess
 import os
 import socket
 import shlex
+import datetime
 import cfgfile
 import projcache
 import socketwrapper as sw
@@ -62,10 +63,6 @@ class Job(object):
     def _reset_compstatus(self, computer):
         '''Creates compstatus dict or resets an existing one to 
         default values'''
-        if computer in self.complist:
-            pool = True
-        else:
-            pool = False
         with threadlock:
             self.compstatus[computer] = {
                 'active':False, 'frame':None, 'pid':None, 'timer':None, 
@@ -257,6 +254,7 @@ class Job(object):
         parse output from Blender's internal engine correctly.'''
 
         self.prints('started _renderthread()', frame, computer)
+        thread_start_time = datetime.datetime.now()
         if computer in Config.macs:
             renderpath = shlex.quote(Config.blenderpath_mac)
         else:
@@ -301,14 +299,16 @@ class Job(object):
                         skipcomp = self.skiplist.pop(0)
                         self._reset_compstatus(skipcomp)
             #detect if frame has finished rendering
-            elif line.find('Saved:') >= 0 and line.find('Time') >= 0:
+            elif line.find('Saved:') >= 0:
+                thread_end_time = datetime.datetime.now()
+                # Subtracting two datetime objects returns a datetime.timedelta object
+                # which can be converted to a string.  May do better formatting later.
+                rendertime = str(thread_end_time - thread_start_time)
                 self.totalframes.append(frame)
                 if 0 in self.totalframes:
                     self.totalframes.remove(0)
                 framequeue.task_done()
                 self._reset_compstatus(computer)
-                #get final rendertime from blender's output
-                rendertime = str(line[line.find('Time'):].split(' ')[1])
                 self.prints('Finished after %s' %rendertime, frame=frame, 
                           computer=computer)
                 with threadlock:

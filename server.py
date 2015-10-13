@@ -267,11 +267,17 @@ class Job(object):
         for line in iter(command.stdout.readline, ''):
             #convert byte object to unicode string
             #necessary for Python 3.x compatibility
-            line = line.decode('UTF-8')
-            if not line:
-                #pipe broken, 
-                self._thread_failed(frame, computer, 'Broken pipe')
-                return
+            # Starting with Blender 2.76, having problems with unicode decoding errors
+            # Not sure what's going on, but need to get things working
+            try:
+                line = line.decode('UTF-8')
+                if not line:
+                    #pipe broken, 
+                    self._thread_failed(frame, computer, 'Broken pipe')
+                    return
+            except UnicodeDecodeError as e:
+                print('Got the Unicode error: %s in line: %s' %(e, line))
+                continue
 
             #reset timeout timer every time an update is received
             with threadlock:

@@ -29,6 +29,7 @@ import os
 import socket
 import shlex
 import datetime
+import re
 import cfgfile
 import projcache
 import socketwrapper as sw
@@ -280,9 +281,15 @@ class Job(object):
                     self.prints(line)
             #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
-                progress = self._parseline(line)
-                with threadlock:
-                    self.compstatus[computer]['progress'] = progress
+                match = re.search('Path Tracing Tile +?([0-9]+)\/([0-9]+)', line)
+                if not match:
+                    # Don't break if regex doesn't match
+                    continue
+                else:
+                    tiles, total = match.group(1), match.group(2)
+                    progress = int(tiles) / int(total) * 100
+                    with threadlock:
+                        self.compstatus[computer]['progress'] = progress
             #detect PID at first line
             elif line.strip().isdigit():
                 pid = line.strip()
@@ -357,9 +364,6 @@ class Job(object):
                 with threadlock:
                     self.prints(line)
 
-            #Terragen provides much less continuous status info, so parseline 
-            #replaced with a few specific conditionals
-
             #starting overall render or one of the render passes
             if line.strip().isdigit():
                 pid = int(line.strip())
@@ -426,14 +430,6 @@ class Job(object):
                 break
             #NOTE: omitting stderr testing for now
         self.prints('_renderthread_tgn() terminated', frame, computer)
-
-    def _parseline(self, line):
-        '''Parses Blender cycles progress and returns it in a compact form.'''
-        tiles, total = line.split('|')[-1].split(' ')[-1].split('/')
-        tiles = float(tiles)
-        total = float(total)
-        percent = tiles / total * 100
-        return percent
 
     def _thread_failed(self, frame, computer, errortype):
         '''Handles operations associated with a failed render thread.'''

@@ -160,7 +160,12 @@ class Job(object):
             return False
         self.status = 'Rendering'
         self._start_timer(offset=time_offset)
-        self.renderlog.start()
+        # Having issues with script crashing if data server goes offline and
+        # render log is inaccessible.
+        try:
+            self.renderlog.start()
+        except:
+            print("ERROR: Unable to write to render log.")
 
         self.killflag = False
 
@@ -190,7 +195,10 @@ class Job(object):
                 self.prints('Render done at detector.') #debug
                 self.status = 'Finished'
                 self._stop_timer()
-                self.renderlog.finished(self.get_times())
+                try:
+                    self.renderlog.finished(self.get_times())
+                except:
+                    print("ERROR: Unable to write to render log.")
                 if self.cachedata:
                     self.retrieve_cached_files()
                 break
@@ -221,7 +229,10 @@ class Job(object):
                             self.compstatus[computer]['frame'] = frame
                             self.compstatus[computer]['timer'] = time.time()
                             self.threads_active = True
-                            self.renderlog.frame_sent(frame, computer) 
+                            try:
+                                self.renderlog.frame_sent(frame, computer) 
+                            except:
+                                print("ERROR: Unable to write to render log.")
                         self.prints('Creating renderthread')#debug
                         rthread = threading.Thread(
                             target=tgt_thread, args=(frame,  computer, 
@@ -325,7 +336,10 @@ class Job(object):
                 self.prints('Finished after %s' %rendertime, frame=frame, 
                           computer=computer)
                 with threadlock:
-                    self.renderlog.frame_recvd(frame, computer, rendertime)
+                    try:
+                        self.renderlog.frame_recvd(frame, computer, rendertime)
+                    except:
+                        print("ERROR: Unable to write to render log.")
                 break
     
         #NOTE omitting stderr checking for now
@@ -432,7 +446,10 @@ class Job(object):
                 rendertime = str(line.split()[2][:-1])
                 self.prints('Finished after %s' %rendertime, frame, computer)
                 with threadlock:
-                    self.renderlog.frame_recvd(frame, computer, rendertime)
+                    try:
+                        self.renderlog.frame_recvd(frame, computer, rendertime)
+                    except:
+                        print("ERROR: Unable to write to render log.")
                 break
             #NOTE: omitting stderr testing for now
         self.prints('_renderthread_tgn() terminated', frame, computer)
@@ -451,7 +468,10 @@ class Job(object):
             self.queue.put(frame)
             self.compstatus[computer]['active'] = False
             self.compstatus[computer]['error'] = errortype
-            self.renderlog.frame_failed(frame, computer, errortype)
+            try:
+                self.renderlog.frame_failed(frame, computer, errortype)
+            except:
+                print("ERROR: Unable to write to render log.")
         pid = self.compstatus[computer]['pid']
         #XXX Not sure if there should be an exemption for broken pipe here
         #b/c slow comptuers are having ssh issues and breaking pipes while
@@ -468,7 +488,10 @@ class Job(object):
                                    args=(computer, pid))
         kthread.start()
         with threadlock:
-            self.renderlog.process_killed(pid, computer)
+            try:
+                self.renderlog.process_killed(pid, computer)
+            except:
+                print("ERROR: Unable to write to render log.")
 
     def _threadkiller(self, computer, pid):
         '''Target thread to manage kill commands, created by _kill_thread'''
@@ -580,7 +603,10 @@ class Job(object):
             self.complist.append(computer)
             if self.status == 'Rendering':
                 with threadlock:
-                    self.renderlog.computer_added(computer)
+                    try:
+                        self.renderlog.computer_added(computer)
+                    except:
+                        print("ERROR: Unable to write to render log.")
             return True
 
     def remove_computer(self, computer):
@@ -592,7 +618,10 @@ class Job(object):
                 self.skiplist.remove(computer)
             if self.status == 'Rendering':
                 with threadlock:
-                    self.renderlog.computer_removed(computer)
+                    try:
+                        self.renderlog.computer_removed(computer)
+                    except:
+                        print("ERROR: Unable to write to render log.")
             return True
 
     def kill_now(self):
@@ -602,7 +631,10 @@ class Job(object):
         self.killflag = True
         self._stop_timer()
         with threadlock:
-            self.renderlog.stop(self.get_times())
+            try:
+                self.renderlog.stop(self.get_times())
+            except:
+                print("ERROR: Unable to write to render log.")
         self.status = 'Stopped'
         for computer in Config.computers:
             try:
@@ -626,7 +658,10 @@ class Job(object):
         self.killflag = True
         self._stop_timer()
         with threadlock:
-            self.renderlog.stop(self.get_times())
+            try:
+                self.renderlog.stop(self.get_times())
+            except:
+                print("ERROR: Unable to write to render log.")
         self.status = finalstatus
         return True
 

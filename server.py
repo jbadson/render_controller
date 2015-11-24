@@ -1378,40 +1378,46 @@ class RenderServer(object):
         return 'Failed to toggle computer status.'
     
     def kill_single_thread(self, index, computer):
-        #first remove computer from the pool
-        remove = self.renderjobs[index].remove_computer(computer)
-        kill = self.renderjobs[index].kill_thread(computer)
-        #remove computer
-        if kill:
-            pid = kill
-            rstr = 'Sent kill signal for %s' %pid
-            if remove:
-                rstr += ', %s removed from render pool' %computer
+        try:
+            #first remove computer from the pool
+            remove = self.renderjobs[index].remove_computer(computer)
+            kill = self.renderjobs[index].kill_thread(computer)
+            #remove computer
+            if kill:
+                pid = kill
+                rstr = 'Sent kill signal for %s' %pid
+                if remove:
+                    rstr += ', %s removed from render pool' %computer
+                else:
+                    rstr += ', unable to remove %s from render pool.' %computer
+                #return 'Sent kill signal for pid '+str(pid)+' on '+computer
             else:
-                rstr += ', unable to remove %s from render pool.' %computer
-            #return 'Sent kill signal for pid '+str(pid)+' on '+computer
-        else:
-            #return 'Failed to kill thread.'
-            rstr = 'Failed to kill thread'
-            if remove:
-                rstr += ', removed %s from render pool.' %computer
-            else:
-                rstr += ', unable to remove %s from render pool.' %computer
-        return rstr
+                #return 'Failed to kill thread.'
+                rstr = 'Failed to kill thread'
+                if remove:
+                    rstr += ', removed %s from render pool.' %computer
+                else:
+                    rstr += ', unable to remove %s from render pool.' %computer
+            return rstr
+        except:
+            return 'Operation failed, exception handled.'
     
     def kill_render(self, index, kill_now):
-        if kill_now:
-            reply = self.renderjobs[index].kill_now()
-            if reply:
-                return ('Killed render and all associated processes for %s'
-                        %index)
-        else:
-            reply = self.renderjobs[index].kill_later()
-            if reply:
-                return ('Killed render of '+str(index)+' but all '
-                        'currently-rendering frames will be allowed '
-                        'to finish.')
-        return 'Failed to kill render for job '+str(index)
+        try:
+            if kill_now:
+                reply = self.renderjobs[index].kill_now()
+                if reply:
+                    return ('Killed render and all associated processes for %s'
+                            %index)
+            else:
+                reply = self.renderjobs[index].kill_later()
+                if reply:
+                    return ('Killed render of '+str(index)+' but all '
+                            'currently-rendering frames will be allowed '
+                            'to finish.')
+            return 'Failed to kill render for job '+str(index)
+        except:
+            return 'Unable to kill %s, exception handled' %index
     
     def resume_render(self, index, startnow):
         reply = self.renderjobs[index].resume(startnow)

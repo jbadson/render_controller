@@ -161,6 +161,7 @@ class MarkedScale(ttk.Frame):
         self.end = end
         self.length = length
         self.var = variable #must be a tkinter variable
+        print('####', self.var, self.var.get())
         self.round_ = round_
         self.units = units
         self.command = command

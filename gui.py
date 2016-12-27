@@ -29,21 +29,13 @@ import tkinter.messagebox as tk_msgbox
 import tkinter.scrolledtext as tk_st
 import time
 import threading
-import os.path
-import cfgfile
+import os
+import yaml
 import framechecker
 import tk_extensions as tkx
-import projcache
 import socketwrapper as sw
 
 illegal_characters = [';', '&'] #not allowed in path
-
-
-
-
-
-
-
 
 def quit(event=None):
     '''Terminates status thread and mainloop, then sends exit call.'''
@@ -52,79 +44,85 @@ def quit(event=None):
 
 
 #----------CONFIG VARIABLES----------
+default_cfg_file = """# YAML config for rendercontroller GUI
+
+# Server connection settings
+host: localhost
+port: 2020
+
+# Default values that appear in new job window
+default_path: /mnt/data/test_render/test_render.blend
+default_startframe: 1
+default_endframe: 4
+default_render_engine: blend
+
+# Number of columns for widget arrays
+input_win_cols: 5
+comp_status_panel_cols: 3
+
+# How often to poll server for updates (seconds)
+refresh_interval: 0.5"""
+
 class Config(object):
-    '''Object to hold global configuration variables as class attributes. 
-    There are two divisions: local (GUI) and server. The local variables are 
-    stored in gui_config.json and affect only GUI-related features. Server 
-    variables are obtained from the server and changes to them will affect 
-    all users.'''
-    def __init__(self):
-        self.cfg = cfgfile.ConfigFile(filename='gui_config.json')
-        if not self.cfg.exists():
-            print('No GUI config file found, creating one from defaults.')
-            guisettings = self.cfg.write(self.defaults())
+    '''Represents contents of config file as attributes.'''
+
+    DEFAULT_DIR = os.path.dirname(os.path.realpath(__file__))
+    DEFAULT_FILENAME = 'gui.conf'
+
+    def __init__(self, cfg_path=None):
+        '''Args:
+        cfg_path -- Path to server config file (default=gui.conf in same dir as this file)
+        '''
+        if cfg_path:
+            self.cfg_path = cfg_path
         else:
-            print('GUI config file found, reading...')
-            try:
-                guisettings = self.cfg.read()
-                if not len(guisettings) == len(self.defaults()):
-                    raise IndexError
-            except Exception:
-                print('GUI config file corrupt or incorrect. Creating new')
-                guisettings = self.cfg.write(self.defaults())
-        self.set_class_vars(guisettings)
+            self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
+        if not os.path.exists(self.cfg_path):
+            print('Config file not found. Generating new from defaults')
+            self.write_default_file()
+        self.load()
 
-    def set_class_vars(self, guisettings):
-        '''Defines the client class variables based on a tuple formatted to
-        match the one returned by defaults().'''
-        (
-        self.default_path, self.default_startframe, 
-        self.default_endframe, self.default_render_engine,
-        self.input_win_cols, self.comp_status_panel_cols,
-        self.host, self.port, self.refresh_interval
-        ) = guisettings
+    def load(self):
+        '''Loads the config file then populates attributes'''
+        default = yaml.load(default_cfg_file)
+        try:
+            with open(self.cfg_path, 'r') as f:
+                cfg = yaml.load(f.read())
+        except:
+            print('Failed to load config file. Writing new from defaults.')
+            self.write_default_file()
+            cfg = default
+        # Make sure the file has all the required fields
+        for key in default.keys():
+            if key not in cfg:
+                print('Config file missing required field. Writing new from defaults.')
+                self.write_default_file
+                cfg = default
+                break
+        self.from_dict(cfg)
 
-    def update_cfgfile(self, guisettings):
-        '''Updates teh config file and sets class variables based on a tuple
-        formatted to match the one returned by defaults().'''
-        self.cfg.write(guisettings)
-        self.set_class_vars(guisettings)
-        print('Wrote changes to config file.')
+    def from_dict(self, dictionary):
+        '''Sets attributes from a dictionary
 
-    def defaults(self):
-        '''Restores GUI config file variables to default values. Also used 
-        for creating the initial config file.'''
-        #default values for fields in the input window
-        default_path = '/mnt/data/test_render/test_render.blend'
-        default_startframe = 1
-        default_endframe = 4
-        default_render_engine = 'blend'
-        #numbers of colums for widget arrays
-        input_win_cols = 5
-        comp_status_panel_cols = 3
-        #default server setup info
-        host = 'localhost'
-        port = 2020
-        refresh_interval = 0.5 #StatusThread update freq. in seconds
-        return (default_path, default_startframe, default_endframe, 
-                default_render_engine, input_win_cols, comp_status_panel_cols,
-                host, port, refresh_interval)
+        Args:
+        dictionary -- Dict to be converted to attrs
+        '''
+        for key in dictionary:
+            self.__setattr__(key, dictionary[key])
+
+    def write_default_file(self):
+        '''Writes the default file to disk'''
+        with open(self.cfg_path, 'w') as f:
+            f.write(default_cfg_file)
 
     def get_server_cfg(self):
-        '''Gets config info from the server. Most of these aren't directly
-        used by the GUI, but are here for the preferences window.'''
+        '''Gets config info from the server.'''
         try:
-            servercfg = sw.ClientSocket(self.host, self.port
-                                        ).send_cmd('get_config_vars')
+            servercfg = sw.ClientSocket(
+                self.host, self.port).send_cmd('get_config_vars')
         except Exception as e:
             return e
-        (
-        self.computers, self.renice_list, 
-        self.macs, self.blenderpath_mac, self.blenderpath_linux, 
-        self.terragenpath_mac, self.terragenpath_linux, 
-        self.allowed_filetypes, self.timeout, self.serverport,
-        self.autostart, self.verbose, self.log_basepath 
-        ) = servercfg
+        self.from_dict(servercfg)
         return False
 
 
@@ -201,8 +199,6 @@ class MasterWin(_gui_, tk.Tk):
         tk.Tk.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
-        #self.bind('<Command-w>', quit)
-        #self.bind('<Control-w>', quit)
         self.title('IGP Render Controller Client')
         self.config(bg=_gui_.LightBGColor)
         self.minsize(width=1257, height=730)
@@ -219,7 +215,6 @@ class MasterWin(_gui_, tk.Tk):
         '''Gets server connection info from the user.'''
         self.setupframe = ttk.Frame(self)
         self.setupframe.pack(padx=50, pady=50)
-        self.tk_username = tk.StringVar()
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
         #initialize local config variables
@@ -234,25 +229,21 @@ class MasterWin(_gui_, tk.Tk):
         ttk.Label(
             self.setupframe, text='Connection Setup', font='TkCaptionFont'
             ).grid(row=0, column=0, columnspan=2, pady=10)
-        ttk.Label(self.setupframe, text='Username:').grid(
-            row=1, column=0, sticky=tk.E, pady=5)
-        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_username
-            ).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
         ttk.Label(self.setupframe, text='Server address:').grid(
-            row=2, column=0, sticky=tk.E, pady=5
+            row=1, column=0, sticky=tk.E, pady=5
             )
         ttk.Entry(self.setupframe, width=30, textvariable=self.tk_host).grid(
-            row=2, column=1, sticky=tk.W, padx=5, pady=5
+            row=1, column=1, sticky=tk.W, padx=5, pady=5
             )
         ttk.Label(self.setupframe, text='Port:').grid(
-            row=3, column=0, sticky=tk.E, pady=5
+            row=2, column=0, sticky=tk.E, pady=5
             )
         ttk.Entry(self.setupframe, width=10, textvariable=self.tk_port).grid(
-            row=3, column=1, sticky=tk.W, padx=5, pady=5
+            row=2, column=1, sticky=tk.W, padx=5, pady=5
             )
         ttk.Button(
             self.setupframe, text='Connect', command=self._apply_setup
-            ).grid(row=4, column=0, columnspan=2, padx=10, pady=10)
+            ).grid(row=3, column=0, columnspan=2, padx=10, pady=10)
         self.bind('<Return>', self._apply_setup)
         self.bind('<KP_Enter>', self._apply_setup)
 
@@ -269,15 +260,18 @@ class MasterWin(_gui_, tk.Tk):
         msg = self.cfg.get_server_cfg()
         if msg:
             print('Could not retrieve config vars form server:', msg)
-            ttk.Label(
+            self.server_errlabel = ttk.Label(
                 self, text='Server connection failed: ' + str(msg)
-                ).pack()
+                )
+            self.server_errlabel.pack()
             return
+        # If a server error msg was set on prev. run, remove it
+        if hasattr(self, 'server_errlabel'):
+            self.server_errlabel.destroy()
         self.verbosity = tk.IntVar()
         self.verbosity.set(self.cfg.verbose)
         self.autostart = tk.IntVar()
         self.autostart.set(self.cfg.autostart)
-        self.username = self.tk_username.get()
         self.setupframe.destroy()
         self._build_main()
         self.statthread = StatusThread(
@@ -304,14 +298,7 @@ class MasterWin(_gui_, tk.Tk):
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Button(
-            topbar, text='Preferences', command=self._prefs, style='Toolbutton'
-            ).pack(padx=5, side=tk.LEFT)
-        ttk.Button(
             topbar, text='Kill Processes', command=self.killall,
-            style='Toolbutton'
-            ).pack(padx=5, side=tk.LEFT)
-        ttk.Button(
-            topbar, text='Clear Rendercache', command=self.clear_rendercache,
             style='Toolbutton'
             ).pack(padx=5, side=tk.LEFT)
         ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X)
@@ -520,22 +507,6 @@ class MasterWin(_gui_, tk.Tk):
         on specified computers.'''
         KillProcWindow(self.socket, self.cfg)
     
-    def clear_rendercache(self):
-        '''Attempts to delete all contents from the ~/rendercache 
-        directory onall computers.'''
-        if not Dialog('This will delete ALL contents of the ~/rendercache '
-                      'directory on ALL computers.  Are you sure you want '
-                      'to do this?').confirm():
-            return
-        reply = self.socket.send_cmd('clear_rendercache')
-        print(reply)
-
-    def _prefs(self, callback=None):
-        '''Passes config and socket objects to a new instance of PrefsWin'''
-        PrefsWin(self.cfg, self.socket)
-
-
-
 
 class ComputerPanel(_gui_, ttk.Frame):
     '''Main job info panel with computer boxes.'''
@@ -570,13 +541,6 @@ class ComputerPanel(_gui_, ttk.Frame):
             command=self._set_priority
             )
         self.primenu.pack(side=tk.LEFT, pady=(0, 2))
-        self.cachebutton = ttk.Button(
-            buttonbox, text='Retrieve now ', 
-            command=self.retrieve_frames, state='disabled'
-            )
-        self.cachebutton.pack(side=tk.RIGHT)
-        self.cachelabel = ttk.Label(buttonbox, text='File caching: Disabled')
-        self.cachelabel.pack(side=tk.RIGHT)
         self._create_computer_array()
 
     def _create_computer_array(self):
@@ -588,13 +552,13 @@ class ComputerPanel(_gui_, ttk.Frame):
         self.cols = self.cfg.comp_status_panel_cols
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(self.cfg.computers):
+        while n < len(self.cfg.rendernodes):
             (x, y) = self._getcoords(n, row)
-            self.compcubes[self.cfg.computers[n]] = CompCube(
+            self.compcubes[self.cfg.rendernodes[n]] = CompCube(
                 socket=self.socket, master=self.compframe, 
-                computer=self.cfg.computers[n], index=self.index
+                computer=self.cfg.rendernodes[n], index=self.index
                 )
-            self.compcubes[self.cfg.computers[n]].grid(row=y, column=x, padx=5)
+            self.compcubes[self.cfg.rendernodes[n]].grid(row=y, column=x, padx=5)
             n += 1
             if x == self.cols - 1:
                 row += 1
@@ -615,17 +579,10 @@ class ComputerPanel(_gui_, ttk.Frame):
         if attrs['status'] in denystatuses:
             Dialog('Job cannot be edited.').warn()
             return
-        if attrs['cachedata']:
-            caching = True
-            paths = (attrs['cachedata']['rootpath'],
-                     attrs['cachedata']['filepath'],
-                     attrs['cachedata']['renderdirpath'])
-        else:
-            caching = False
-            paths = attrs['path']
+        paths = attrs['path']
         editjob = InputWindow(
             config=self.cfg, socket=self.socket, index=self.index, 
-            caching=caching, paths=paths, start=attrs['startframe'], 
+            paths=paths, start=attrs['startframe'], 
             end=attrs['endframe'], extras=attrs['extraframes'], 
             complist=attrs['complist']
             )
@@ -678,30 +635,16 @@ class ComputerPanel(_gui_, ttk.Frame):
         reply = self.socket.send_cmd('set_job_priority', self.index, value)
         print(reply)
 
-    def retrieve_frames(self):
-        errors = self.socket.send_cmd('retrieve_cached_files', self.index)
-        if errors:
-            print('Attempted to retrieve files for %s. The following errors '
-                  'were returned:' %self.index)
-            if isinstance(errors, list):
-                for i in errors:
-                    print('%s returned non-zero exit status %s' %tuple(i))
-            else:
-                print(errors)
-
     def update(self, attrdict):
         '''Calls the update methods for all child elements.'''
         if attrdict['priority'] != self.tk_priority.get():
             self.tk_priority.set(attrdict['priority'])
-        if attrdict['cachedata']:
-            self.cachelabel.config(text='File caching: Enabled')
-            self.cachebutton.config(state='active')
         self.bigbox.update(
             attrdict['status'], attrdict['startframe'], 
             attrdict['endframe'], attrdict['extraframes'], attrdict['path'], 
             attrdict['progress'], attrdict['times']
             )
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             if computer in attrdict['complist']:
                 pool = True
             else:
@@ -1005,19 +948,15 @@ class InputWindow(_gui_, tk.Toplevel):
     '''New window to handle input for new job or edit an existing one.
     If passed optional arguments, these will be used to populate the fields
     in the new window.
-
-    If rendernode file caching is enabled, 
-    paths=(rootdir, filepath, renderdir). Otherwise paths=path'''
+    '''
     def __init__(
-            self, config, socket, index=None, caching=False, paths=None, 
+            self, config, socket, index=None, paths=None, 
             start=None, end=None, extras=None, complist=None
             ):
         '''config is Config instance belonginng to parent'''
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
-        self.bind('<Return>', self._enqueue)
-        self.bind('<KP_Enter>', self._enqueue)
         self.bind('<Escape>', lambda x: self.destroy())
         self.config(bg='gray90')
         self.index = index
@@ -1033,9 +972,6 @@ class InputWindow(_gui_, tk.Toplevel):
         self.tk_startframe = tk.StringVar()
         self.tk_endframe = tk.StringVar()
         self.tk_extraframes = tk.StringVar()
-        self.tk_cachefiles = tk.IntVar()
-        if caching:
-            self.tk_cachefiles.set(1)
         self.complist = complist
         #populate text fields
         #self.tk_path.set(path)
@@ -1048,24 +984,10 @@ class InputWindow(_gui_, tk.Toplevel):
         self._build(container, paths)
 
     def _build(self, master, paths):
-        #cacherow = ttk.LabelFrame(master, text='Local File Caching')
-        #cacherow.pack(expand=True, fill=tk.X, padx=10, pady=5)
-        ttk.Checkbutton(
-            master, command=self._swap_pathrows, variable=self.tk_cachefiles,
-            text='Cache project files locally on each computer '
-                 '(only works with Blender)'
-            ).pack(expand=True, fill=tk.X, padx=10, pady=5)
-
         self.rows = [] #list to hold row objects for sorting
-        self.normalrow = NormalPathBlock(master, self.cfg)
-        self.cacherow = CacheFilesPathBlock(master)
-        if self.tk_cachefiles.get() == 1:
-            rootdir, filepath, renderdir = paths
-            self.cacherow.set_paths(rootdir, filepath, renderdir)
-            self.rows.append(self.cacherow)
-        else:
-            self.normalrow.set_path(paths)
-            self.rows.append(self.normalrow)
+        self.pathrow = PathBlock(master, self.cfg)
+        self.pathrow.set_path(paths)
+        self.rows.append(self.pathrow)
 
         framesrow = ttk.Frame(master)
         self.rows.append(framesrow)
@@ -1088,7 +1010,7 @@ class InputWindow(_gui_, tk.Toplevel):
             framesrow, textvariable=self.tk_extraframes, width=40
             ).grid(row=1, column=2, padx=5, sticky=tk.W)
 
-        self.compboxes = ttk.LabelFrame(master, text='Computers')
+        self.compboxes = ttk.LabelFrame(master, text='Nodes')
         self.rows.append(self.compboxes)
         self._compgrid(self.compboxes)
 
@@ -1102,25 +1024,11 @@ class InputWindow(_gui_, tk.Toplevel):
         for row in self.rows:
             row.pack(expand=True, fill=tk.X, padx=10, pady=5)
 
-    def _swap_pathrows(self):
-        '''Switches between normal path input and file caching path input, then
-        re-packs the window elements in the correct order.'''
-        for row in self.rows:
-            row.pack_forget()
-        self.rows.pop(0)
-        if self.tk_cachefiles.get() == 1:
-            self.rows.insert(0, self.cacherow)
-        else:
-            self.rows.insert(0, self.normalrow)
-        for row in self.rows:
-            row.pack(expand=True, fill=tk.X, padx=10, pady=5)
-            
-
     def _compgrid(self, master):
         '''Generates grid of computer checkboxes.'''
         #create variables for computer buttons
         self.compvars = {}
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
         if self.complist:
@@ -1137,11 +1045,11 @@ class InputWindow(_gui_, tk.Toplevel):
         self.cols = self.cfg.input_win_cols
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(self.cfg.computers):
+        while n < len(self.cfg.rendernodes):
             (x, y) = self._getcoords(n, row)
             ttk.Checkbutton(
-                master, text=self.cfg.computers[n], 
-                variable=self.compvars[self.cfg.computers[n]]
+                master, text=self.cfg.rendernodes[n], 
+                variable=self.compvars[self.cfg.rendernodes[n]]
                 ).grid(row=y+1, column=x, padx=5, pady=5, sticky=tk.W)
             n += 1
             if x == self.cols - 1:
@@ -1159,12 +1067,12 @@ class InputWindow(_gui_, tk.Toplevel):
     def _check_all(self):
         '''Sets all computer buttons to the checked state.'''
         self._uncheck_all()
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             self.compvars[computer].set(1)
 
     def _uncheck_all(self):
         '''Sets all computer buttons to the unchecked state.'''
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             self.compvars[computer].set(0)
 
     def _process_inputs(self, event=None):
@@ -1200,104 +1108,11 @@ class InputWindow(_gui_, tk.Toplevel):
         for computer in self.compvars:
             if self.compvars[computer].get() == 1:
                 complist.append(computer)
+        self._process_path(startframe, endframe, extraframes, complist)    
     
-        #XXX Now it's time for new steps, not sure the best way for this
-        if self.tk_cachefiles.get() == 1: #file caching turned on
-            self._process_cache_paths(startframe, endframe, extraframes, 
-                                      complist)
-        else:
-            self._process_normal_path(startframe, endframe, extraframes, 
-                                      complist)    
-    
-    
-    def _process_cache_paths(self, startframe, endframe, extraframes, 
+    def _process_path(self, startframe, endframe, extraframes, 
                              complist):
-        paths = self.cacherow.get_paths()
-        if paths == 1:
-            Dialog('Paths to render file and rendered frames directory must '
-                   'be relative to the project root directory.').warn()
-            return
-        elif paths == 2:
-            Dialog('Render file and rendered frames directory cannot be '
-                   'located above the project root directory.').warn()
-            return
-        else:
-            rootpath, filepath, renderdirpath = paths
-        print('paths:', rootpath, filepath, renderdirpath)#debug
-        #NOTE: Paths are escaped with shlex.quote immediately before being 
-        #passed to shell.
-        #verify that all paths are accessible from the server
-        if not self.path_exists(rootpath):
-            Dialog('Server cannot find the root project directory.').warn()
-            return
-        if not self.path_exists(os.path.join(rootpath, filepath)):
-            Dialog('Server cannot find the render file path.').warn()
-            return
-        if not self.path_exists(os.path.join(rootpath, renderdirpath)):
-            Dialog('Server cannot find the render directory path.').warn()
-            return
-        #If this is a new job, create index based on filename
-        if not self.index:
-            self.index = os.path.basename(filepath)
-            print('index:', self.index)#debug
-            if self.job_exists(self.index):
-                if not Dialog('Job with the same index already exists. '
-                              'Overwrite?').yesno():
-                    return
-                if self.get_job_status(self.index) == 'Rendering':
-                    Dialog("Can't overwrite a job while it's rendering."
-                           ).warn()
-                    return
-        #set the render engine based on file suffix
-        #NOTE currently filename fixing only works with blender, but as 
-        #long as paths are manually made relative in a Terragen file, that 
-        #should work too
-        if filepath.endswith('blend'):
-            render_engine = 'blend'
-        elif filepath.endswith('tgd'):
-            render_engine = 'tgd'
-        else:
-            Dialog('File extension not recognized. Project file must end '
-                   'with ".blend" for Blender or ".tgd" for Terragen3 '
-                   'files.').warn()
-            return
-        #Ask user if they want to set blender paths to relative now
-        #NOTE blend file MUST be accessible from the given paths from the 
-        #machine on which the GUI is running because Blender must be able 
-        #to open its GUI.
-        cacher = projcache.FileCacher(rootpath, filepath, renderdirpath)
-        if Dialog('Attempt to set blend file paths to relative now? '
-                  'File MUST be accessible from this computer.').yesno():
-            result = cacher.make_paths_relative()
-            if result: #there was an error
-                Dialog('Unable to make paths relative. Error message: "%s"' 
-                       %result).warn()
-                return
-        #Now ready to start transferring files
-        if complist: #don't ask to start transfer if there are no computers
-            if not Dialog('Click OK to start transferring files. This may take a '
-                          'while. Do not start render until the file transfer is '
-                          'complete.').confirm():
-                return
-        cachedata = {'rootpath':rootpath, 'filepath':filepath, 
-                     'renderdirpath':renderdirpath, 'computers':complist}
-        reply = self.socket.send_cmd('cache_files', cachedata)
-        print(reply)
-        #XXX Wait for successful reply before putting the project in queue
-        #XXX THIS COULD CAUSE A PROBLEM if connection between gui and server is
-        #lost during file transfer, the job won't be enqueued and will have to
-        #start over.  Should move enqueue to server-side somehow.
-
-        #get a properly formatted relative render path
-        renderpath = cacher.get_render_path()
-        print('Renderpath:', renderpath)
-        self._enqueue(renderpath, startframe, endframe, extraframes, 
-                      render_engine, complist, cachedata)
-    
-    
-    def _process_normal_path(self, startframe, endframe, extraframes, 
-                             complist):
-        path = self.normalrow.get_path()
+        path = self.pathrow.get_path()
         #verify that path exists and is accessible from the server
         if not self.path_exists(path):
             Dialog('Path is not accessible from the server.').warn()
@@ -1330,7 +1145,7 @@ class InputWindow(_gui_, tk.Toplevel):
     
     
     def _enqueue(self, path, startframe, endframe, extraframes, render_engine, 
-                 complist, cachedata=None):
+                 complist):
         render_args = {
             'index':self.index,
             'path':path, 
@@ -1339,7 +1154,6 @@ class InputWindow(_gui_, tk.Toplevel):
             'extraframes':extraframes, 
             'render_engine':render_engine,
             'complist':complist,
-            'cachedata':cachedata
             }
         reply = self.socket.send_cmd('enqueue', render_args)
         print(reply)
@@ -1362,8 +1176,8 @@ class InputWindow(_gui_, tk.Toplevel):
         reply = self.socket.send_cmd('check_path_exists', path)
         return reply
 
-class NormalPathBlock(ttk.Frame):
-    '''Path input UI elements for normal (centrally-shared) files.'''
+class PathBlock(ttk.Frame):
+    '''Path input UI elements.'''
     def __init__(self, master, config):
         ttk.Frame.__init__(self, master=master)
         self.cfg = config
@@ -1405,50 +1219,6 @@ class NormalPathBlock(ttk.Frame):
         '''Returns contents of path field.'''
         return self.tk_path.get()
 
-class CacheFilesPathBlock(ttk.Frame):
-    '''Alternate path input UI elements & associated methods for use if
-    project files will be cached locally on render nodes.'''
-    def __init__(self, master, rootdir=None, filepath=None, renderdir=None):
-        ttk.Frame.__init__(self, master=master)
-
-        self.tk_rootpath = tk.StringVar()
-        self.tk_filepath = tk.StringVar()
-        self.tk_renderdirpath = tk.StringVar()
-        row1 = ttk.Frame(self)
-        row1.pack()
-        ttk.Label(
-            row1, text='Absolute path to project root directory:'
-            ).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(
-            row1, textvariable=self.tk_rootpath, width=60
-            ).grid(row=1, column=0, sticky=tk.W)
-        ttk.Button(
-            row1, text='Browse', command=self._browse_rootdir
-            ).grid(row=1, column=1, sticky=tk.W)
-
-        row2 = ttk.Frame(self)
-        row2.pack()
-        ttk.Label(
-            row2, text='Path to render file in project root:'
-            ).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(
-            row2, textvariable=self.tk_filepath, width=60
-            ).grid(row=1, column=0, sticky=tk.W)
-        ttk.Button(
-            row2, text='Browse', command=self._browse_filepath
-            ).grid(row=1, column=1, sticky=tk.W)
-
-        row3 = ttk.Frame(self)
-        row3.pack()
-        ttk.Label(
-            row3, text='Path to rendered frames directory in project root:'
-            ).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(
-            row3, textvariable=self.tk_renderdirpath, width=60
-            ).grid(row=1, column=0, sticky=tk.W)
-        ttk.Button(
-            row3, text='Browse', command=self._browse_renderdir
-            ).grid(row=1, column=1, sticky=tk.W)
 
     def _browse_rootdir(self):
         rootdir = tk_filedialog.askdirectory(title='Project Root Directory')
@@ -1532,7 +1302,7 @@ class KillProcWindow(tk.Toplevel):
         ttk.Radiobutton(
             progframe, text='Terragen', variable=self.process, value='terragen'
             ).pack(side=tk.LEFT)
-        compframe = ttk.LabelFrame(outerframe, text='Computers')
+        compframe = ttk.LabelFrame(outerframe, text='Nodes')
         compframe.pack(padx=10, pady=(0, 10), expand=True, fill=tk.X)
         self._compgrid(compframe)
         buttonframe = ttk.Frame(self)
@@ -1551,7 +1321,7 @@ class KillProcWindow(tk.Toplevel):
         '''Generates grid of computer checkboxes.'''
         #create variables for computer buttons
         self.compvars = {}
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             self.compvars[computer] = tk.IntVar()
             self.compvars[computer].set(0)
         #First row is for select/deselect all buttons
@@ -1565,11 +1335,11 @@ class KillProcWindow(tk.Toplevel):
         self.cols = self.cfg.input_win_cols
         n = 0 #index of computer in computers list
         row = 0 #starting position
-        while n < len(self.cfg.computers):
+        while n < len(self.cfg.rendernodes):
             (x, y) = self._getcoords(n, row)
             ttk.Checkbutton(
-                master, text=self.cfg.computers[n], 
-                variable=self.compvars[self.cfg.computers[n]]
+                master, text=self.cfg.rendernodes[n], 
+                variable=self.compvars[self.cfg.rendernodes[n]]
                 ).grid(row=y+1, column=x, padx=5, pady=5, sticky=tk.W)
             n += 1
             if x == self.cols - 1:
@@ -1587,18 +1357,18 @@ class KillProcWindow(tk.Toplevel):
     def _check_all(self):
         '''Sets all computer buttons to the checked state.'''
         self._uncheck_all()
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             self.compvars[computer].set(1)
 
     def _uncheck_all(self):
         '''Sets all computer buttons to the unchecked state.'''
-        for computer in self.cfg.computers:
+        for computer in self.cfg.rendernodes:
             self.compvars[computer].set(0)
 
     def _killall(self, callback=None):
         '''Sends the kill all command to the server'''
         complist = []
-        for comp in self.cfg.computers:
+        for comp in self.cfg.rendernodes:
             if self.compvars[comp].get() == 1:
                 complist.append(comp)
         procname = self.process.get()
@@ -1616,8 +1386,8 @@ class KillProcWindow(tk.Toplevel):
 class MissingFramesWindow(tk.Toplevel):
     '''UI for utility to check for missing frames within a specified start-end
     range in a given directory.'''
-    def __init__(self, config, renderpath=None, startframe=None, 
-                 endframe=None):
+    def __init__(self, config, renderpath='', startframe='', 
+                 endframe=''):
         tk.Toplevel.__init__(self)
         self.config(bg=_gui_.LightBGColor)
         self.cfg = config
@@ -1633,7 +1403,6 @@ class MissingFramesWindow(tk.Toplevel):
         self.check_path = tk.StringVar()
         self.check_startframe = tk.StringVar()
         self.check_endframe = tk.StringVar()
-        self.checked = False
         ttk.Label(
             self, text='Compare the contents of a directory against a '
             'generated file list to search for missing frames.'
@@ -1664,29 +1433,7 @@ class MissingFramesWindow(tk.Toplevel):
         ttk.Entry(
             outerframe, width=20, textvariable=self.check_endframe
             ).grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
-        sliderframe = ttk.LabelFrame(outerframe, 
-                                     text='Adjust filename parsing')
-        sliderframe.grid(row=1, rowspan=3, column=2, columnspan=2, padx=5, 
-                         pady=5, sticky=tk.W)
-        self.nameleft = tk.Label(sliderframe, bg=_gui_.LightBGColor)
-        self.nameleft.grid(row=0, column=0, sticky=tk.E)
-        self.nameseq = tk.Label(sliderframe, bg=_gui_.LightBGColor)
-        self.nameseq.grid(row=0, column=1)
-        self.nameright = tk.Label(sliderframe, bg=_gui_.LightBGColor)
-        self.nameright.grid(row=0, column=2, sticky=tk.W)
-        self.slider_left = ttk.Scale(
-            sliderframe, from_=0, to=100, orient=tk.HORIZONTAL, 
-            length=260, command=self._update_sliders
-            )
-        self.slider_left.grid(row=2, column=0, columnspan=3, padx=5)
-        self.slider_right = ttk.Scale(
-            sliderframe, from_=0, to=100, orient=tk.HORIZONTAL, 
-            length=260, command=self._update_sliders
-            )
-        self.slider_right.grid(row=3, column=0, columnspan=3, padx=5)
-        ttk.Button(
-            sliderframe, text='OK', command=self._recheck_directory
-            ).grid(row=4, column=1, padx=5, pady=5)
+
 
         ttk.Button(
             outerframe, text='Start', command=self._start
@@ -1753,62 +1500,14 @@ class MissingFramesWindow(tk.Toplevel):
         self.left, self.right = self.checker.calculate_indices()
         lists = self.checker.generate_lists()
         self._put_text(lists)
-        self.checked = True
-        #change the key bindings so they do the contextually correct thing
-        self.bind('<Return>', self._recheck_directory)
-        self.bind('<KP_Enter>', self._recheck_directory)
-
-    def _recheck_directory(self, event=None):
-        '''If the script didn't parse the filenames correctly, get new 
-        indices from the sliders the user has used to isolate the 
-        sequential numbers.'''
-        if not self.checked:
-            print('must check before rechecking')#debug
-            return
-        self.left = int(self.slider_left.get())
-        self.right = int(self.slider_right.get())
-        lists = self.checker.generate_lists()
-        self._put_text(lists)
-
-    def _update_sliders(self, event=None):
-        '''Changes the text highlighting in the fields above the sliders in
-        response to user input.'''
-        if not self.checked:
-            return
-        self.left = int(self.slider_left.get())
-        self.right = int(self.slider_right.get())
-        self.nameleft.config(
-            text=self.filename[0:self.left], bg=_gui_.LightBGColor
-            )
-        self.nameseq.config(
-            text=self.filename[self.left:self.right], bg='DodgerBlue'
-            )
-        self.nameright.config(
-            text=self.filename[self.right:], bg=_gui_.LightBGColor
-            )
 
     def _put_text(self, lists):
-        '''Populates the scrolled text boxes with relevant data and configures
-        the sliders.'''
+        '''Populates the scrolled text boxes with relevant data.'''
         self.filename, dir_contents, expected, found, missing = lists
         self.dirconts.delete(0.0, tk.END)
         self.expFrames.delete(0.0, tk.END)
         self.foundFrames.delete(0.0, tk.END)
         self.missingFrames.delete(0.0, tk.END)
-        #set up the sliders
-        self.slider_left.config(to=len(self.filename))
-        self.slider_right.config(to=len(self.filename))
-        self.slider_left.set(self.left)
-        self.slider_right.set(self.right)
-        self.nameleft.config(
-            text=self.filename[0:self.left], bg=_gui_.LightBGColor
-            )
-        self.nameseq.config(
-            text=self.filename[self.left:self.right], bg='DodgerBlue'
-            )
-        self.nameright.config(
-            text=self.filename[self.right:], bg=_gui_.LightBGColor
-            )
         #put text in the scrolled text fields
         for item in dir_contents:
             self.dirconts.insert(tk.END, item + '\n')
@@ -1820,295 +1519,7 @@ class MissingFramesWindow(tk.Toplevel):
             self.missingFrames.insert(tk.END, str(frame) + '\n')
 
 
-class PrefsWin(tk.Toplevel):
-    def __init__(self, config, socket):
-        # XXX Need way for this to inherit config object
-        '''config is instance of Config from parent'''
-        tk.Toplevel.__init__(self)
-        self.bind('<Command-q>', quit) 
-        self.bind('<Control-q>', quit)
-        #self.bind('<Return>', self._apply)
-        #self.bind('<KP_Enter>', self._apply)
-        self.bind('<Escape>', lambda x: self.destroy())
-        self.cfg = config
-        self.socket = socket
-        self._get_local_vars()
-        #create window elements
-        self.nb = ttk.Notebook(self)
-        self.nb.pack()
-        self.nb.add(self._local_pane(), text='GUI Client Settings', 
-                    sticky=tk.N)
-        self.nb.add(self._server_pane(), text='Server Settings')
-        btnbar = ttk.Frame(self)
-        btnbar.pack(anchor=tk.W, expand=True, fill=tk.X)
-        ttk.Button(
-            btnbar, text='Close', command=self.destroy, style='Toolbutton'
-            ).pack(side=tk.LEFT, padx=(15, 5), pady=(0, 15))
 
-
-    def _get_local_vars(self):
-        '''Sets tkinter variables to the current global values.'''
-        #initialize tkinter variables
-        self.path = tk.StringVar()
-        self.startframe = tk.StringVar()
-        self.endframe = tk.StringVar()
-        self.render_engine = tk.StringVar()
-        self.comppanel_cols = tk.IntVar()
-        self.input_cols = tk.IntVar()
-        self.host = tk.StringVar()
-        self.port = tk.StringVar()
-        self.refresh_interval = tk.IntVar()
-        self.path.set(self.cfg.default_path)
-        self.startframe.set(self.cfg.default_startframe)
-        self.endframe.set(self.cfg.default_endframe)
-        self.render_engine.set(self.cfg.default_render_engine)
-        self.input_cols.set(self.cfg.input_win_cols)
-        self.comppanel_cols.set(self.cfg.comp_status_panel_cols)
-        self.host.set(self.cfg.host)
-        self.port.set(self.cfg.port)
-        #convert refresh_interval in sec. to frequency (Hz) for display
-        self.refresh_interval.set(1 / self.cfg.refresh_interval)
-
-    def _set_local_vars(self):
-        '''Sets the local Config class variables based on their tk variable
-        counterparts.'''
-        guisettings = (
-            self.path.get(), int(self.startframe.get()), 
-            int(self.endframe.get()), self.render_engine.get(), 
-            int(self.input_cols.get()), int(self.comppanel_cols.get()), 
-            self.host.get(), int(self.port.get()), 
-            float(self.refresh_interval.get()),
-            )
-        self.cfg.update_cfgfile(guisettings)
-
-    def _restore_local_cfg(self):
-        '''Restores local Config class variables to defaults and overwrites
-        the config file.'''
-        guisettings = self.cfg.defaults()
-        self.cfg.update_cfgfile(guisettings)
-        print('Restored local config vars to defaults.')
-
-    def _get_server_vars(self):
-        '''Gets current server vars and sets tkinter vars from them.'''
-        msg = self.cfg.get_server_cfg()
-        if msg:
-            print('Failed to get latest server config. Using previous '
-                  'values.', msg)
-        self.renice = {}
-        self.macs = {}
-        for comp in self.cfg.computers:
-            self.renice[comp] = tk.IntVar()
-            if comp in self.cfg.renice_list:
-                self.renice[comp].set(1)
-            self.macs[comp] = tk.IntVar()
-            if comp in self.cfg.macs:
-                self.macs[comp].set(1)
-        self.blenderpath_mac = tk.StringVar()
-        self.blenderpath_linux = tk.StringVar()
-        self.terragenpath_mac = tk.StringVar()
-        self.terragenpath_linux = tk.StringVar()
-        self.allowed_filetypes = tk.StringVar()
-        self.timeout = tk.StringVar()
-        self.autostart = tk.IntVar()
-        self.verbose = tk.IntVar()
-        self.log_basepath = tk.StringVar()
-        self.serverport = tk.StringVar()
-
-        self.blenderpath_mac.set(self.cfg.blenderpath_mac)
-        self.blenderpath_linux.set(self.cfg.blenderpath_linux)
-        self.terragenpath_mac.set(self.cfg.terragenpath_mac)
-        self.terragenpath_linux.set(self.cfg.terragenpath_linux)
-        self.allowed_filetypes.set(self.cfg.allowed_filetypes)
-        self.timeout.set(self.cfg.timeout)
-        self.serverport.set(self.cfg.serverport)
-        #XXX this autostart is runtime-changeable, need DEFAULT
-        #maybe just need to pass this to server to update cfgfile without
-        #updating runtime state
-        self.autostart.set(self.cfg.autostart)
-        #XXX same as autostart above
-        self.verbose.set(self.cfg.verbose)
-        self.log_basepath.set(self.cfg.log_basepath)
-
-    def _set_server_vars(self):
-        '''Gets values from tk variables and sets Config values from them.'''
-        #XXX Allowing editing of blender paths is a significant security hole
-        #XXX Need way to get new computers, renice, macs list
-        servercfg = (
-            self.cfg.computers, self.cfg.renice_list, self.cfg.macs,
-            self.blenderpath_mac.get(), self.blenderpath_linux.get(),
-            self.terragenpath_mac.get(), self.terragenpath_linux.get(),
-            self.allowed_filetypes.get(), int(self.timeout.get()),
-            int(self.serverport.get()), self.autostart.get(), 
-            self.verbose.get(), self.log_basepath.get()
-            )
-        reply = self.socket.send_cmd('update_server_cfg', servercfg)
-        print(reply)
-
-    def _restore_server_cfg(self):
-        '''Instructs the server to reset all config variables to default 
-        values and overwrite its config file.'''
-        reply = self.socket.send_cmd('restore_cfg_defaults')
-        print(reply)
-        #NOTE: below doesn't work because it re-defines the tk variables 
-        #before setting values. Need to split up functions or something.
-        #self._get_server_vars()
-
-    def _local_pane(self):
-        '''Pane for local preferences (does not affect server).'''
-        #self.lpane = tk.LabelFrame(self.nb, bg=_gui_.LightBGColor)
-        lpane = ttk.Frame(self.nb)
-        fr1 = ttk.LabelFrame(lpane, text='Connection Defaults')
-        #fr1.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
-        fr1.grid(row=0, column=0, sticky=tk.NSEW, padx=10, pady=5)
-        ttk.Label(fr1, text='Update Frequency'
-            ).grid(row=0, column=0, padx=5, pady=5)
-        tkx.MarkedScale(
-            fr1, start=1, end=10, variable=self.refresh_interval, units=' Hz'
-            ).grid(row=1, column=0, padx=5, pady=5)
-        ttk.Separator(fr1, orient=tk.VERTICAL
-            ).grid(row=0, rowspan=3, column=1, sticky=tk.NS, padx=20)
-        ttk.Label(fr1, text='Host:'
-            ).grid(row=0, column=2, sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(fr1, width=15, textvariable=self.host
-            ).grid(row=0, column=3, sticky=tk.W, padx=5, pady=5)
-        ttk.Label(fr1, text='Port:'
-            ).grid(row=1, column=2, sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(fr1, width=15, textvariable=self.port
-            ).grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
-
-        fr2 = ttk.LabelFrame(lpane, text='New / Edit Job Window Defaults')
-        #fr2.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
-        fr2.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=5)
-        ttk.Label(fr2, text='Start frame:'
-            ).grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(fr2, width=15, textvariable=self.startframe
-            ).grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
-        ttk.Label(fr2, text='End frame:'
-            ).grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(fr2, width=15, textvariable=self.endframe
-            ).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
-        ttk.Label(fr2, text='Path:'
-            ).grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
-        ttk.Entry(fr2, width=30, textvariable=self.path
-            ).grid(row=2, column=1, columnspan=2, sticky=tk.W, padx=5, pady=5)
-        ttk.Label(fr2, text='Render engine:'
-            ).grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
-        ttk.Radiobutton(
-            fr2, text='Blender', variable=self.render_engine, value='blend'
-            ).grid(row=3, column=1, padx=5, pady=5)
-        ttk.Radiobutton(
-            fr2, text='Terragen', variable=self.render_engine, value='tgd'
-            ).grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
-
-        fr3 = ttk.LabelFrame(lpane, text='GUI Layout: Columns')
-        #fr3.pack(expand=True, fill=tk.BOTH, padx=10, pady=5)
-        fr3.grid(row=0, rowspan=2, column=1, sticky=tk.NSEW, padx=10, pady=5)
-        ttk.Label(fr3, text='Main Status Panel'
-            ).pack()
-        tkx.MarkedScale(
-            fr3, start=1, end=10, variable=self.comppanel_cols, units=' cols'
-            ).pack()
-        ttk.Separator(fr3, orient=tk.HORIZONTAL
-            ).pack(expand=True, fill=tk.X)
-        ttk.Label(fr3, text='New Job Checkboxes'
-            ).pack()
-        tkx.MarkedScale(
-            fr3, start=1, end=10, variable=self.input_cols, units=' cols'
-            ).pack()
-
-        btns = ttk.Frame(lpane)
-        btns.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
-        ttk.Button(
-            btns, text='Save Client Settings', command=self._set_local_vars, 
-            style='Toolbutton'
-            ).pack(side=tk.LEFT)
-        ttk.Button(
-            btns, text='Restore Client Defaults', 
-            command=self._restore_local_cfg, style='Toolbutton'
-            ).pack(side=tk.LEFT)
-        return lpane
-
-    def _server_pane(self):
-        '''Pane for server-specific preferences.'''
-        #self.spane = tk.LabelFrame(self.nb, bg=_gui_.LightBGColor)
-        self._get_server_vars()
-        spane = ttk.Frame(self.nb)
-        #ttk.Label(spane, text='Server settings').pack()
-        self._complist_frame(spane
-            ).grid(row=0, rowspan=3, column=0, padx=10, pady=5)
-        fr1 = ttk.Frame(spane)
-        fr1.grid(row=0, column=1, padx=10, pady=5)
-        ttk.Label(fr1, text='Render Timeout'
-            ).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Entry(fr1, width=5, textvariable=self.timeout
-            ).grid(row=1, column=0, padx=5, pady=5)
-        ttk.Separator(fr1, orient=tk.VERTICAL
-            ).grid(row=0, rowspan=2, column=1, sticky=tk.NS, padx=20)
-        ttk.Label(
-            fr1, text='Default Server Port'
-            ).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Entry(fr1, width=5, textvariable=self.serverport
-            ).grid(row=1, column=2, padx=5, pady=5)
-
-        fr2 = ttk.LabelFrame(spane, text='Server Startup Settings')
-        fr2.grid(row=1, column=1, padx=10, pady=5, sticky=tk.EW)
-        ttk.Checkbutton(fr2, text='Autostart enabled', variable=self.autostart
-            ).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Checkbutton(fr2, text='Verbose enabled', variable=self.verbose
-            ).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Label(fr2, text='Render log directory:'
-            ).grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
-        ttk.Entry(fr2, width=30, textvariable=self.log_basepath
-            ).grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
-        pathspane = ttk.LabelFrame(spane, text='Render Engine Paths')
-        pathspane.grid(row=2, column=1, padx=10, pady=5)
-        ttk.Label(pathspane, text='Blender OSX'
-            ).grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
-        ttk.Entry(pathspane, width=40, textvariable=self.blenderpath_mac
-            ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
-        ttk.Label(pathspane, text='Blender Linux'
-            ).grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
-        ttk.Entry(pathspane, width=40, textvariable=self.blenderpath_linux
-            ).grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
-        ttk.Label(pathspane, text='Terragen OSX'
-            ).grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
-        ttk.Entry(pathspane, width=40, textvariable=self.terragenpath_mac
-            ).grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
-        ttk.Label(pathspane, text='Terragen Linux'
-            ).grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
-        ttk.Entry(pathspane, width=40, textvariable=self.terragenpath_linux
-            ).grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
-
-        btns = ttk.Frame(spane)
-        btns.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky=tk.W)
-        ttk.Button(
-            btns, text='Save Server Settings', command=self._set_server_vars,
-            style='Toolbutton'
-            ).pack(side=tk.LEFT)
-        ttk.Button(
-            btns, text='Restore Server Defaults', 
-            command=self._restore_server_cfg, style='Toolbutton'
-            ).pack(side=tk.LEFT)
-        return spane
-
-    def _complist_frame(self, master):
-        cframe = ttk.LabelFrame(master, text='Computers')
-        ttk.Label(cframe, text='Computer').grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(cframe, text='OSX').grid(row=0, column=1)
-        ttk.Label(cframe, text='Renice').grid(row=0, column=2)
-        for i in range(len(self.cfg.computers)):
-            ttk.Label(
-                cframe, text=self.cfg.computers[i]
-                ).grid(row=i+1, column=0, sticky=tk.W, padx=5)
-            ttk.Checkbutton(cframe, variable=self.macs[self.cfg.computers[i]]
-                ).grid(row=i+1, column=1)
-            ttk.Checkbutton(cframe, variable=self.renice[self.cfg.computers[i]]
-                ).grid(row=i+1, column=2)
-
-        return cframe
-
-    def _restore_defaults(self):
-        print("_restore_defaults() called, doesn't exist yet")
 
 
 class HRule(ttk.Separator):

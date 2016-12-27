@@ -30,8 +30,8 @@ import socket
 import shlex
 import datetime
 import re
-import cfgfile
-import projcache
+import yaml
+import json
 import socketwrapper as sw
 
 illegal_characters = [';', '&'] #not allowed in paths
@@ -48,7 +48,7 @@ class Job(object):
         self.complist = []
         #generate dict of computer statuses
         self.compstatus = dict()
-        for computer in Config.computers:
+        for computer in CONFIG.rendernodes:
             self._reset_compstatus(computer)
         self.skiplist = []
         self.path = None
@@ -58,7 +58,6 @@ class Job(object):
         self.render_engine = None
         self.totalframes = []
         self.progress = None
-        self.cachedata = None #holds info related to local file caching
         self._id = None #unique job identifier for logging, 
 
     def _reset_compstatus(self, computer):
@@ -90,7 +89,7 @@ class Job(object):
         return self.compstatus[computer]
 
     def enqueue(self, path, startframe, endframe, render_engine, complist, 
-                extraframes=[], cachedata=None):
+                extraframes=[]):
         '''Create a new job and place it in queue.'''
         #make sure path is properly shell-escaped
         self.path = shlex.quote(path)
@@ -129,25 +128,10 @@ class Job(object):
             self.extraframes.reverse()
             for frame in self.extraframes:
                 self.queue.put(frame)
-        #if project files will be cached locally on render nodes, set up cacher
-        if cachedata:
-            print('Request for projcache detected in enqueue()', cachedata)
-            #XXX not sure if there's really any need to maintain both the
-            #cachedata dict and the filecacher object.
-            self.cachedata = cachedata
-            self.filecacher = projcache.FileCacher(
-                cachedata['rootpath'], cachedata['filepath'], 
-                cachedata['renderdirpath'], cachedata['computers']
-                )
-            self.renderlog = RenderLog(
-                self.path, self.startframe, self.endframe, self.extraframes, 
-                self.complist, self._id_, caching=True
-                )
-        else:
-            self.renderlog = RenderLog(
-                self.path, self.startframe, self.endframe, self.extraframes, 
-                self.complist, self._id_
-                )
+        self.renderlog = RenderLog(
+            self.path, self.startframe, self.endframe, self.extraframes, 
+            self.complist, self._id_
+            )
         self.status = 'Waiting'
         return True
 
@@ -162,10 +146,10 @@ class Job(object):
         self._start_timer(offset=time_offset)
         # Having issues with script crashing if data server goes offline and
         # render log is inaccessible.
-        try:
-            self.renderlog.start()
-        except:
-            print("ERROR: Unable to write to render log.")
+        #try:
+        self.renderlog.start()
+        #except:
+        #    print("ERROR: Unable to write to render log.")
 
         self.killflag = False
 
@@ -199,8 +183,6 @@ class Job(object):
                     self.renderlog.finished(self.get_times())
                 except:
                     print("ERROR: Unable to write to render log.")
-                if self.cachedata:
-                    self.retrieve_cached_files()
                 break
 
             #prevent lockup if all computers end up in skiplist
@@ -212,7 +194,7 @@ class Job(object):
                     skipcomp = self.skiplist.pop(0)
                     self._reset_compstatus(skipcomp)
     
-            for computer in Config.computers:
+            for computer in CONFIG.rendernodes:
                 time.sleep(0.01)
                 if not computer in self.complist:
                     continue
@@ -244,7 +226,7 @@ class Job(object):
                     continue
                 #if computer is active, check its timeout status
                 elif (time.time() - self.compstatus[computer]['timer'] > 
-                        Config.timeout):
+                        CONFIG.timeout):
                     self._thread_failed(self.compstatus[computer]['frame'], 
                                        computer, 'Timeout')
 
@@ -267,14 +249,14 @@ class Job(object):
 
         self.prints('started _renderthread()', frame, computer)
         thread_start_time = datetime.datetime.now()
-        if computer in Config.macs:
-            renderpath = shlex.quote(Config.blenderpath_mac)
+        if computer in CONFIG.macs:
+            renderpath = shlex.quote(CONFIG.blenderpath_mac)
         else:
-            renderpath = shlex.quote(Config.blenderpath_linux)
+            renderpath = shlex.quote(CONFIG.blenderpath_linux)
         command = subprocess.Popen(
-            'ssh igp@' + computer + ' "' + renderpath +
-             ' -b -noaudio ' + self.path + ' -f ' + str(frame) + 
-             ' & pgrep -n blender"', stdout=subprocess.PIPE, shell=True )
+            'ssh {user}@{host} "{prog} -b -noaudio {path} -f {frame} & pgrep -n blender"'.format(
+            user=CONFIG.ssh_user, host=computer, prog=renderpath, path=self.path, frame=frame), 
+            stdout=subprocess.PIPE, shell=True )
         for line in iter(command.stdout.readline, ''):
             #convert byte object to unicode string
             #necessary for Python 3.x compatibility
@@ -293,7 +275,7 @@ class Job(object):
             #reset timeout timer every time an update is received
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
-            if Config.verbose:
+            if CONFIG.verbose:
                 with threadlock:
                     self.prints(line)
             #calculate progress based on tiles
@@ -314,9 +296,9 @@ class Job(object):
                             computer=computer)
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
-                if computer in Config.renice_list:
-                    subprocess.call('ssh igp@' + computer + ' "renice 20 -p ' + 
-                                     str(pid) + '"', shell=True)
+                if computer in CONFIG.renice_list:
+                    subprocess.call('ssh {}@{} "renice 20 -p {}"'.format(
+                        CONFIG.ssh_user, computer, pid), shell=True)
                 #remove oldest item from skiplist if render starts successfully
                 with threadlock:
                     if len(self.skiplist) > 0:
@@ -352,20 +334,22 @@ class Job(object):
 
         print('started _renderthread_tgn()', frame, computer)
         #pgrep string is different btw OSX and Linux so using whole cmd strings
-        if computer in Config.macs:
+        if computer in CONFIG.macs:
             cmd_string = (
-                'ssh igp@%s "%s -p %s -hide -exit -r -f %s & pgrep -n '
-                'Terragen&wait"' 
-                %(computer, shlex.quote(Config.terragenpath_mac), self.path, 
-                  frame)
+                'ssh {user}@{host} "{prog} -p {path} -hide -exit -r '
+                '-f {frame} & pgrep -n Terragen&wait"'.format(
+                    user=CONFIG.ssh_user, host=computer, prog=CONFIG.terragenpath_mac, 
+                    path=self.path, frame=frame
                 )
+            )
         else:
             cmd_string = (
-                'ssh igp@%s "%s -p %s -hide -exit -r -f %s & pgrep -n '
-                'terragen&wait"' 
-                %(computer, shlex.quote(Config.terragenpath_linux), self.path, 
-                  frame)
+                'ssh {user}@{host} "{prog} -p {path} -hide -exit -r '
+                '-f {frame} & pgrep -n terragen&wait"'.format(
+                    user=CONFIG.ssh_user, host=computer, prog=CONFIG.terragenpath_linux, 
+                    path=self.path, frame=frame
                 )
+            )
 
         command = subprocess.Popen(cmd_string, stdout=subprocess.PIPE, 
                                    shell=True)
@@ -380,7 +364,7 @@ class Job(object):
             #reset timer
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
-            if Config.verbose:
+            if CONFIG.verbose:
                 with threadlock:
                     self.prints(line)
 
@@ -395,9 +379,9 @@ class Job(object):
                     with threadlock:
                         self.compstatus[computer]['pid'] = pid
                     #renice process to lowest priority on specified comps 
-                    if computer in Config.renice_list: 
-                        subprocess.call('ssh igp@'+computer+' "renice 20 -p '
-                                        +str(pid)+'"', shell=True)
+                    if computer in CONFIG.renice_list: 
+                        subprocess.call('ssh {}@{} "renice 20 -p {}"'.format(
+                            CONFIG.ssh_user, pid), shell=True)
                         self.prints('Reniced PID %s to pri 20' %pid, frame, 
                                   computer)
                     #remove oldest item from skiplist if render starts 
@@ -496,7 +480,7 @@ class Job(object):
     def _threadkiller(self, computer, pid):
         '''Target thread to manage kill commands, created by _kill_thread'''
         self.prints('entered _threadklller(), pid: %s' %pid, computer=computer)
-        subprocess.call('ssh igp@%s "kill %s"' %(computer, pid), shell=True)
+        subprocess.call('ssh {}@{} "kill {}"'.format(CONFIG.ssh_user, computer, pid), shell=True)
         self.prints('finished _threadkiller()', computer=computer)
 
     def kill_thread(self, computer):
@@ -577,7 +561,6 @@ class Job(object):
             'totalframes':self.totalframes,
             'progress':self.get_job_progress(),
             'times':self.get_times(),
-            'cachedata':self.cachedata,
             '_id_':self._id_
             }
         return attrdict
@@ -587,19 +570,6 @@ class Job(object):
         if computer in self.complist:
             return False
         else:
-            #if project files are being cached locally, add computer to
-            #cache list & transfer files if necessary
-            if self.cachedata:
-                if not computer in self.filecacher.computers:
-                    self.prints('Added to filecacher computer list', 
-                              computer=computer)
-                    result = self.filecacher.cache_single(computer)
-                    if result:
-                        self.prints('Unable to transfer files: %s' %result, 
-                                  computer=computer, error=True)
-                        return False
-                    #NOTE: FileCacher should add comp to its list automatically
-                    self.cachedata['computers'].append(computer)
             self.complist.append(computer)
             if self.status == 'Rendering':
                 with threadlock:
@@ -636,7 +606,7 @@ class Job(object):
             except:
                 print("ERROR: Unable to write to render log.")
         self.status = 'Stopped'
-        for computer in Config.computers:
+        for computer in CONFIG.rendernodes:
             try:
                 if self.compstatus[computer]['active']:
                     self.kill_thread(computer)
@@ -672,7 +642,7 @@ class Job(object):
         if not (self.status == 'Stopped' or self.status == 'Paused'):
             return False
         self.killflag = False
-        for computer in Config.computers:
+        for computer in CONFIG.rendernodes:
             self._reset_compstatus(computer)
         self.status = 'Waiting'
         if startnow:
@@ -712,11 +682,10 @@ class Job(object):
         self.render_engine = attrdict['render_engine']
         self.totalframes = attrdict['totalframes']
         times = attrdict['times']
-        self.cachedata = attrdict['cachedata']
         self._id_ = attrdict['_id_']
         #create new entries if list of available computers has changed
         #new computers added
-        added = [comp for comp in Config.computers if not 
+        added = [comp for comp in CONFIG.rendernodes if not 
                  comp in self.compstatus]
         if added:
             for comp in added:
@@ -725,19 +694,13 @@ class Job(object):
                             'entry', computer=comp)
         #any computers no longer available
         removed = [comp for comp in self.compstatus if not
-                   comp in Config.computers]
+                   comp in CONFIG.rendernodes]
         if removed:
             for comp in removed:
                 if comp in self.complist:
                     self.complist.remove(comp)
                 self.prints('Computer in compstatus no longer available. '
                             'removing compstatus entry.', computer=comp)
-        if self.cachedata:
-            self.filecacher = projcache.FileCacher(
-                self.cachedata['rootpath'], self.cachedata['filepath'], 
-                self.cachedata['renderdirpath'], 
-                self.cachedata['computers']
-                )
         if not self.status == 'Finished':
             self.queue = queue.LifoQueue(0)
             framelist = list(range(self.startframe, self.endframe + 1))
@@ -759,32 +722,11 @@ class Job(object):
             self.prints('Attempting to start')
             #determine time offset to give correct remaining time estimate
             elapsed = times[0]
-            for computer in Config.computers:
+            for computer in CONFIG.rendernodes:
                 self._reset_compstatus(computer)
             self.status = 'Waiting'
             self.render(time_offset=elapsed)
         return True
-
-    def retrieve_cached_files(self):
-        '''Attempts to copy rendered frames from the rendercache directory
-        on each render node back to the shared directory on the server.'''
-        self.prints('Attempting to retrieve rendered frames from local '
-                  'rendercahes')
-        if not self.cachedata:
-            return 'Caching not enabled'
-        result = self.filecacher.retrieve_all()
-        if result:
-            #errors were received in a list of tuples, print it neatly
-            print('Errors reported:')
-            for i in result:
-                print('%s returned non-zero exit status %s' %i)
-            #XXX Need way to report this to GUI
-            #XXX removed renderlog stuff b/c it was causing issues.
-            return result
-        else:
-            #print('Cached frames successfully retrieved.')
-            self.prints('Cached frames successfully retrieved')
-            return 0
 
     def gettime(self):
         '''Returns current time as string formatted for timestamps.'''
@@ -816,19 +758,18 @@ class RenderLog(Job):
     is started. Time in filename reflects time job was placed in queue.'''
     hrule = '=' * 70 + '\n' #for printing thick horizontal line
     def __init__(self, path, startframe, endframe, extraframes, complist, 
-                 _id_, caching=False):
+                 _id_):
         self.path = path
         self._id_ = _id_ #object ID of the parent Job() instance
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
         self.complist = complist
-        self.caching = caching #indicates if files are cached on render nodes
-        self.log_basepath = Config.log_basepath
+        self.log_basepath = CONFIG.log_basepath
         self.filename, ext = os.path.splitext(os.path.basename(self.path))
         self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
-        self.logpath = (self.log_basepath + self.filename + '.' 
-                        + self.enq_time + '.txt')
+        logfile = '{}.{}.txt'.format(self.filename, self.enq_time)
+        self.logpath = os.path.join(self.log_basepath, logfile)
         self.total = str(len(range(startframe, endframe)) + 1 + 
                          len(extraframes))
 
@@ -847,8 +788,6 @@ class RenderLog(Job):
                       + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
             log.write('Job ID: %s\n' %self._id_)
-            if self.caching:
-                log.write('Local file caching enabled \n')
             log.write(RenderLog.hrule)
 
     def frame_sent(self, frame, computer):
@@ -892,19 +831,6 @@ class RenderLog(Job):
             log.write('Total time: ' + self.format_time(elapsed) + '\n')
             log.write('Average time per frame: ' + self.format_time(avg) + 
                       '\n')
-            log.write(RenderLog.hrule)
-
-    #XXX Not currently used
-    def XXXframes_retrieved(self, computers, error=None):
-        with open(self.logpath, 'a') as log:
-            log.write(RenderLog.hrule)
-            log.write('Attempted to retrieve locally cached frames at %s\n'
-                      %self.gettime())
-            if not error:
-                log.write('No errors reported.\n')
-            else:
-                log.write('Received the following error(s): %s\n' %error)
-            log.write('Final computer list: %s\n' %computers)
             log.write(RenderLog.hrule)
 
     def stop(self, times):
@@ -980,98 +906,134 @@ def quit():
 threadlock = threading.RLock()
 
 #----------DEFAULTS / CONFIG FILE----------
+default_cfg_file = """# YAML configuration file for rcontroller server
+
+# Server listen port
+serverport: 2020
+
+# Enable autostart by default (1=True, 0=False)
+autostart: 1
+
+# Start server in vebose mode by default
+verbose: 0
+
+# Directory to hold render logs
+# Must be writable by user running the server
+log_basepath: /var/log/rcontroller
+
+# Timeout for failed render process in seconds
+timeout: 1000
+
+# SSH username for connecting to nodes
+ssh_user: igp
+
+# List of all render nodes
+rendernodes:
+  - hex1
+  - hex2
+  - hex3
+  - borg1
+  - borg2
+  - borg3
+  - borg4
+  - borg5
+  - grob1
+  - grob2
+  - grob3
+  - grob4
+  - grob5
+  - grob6
+  - eldiente
+  - lindsey
+  - conundrum
+  - paradox
+
+# Render nodes running Mac OSX
+macs:
+  - conundrum
+  - paradox
+
+# Renice render processes to low priority on these nodes
+# Useful if rendering on a workstation that's in use
+renice_list:
+  - conundrum
+  - paradox
+
+# Path to render software executables
+blenderpath_mac: /Applications/blender.app/Contents/MacOS/blender
+blenderpath_linux: /usr/local/bin/blender
+terragenpath_mac: '/mnt/data/software/terragen_rendernode/osx/Terragen\ 3.app/Contents/MacOS/Terragen\ 3'
+terragenpath_linux: /mnt/data/software/terragen_rendernode/linux/terragen
+
+# File extensions of rendered frames recognized by Check Missing Frames function
+allowed_filetypes:
+  - .png
+  - .jpg
+  - .peg
+  - .gif
+  - .tif
+  - .iff
+  - .exr
+  - .PNG
+  - .JPG
+  - .PEG
+  - .GIF
+  - .TIF
+  - .IFF
+  - .EXR"""
+
 class Config(object):
-    '''Object to hold global configuration variables as class attributes.'''
-    def __init__(self):
-        self.cfg = cfgfile.ConfigFile()
-        if not self.cfg.exists():
-            print('No config file found, creating one from default values.')
-            cfgsettings = self.cfg.write(self.defaults())
+    '''Represents contents of config file as attributes.'''
+
+    DEFAULT_DIR = os.path.dirname(os.path.realpath(__file__))
+    DEFAULT_FILENAME = 'server.conf'
+
+    def __init__(self, cfg_path=None):
+        '''Args:
+        cfg_path -- Path to server config file (default=server.conf in same dir as this file)
+        '''
+        if cfg_path:
+            self.cfg_path = cfg_path
         else:
-            print('Config file found, reading...')
-            try:
-                cfgsettings = self.cfg.read()
-                if not len(cfgsettings) == len(self.defaults()):
-                    raise IndexError
-            #any exception should result in creation of new config file
-            except Exception:
-                print('Config file corrupt or incorrect. Creating new')
-                cfgsettings = self.cfg.write(self.defaults())
-        self.set_class_vars(cfgsettings)
+            self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
+        if not os.path.exists(self.cfg_path):
+            print('Config file not found. Generating new from defaults')
+            self.write_default_file()
+        self.load()
 
-    def set_class_vars(self, settings):
-        '''Defines the class variables from a tuple formatted to match
-        the one returned by getall().  Paths are escaped at the time
-        of use so no need to do it here.'''
-        (
-        Config.computers, Config.renice_list, Config.macs, 
-        Config.blenderpath_mac, Config.blenderpath_linux, 
-        Config.terragenpath_mac, Config.terragenpath_linux, 
-        Config.allowed_filetypes, Config.timeout, Config.serverport,
-        Config.autostart, Config.verbose, Config.log_basepath
-        ) = settings
+    def load(self):
+        '''Loads the config file then populates attributes'''
+        default = yaml.load(default_cfg_file)
+        try:
+            with open(self.cfg_path, 'r') as f:
+                cfg = yaml.load(f.read())
+        except:
+            print('Failed to load config file. Writing new from defaults.')
+            self.write_default_file()
+            cfg = default
+        # Make sure the file has all the required fields
+        for key in default.keys():
+            if key not in cfg:
+                print('Config file missing required field. Writing new from defaults.')
+                self.write_default_file
+                cfg = default
+                break
+        self.from_dict(cfg)
 
-    def getall(self):
-        '''Returns tuple of all class variables. Used by clients to retrieve
-        server config info.'''
-        return (Config.computers, Config.renice_list, Config.macs, 
-                Config.blenderpath_mac, Config.blenderpath_linux, 
-                Config.terragenpath_mac, Config.terragenpath_linux, 
-                Config.allowed_filetypes, Config.timeout, Config.serverport,
-                Config.autostart, Config.verbose, Config.log_basepath)
+    def from_dict(self, dictionary):
+        '''Sets attributes from a dictionary
 
-    def update_cfgfile(self, settings):
-        '''Updates the config file and sets class variables based on a tuple
-        formatted to match getall().  Used by clients to change server
-        config settings.'''
-        self.cfg.write(settings)
-        self.set_class_vars(settings)
-        print('Wrote changes to config file.')
+        Args:
+        dictionary -- Dict to be converted to attrs
+        '''
+        self.dictionary = dictionary
+        for key in dictionary:
+            self.__setattr__(key, dictionary[key])
 
-    def defaults(self):
-        '''Restores all config file variables to default values. Also used
-        for creating the initial config file.'''
-        #create list of all computers available for rendering
-        computers = [ 
-            'hex1', 'hex2', 'hex3', 'borg1', 'borg2', 'borg3', 'borg4', 'borg5',
-            'grob1', 'grob2', 'grob3', 'grob4', 'grob5', 'grob6', 'eldiente', 
-            'lindsey', 'paradox', 'conundrum', 'gorgatron'
-            ] 
-        #list of computer to renice processes to lowest priority. 
-        renice_list = ['conundrum', 'paradox'] 
-        #computers running OSX. Needed because blender uses different path
-        macs = ['conundrum', 'paradox'] 
-        blenderpath_mac = "/Applications/blender.app/Contents/MacOS/blender" 
-        blenderpath_linux = "/usr/local/bin/blender" 
-        terragenpath_mac = (
-            "/mnt/data/software/terragen_rendernode/osx/Terragen 3.app"                         "/Contents/MacOS/Terragen 3"
-            )
-        terragenpath_linux = (
-            "/mnt/data/software/terragen_rendernode/linux/terragen"
-            )
-        #allowed file extensions (last 3 chars only) for check_missing_files
-        allowed_filetypes = [
-            '.png', '.jpg', '.peg', '.gif', '.tif', '.iff', '.exr', '.PNG', 
-            '.JPG', '.PEG', '.GIF', '.TIF', '.IFF', '.EXR'] 
-        #timeout for failed machine in seconds
-        timeout = 1000
-        #default server port number
-        serverport = 2020
-        #start next job when current one finishes.
-        autostart = 1 
-        verbose = 0
-        #default directory to hold render log files
-        log_basepath = "/mnt/data/renderlogs/"
-    
-        return (
-            computers, renice_list, macs, blenderpath_mac, blenderpath_linux, 
-            terragenpath_mac, terragenpath_linux, allowed_filetypes, timeout, 
-            serverport, autostart, verbose, log_basepath
-            ) 
-
-
-
-
+    def write_default_file(self):
+        '''Writes the default file to disk'''
+        with open(self.cfg_path, 'w') as f:
+            f.write(default_cfg_file)
 
 
 
@@ -1084,8 +1046,7 @@ allowed_commands= [
 'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
 'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
 'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority',
-'update_server_cfg', 'restore_cfg_defaults', 'killall',
-'cache_files', 'retrieve_cached_files', 'clear_rendercache'
+'killall',
 ]
 
 
@@ -1097,11 +1058,13 @@ class RenderServer(object):
     Job's methods depend.'''
     def __init__(self, port=None):
         #read config file & set up config variables
-        self.conf = Config()
+        global CONFIG
+        CONFIG = Config()
         if not port:
-            port = Config.serverport
+            port = CONFIG.serverport
         if not self._check_logpath():
             return
+        self.statefile = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'serverstate.json')
         self.renderjobs = {}
         self.waitlist = [] #ordered list of jobs waiting to be rendered
         self.msgq = queue.Queue() #queue for misc. messages to clients
@@ -1111,31 +1074,18 @@ class RenderServer(object):
         self.server = sw.Server(self, port, allowed_commands)
         self.server.start()
         self.shutdown_server()
-    
+
 
     def _check_logpath(self):
         #look for the renderlog base path and verify it's accessible
-        if not os.path.exists(Config.log_basepath):
-            print('WARNING: Path to renderlog directory: "' + 
-                    Config.log_basepath +'" could not be found.')
-            if input('Do you want to specify a new path now? (Y/n): ') == 'Y':
-                Config.log_basepath = input('Path:')
-                if not os.path.exists(Config.log_basepath):
-                    print('Path does not exist, shutting down server.')
-                    quit()
-                elif Config.log_basepath[-1] != '/':
-                    Config.log_basepath = Config.log_basepath + '/'
-                print('Render logs will be stored in ' + Config.log_basepath + 
-                      '.\nTo permanently change the log path, use the '
-                      'Preferences window in the client GUI or edit the '
-                      'server config file.')
-                return True
-            else:
-                print('Server start failed, no renderlog path.')
+        if not os.path.exists(CONFIG.log_basepath):
+            try:
+                os.mkdir(CONFIG.log_basepath)
+                print('Created log directory at {}'.format(CONFIG.log_basepath))
+            except PermissionError as e:
+                print('ERROR: Unable to create log directory: {}'.format(e))
                 return False
-        else:
-            print('Renderlog directory found')
-            return True
+        return True
 
     def update_loop(self):
         '''Handles miscellaneous tasks that need to be carried out on a 
@@ -1152,7 +1102,7 @@ class RenderServer(object):
                 if self.stop_update_loop:
                     break
             self.save_state()
-            if Config.autostart:
+            if CONFIG.autostart:
                 self.check_autostart()
         print('update_loop done')
         self.shutdown_server()
@@ -1240,13 +1190,14 @@ class RenderServer(object):
         case the server crashes or needs to be restarted.  The update_loop
         method periodically calls this function whenever the server is 
         running.'''
-        statevars = {'verbose':Config.verbose, 'autostart':Config.autostart}
+        statevars = {'verbose':CONFIG.verbose, 'autostart':CONFIG.autostart}
         jobs = {}
         for index in self.renderjobs:
             jobs[index] = self.renderjobs[index].get_attrs()
         serverstate = [statevars, jobs]
-        savefile = cfgfile.ConfigFile(filename='serverstate.json')
-        savefile.write(serverstate)
+        with open(self.statefile, 'w') as f:
+            f.write(json.dumps(serverstate))
+
     
     def _check_restore_state(self):
         '''Checks for an existing serverstate.json file in the same directory
@@ -1254,16 +1205,16 @@ class RenderServer(object):
         from the file. If yes, loads the file contents and attempts to
         create new Job instances with attributes from the file. Can only
         be called at startup to avoid overwriting exiting Job instances.'''
-        savefile = cfgfile.ConfigFile(filename='serverstate.json')
-        if savefile.exists():
-            if not input('Saved state file found. Restore previous server '
-                         'state? (Y/n): ') == 'Y':
+        if os.path.exists(self.statefile):
+            if input('Saved state file found. Restore previous server '
+                         'state? (Y/n): ') in ['N', 'n']:
                 print('Discarding previous server state')
                 return
-            (statevars, jobs) = savefile.read()
+            with open(self.statefile, 'r') as f:
+                (statevars, jobs) = json.loads(f.read())
             #restore state variables
-            Config.verbose = statevars['verbose']
-            Config.autostart = statevars['autostart']
+            CONFIG.verbose = statevars['verbose']
+            CONFIG.autostart = statevars['autostart']
             #restore job queue
             for index in jobs:
                 self.renderjobs[index] = Job()
@@ -1303,8 +1254,8 @@ class RenderServer(object):
         for i in self.renderjobs:
             attrdict[i] = self.renderjobs[i].get_attrs()
         #append non-job-related update info
-        attrdict['__STATEVARS__'] = {'autostart':Config.autostart, 
-                               'verbose':Config.verbose}
+        attrdict['__STATEVARS__'] = {'autostart':CONFIG.autostart, 
+                               'verbose':CONFIG.verbose}
         if not self.msgq.empty():
             attrdict['__MESSAGE__'] = self.msgq.get()
             self.msgq.task_done()
@@ -1334,7 +1285,6 @@ class RenderServer(object):
         extras = kwargs['extraframes']
         render_engine = kwargs['render_engine']
         complist = kwargs['complist']
-        cachedata = kwargs['cachedata']
         #create the job
         if index in self.renderjobs:
             if self.renderjobs[index].getstatus() == 'Rendering':
@@ -1346,7 +1296,7 @@ class RenderServer(object):
         self.waitlist.append(self.renderjobs[index])
         success = self.renderjobs[index].enqueue(
             path, startframe, endframe, render_engine, complist, 
-            extraframes=extras, cachedata=cachedata
+            extraframes=extras, 
             )
         if success:
             return (index + ' successfully placed in queue')
@@ -1365,7 +1315,7 @@ class RenderServer(object):
             return 'Failed to start render.'
     
     def toggle_comp(self, index, computer):
-        if not computer in Config.computers:
+        if not computer in CONFIG.rendernodes:
             return 'Computer "%s" not recognized.' %computer
         #if self.renderjobs[index].get_comp_status(computer)['pool']:
         if computer in self.renderjobs[index].complist:
@@ -1443,39 +1393,33 @@ class RenderServer(object):
     
     def get_config_vars(self):
         '''Gets server-side configuration variables and returns them as 
-        a list.'''
-        cfgvars = self.conf.getall()
-        return cfgvars
+        a dict.'''
+        return CONFIG.dictionary
     
     def toggle_verbose(self):
         '''Toggles the state of the verbose variable.'''
-        if Config.verbose == 0:
-            Config.verbose = 1
+        if CONFIG.verbose == 0:
+            CONFIG.verbose = 1
             print('Verbose reporting enabled')
             return 'verbose reporting enabled'
         else:
-            Config.verbose = 0
+            CONFIG.verbose = 0
             print('Verbose reporting disabled')
             return 'verbose reporting disabled'
     
     def toggle_autostart(self):
         '''Toggles the state of the autostart variable.'''
-        if Config.autostart == 0:
-            Config.autostart = 1
+        if CONFIG.autostart == 0:
+            CONFIG.autostart = 1
             return 'autostart enabled'
             print('Autostart enabled')
         else:
-            Config.autostart = 0
+            CONFIG.autostart = 0
             print('Autostart disabled')
             return 'autostart disabled'
     
     def check_path_exists(self, path):
-        '''Checks if a path is accessible from the server (exists) and that 
-        it's an regular file. Returns True if yes.'''
-        #if os.path.exists(path) and os.path.isfile(path):
-        #XXX No longer checking that path is to a file b/c also need to check
-        #for the root project directory if file caching is turned on.
-        #This might create a security problem.
+        '''Checks if a path is accessible from the server.'''
         if os.path.exists(path):
             return True
         else:
@@ -1490,77 +1434,17 @@ class RenderServer(object):
         else:
             return 'Priority not changed'
 
-    def update_server_cfg(self, settings):
-        '''Updates server config variables and config file based on tuple 
-        from client.'''
-        Config().update_cfgfile(settings)
-        return 'Server settings updated'
-
-    def restore_cfg_defaults(self):
-        '''Resets server config variables to default values and overwrites
-        the config file.'''
-        cfgsettings = Config().defaults()
-        Config().update_cfgfile(cfgsettings)
-        return 'Server settings restored to defaults'
-
     def killall(self, complist, procname):
         '''Attempts to kill all instances of the given processess on the
         given machines.'''
         # First make sure that everything is OK
         for comp in complist:
-            if not comp in Config.computers:
+            if not comp in CONFIG.rendernodes:
                 return 'Killall failed. Computer %s not recognized.' %comp
         if not procname in ['blender', 'terragen']:
             return 'Process name %s not recognized.' %procname
         SSHKillThread(complist, self.msgq, procname)
         return 'Attempting to kill %s on %s' %(procname, complist)
-
-    def cache_files(self, cachedata):
-        '''Transfers project files to local rendercache directories on each
-        render node.'''
-        
-        #NOTE: paths are escaped with shlex.quote in filecacher
-        cacher = projcache.FileCacher(
-            cachedata['rootpath'], cachedata['filepath'], 
-            cachedata['renderdirpath'], cachedata['computers']
-            )
-        if not cachedata['computers']:
-            return 'Cache data stored but no computer list specified.'
-        else:
-            result = cacher.cache_all()
-        if result:
-            return 'Cache returned the following errors: %s' %result
-        else:
-            return 'Files cached without errors.'
-
-    def retrieve_cached_files(self, index):
-        '''Attempts to retrieve rendered frames from local storage for an
-        existing job.'''
-        if not index in self.renderjobs:
-            return '%s not found on server' %index
-        job = self.renderjobs[index]
-        result = job.retrieve_cached_files()
-        if result:
-            return result
-        else:
-            return 0
-
-    def clear_rendercache(self):
-        '''Attempts to delete the contents of the ~/rendercache directory on
-        all computers.'''
-        errors = []
-        for computer in Config.computers:
-            try:
-                subprocess.check_output('ssh igp@%s "rm -rf ~/rendercache/*"' 
-                                        %computer, shell=True)
-            except Exception as e:
-                errors.append(e)
-        if errors:
-            return ('Clear rendercache returned the following errors: %s' 
-                    %errors)
-        else:
-            return 'Clear rendercache finished without errors.'
-
 
 
 
@@ -1609,10 +1493,11 @@ class SSHKillThread(object):
 
     def worker(self, comp, procname):
         print('killall thread for %s started' %comp)
-        if comp in Config.macs and procname == 'terragen':
+        if comp in CONFIG.macs and procname == 'terragen':
             procname = "'Terragen 3'"
         print('procname is ', procname)
-        cmd = 'ssh igp@%s "pgrep %s | xargs kill"' %(comp, procname)
+        #cmd = 'ssh igp@%s "pgrep %s | xargs kill"' %(comp, procname)
+        cmd = 'ssh {}@{} "pgrep %s | xargs kill"'.format(CONFIG.ssh_user, comp, procname)
         #NOTE: By piping pgrep directly to xargs, no exception will be raised
         # if there are no procname processes running on the computer.
         try:
@@ -1624,11 +1509,6 @@ class SSHKillThread(object):
         if result:
             self.replyq.put('%s returned %s' %(comp, result))
         self.compq.task_done()
-
-
-
-
-    
 
 
 if __name__ == '__main__':

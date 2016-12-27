@@ -15,5 +15,6 @@
 #ignore config files and bytecode
 cfgfile.pyc
 *.json
+*.conf
 __pycache__
 *.pyc

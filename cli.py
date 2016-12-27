@@ -125,7 +125,7 @@ class Cli(object):
         '''Kill render and all associated processes for given ID'''
         index = self.job_ids[job_id]
         if not input('This will stop rendering %s and attempt to kill all '
-                     'related processes.  Continue? (y/N): ' %index) == 'y':
+                     'related processes.  Continue? (y/N): ' %index) in ['Y', 'y']:
             print('Cancelled')
             return
         result = self.socket.send_cmd('kill_render', index, True)
@@ -143,7 +143,7 @@ class Cli(object):
             print('Invalid argument. Must be "terragen" or "blender".')
             return
         if not input('This will attempt to kill all instances of %s '
-                     'on all computers. Proceed? (y/N): ' %program) == 'y':
+                     'on all computers. Proceed? (y/N): ' %program) in ['Y', 'y']:
             print('Cancelled')
             return
         if program == 'terragen':
@@ -218,7 +218,7 @@ class Cli(object):
               'Start frame: %s\t End frame: %s\t Extras: %s\n'
               'On computers:' %(path, start, end, extras))
         self.fprint.print_complist(complist)
-        if input('Proceed? (Y/n): ') == 'n':
+        if input('Proceed? (Y/n): ') in ['N', 'n']:
             return
         kwargs = {
             'index':index,'path':path,'startframe':start, 'endframe':end,

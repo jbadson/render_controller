@@ -15,6 +15,13 @@ features I was working on before changing jobs, refactored a few things,
 and made a few other changes that should hopefully make it a little less 
 terrible.
 
+Major changes:
+    -Changed config file format to YAML
+    -Added required ssh_user parameter to server.conf
+    -Removed remote file caching
+    -Removed preferences window in GUI (just edit conf files)
+    -Moved renderlog dir to /var/log/rcontroller
+
 Here's the old overview:
 
 This is a network rendering utility written for the Interactive Geology Project

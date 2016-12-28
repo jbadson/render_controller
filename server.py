@@ -32,13 +32,32 @@ import datetime
 import re
 import yaml
 import json
+import logging
 import socketwrapper as sw
 
+
+#XXX Does not quite work because we can't add file handler after the fact. Make global logger from start
+logger = logging.getLogger('rcontroller.server')
+console = logging.StreamHandler()
+console.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s', 
+    datefmt='%Y-%m-%d %H:%M:%S')
+console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
+    datefmt='%Y-%m-%d %H:%M:%S')
+console.setFormatter(console_formatter)
+logger.addHandler(console)
+
 illegal_characters = [';', '&'] #not allowed in paths
+
 class Job(object):
     '''Represents a render job.'''
 
-    def __init__(self):
+    def __init__(self, _id=None):
+        if _id:
+            self._id = _id
+        else:
+            self._id = id(self)
+        self.logger = logging.getLogger('rcontroller.server.Job.{}'.format(self._id))
         #initialize all attrs for client updates
         self.status = 'Empty'
         self.queuetime = time.time()
@@ -58,7 +77,7 @@ class Job(object):
         self.render_engine = None
         self.totalframes = []
         self.progress = None
-        self._id = None #unique job identifier for logging, 
+
 
     def _reset_compstatus(self, computer):
         '''Creates compstatus dict or resets an existing one to 
@@ -100,7 +119,6 @@ class Job(object):
         #XXX Do this correctly using os.path.abspath when client is written
         if path[0] == '~':
             self.path = '~' + shlex.quote(path[1:])
-        self._id_ = id(self)
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
@@ -130,7 +148,7 @@ class Job(object):
                 self.queue.put(frame)
         self.renderlog = RenderLog(
             self.path, self.startframe, self.endframe, self.extraframes, 
-            self.complist, self._id_
+            self.complist, self._id
             )
         self.status = 'Waiting'
         return True
@@ -139,7 +157,7 @@ class Job(object):
         '''Starts a render for a given job.
         time_offset: correction factor in seconds used when restoring a 
         running job after server restart.'''
-        self.prints(event='entered render()') #debug
+        self.logger.debug('entered render()')
         if self.status != 'Waiting':
             return False
         self.status = 'Rendering'
@@ -162,7 +180,7 @@ class Job(object):
         '''{'active':False, 'frame':None,
             'pid':None, 'timer':None, 'progress':0.0, 'error':None}'''
     
-        self.prints('started _masterthread()')#debug
+        self.logger.debug('started _masterthread()')
         self.threads_active = False
         #set target thread type based on render engine
         if self.render_engine == 'blend':
@@ -171,26 +189,25 @@ class Job(object):
             tgt_thread = self._renderthread_tgn
         while True:
             if self.killflag:
-                self.prints('Kill flag detected, breaking render loop.') #debug
+                self.logger.debug('Kill flag detected, breaking render loop.')
                 #deal with log & render timer
                 break
     
             if self.queue.empty() and not self._threadsactive():
-                self.prints('Render done at detector.') #debug
+                self.logger.debug('Render done at detector')
                 self.status = 'Finished'
                 self._stop_timer()
                 try:
                     self.renderlog.finished(self.get_times())
                 except:
-                    print("ERROR: Unable to write to render log.")
+                    self.renderlog.exception('Unable to write to render log')
                 break
 
             #prevent lockup if all computers end up in skiplist
             if len(self.skiplist) == len(self.complist):
                 #ignore if both lists are empty
                 if not len(self.complist) == 0:
-                    self.prints('All computers in skiplist, popping oldest '
-                                'one')
+                    self.logger.info('All nodes in skiplist, popping oldest one.')
                     skipcomp = self.skiplist.pop(0)
                     self._reset_compstatus(skipcomp)
     
@@ -214,8 +231,8 @@ class Job(object):
                             try:
                                 self.renderlog.frame_sent(frame, computer) 
                             except:
-                                print("ERROR: Unable to write to render log.")
-                        self.prints('Creating renderthread')#debug
+                                self.logger.exception('Unable to write to render log.')
+                        self.logger.debug('Creating renderthread')
                         rthread = threading.Thread(
                             target=tgt_thread, args=(frame,  computer, 
                             self.queue)
@@ -230,7 +247,7 @@ class Job(object):
                     self._thread_failed(self.compstatus[computer]['frame'], 
                                        computer, 'Timeout')
 
-        self.prints('_masterthread() terminating') #debug
+        self.logger.debug('_masterthread() terminating')
 
 
 
@@ -239,7 +256,7 @@ class Job(object):
         for computer in self.compstatus:
             if self.compstatus[computer]['active']:
                 return True
-        self.prints('_threadsactive() returning false') #debug
+        self.logger.debug('_threadsactive() returning false')
         return False
 
     def _renderthread(self, frame, computer, framequeue):
@@ -247,7 +264,7 @@ class Job(object):
         single frame in Blender's Cycles render engine.  NOTE: This will not
         parse output from Blender's internal engine correctly.'''
 
-        self.prints('started _renderthread()', frame, computer)
+        self.logger.debug('started _renderthread() for {} {}'.format(frame, computer))
         thread_start_time = datetime.datetime.now()
         if computer in CONFIG.macs:
             renderpath = shlex.quote(CONFIG.blenderpath_mac)
@@ -269,7 +286,7 @@ class Job(object):
                     self._thread_failed(frame, computer, 'Broken pipe')
                     return
             except UnicodeDecodeError as e:
-                print('Got the Unicode error: %s in line: %s' %(e, line))
+                self.logger.exception('Error decoding subprocess output.')
                 continue
 
             #reset timeout timer every time an update is received
@@ -277,7 +294,7 @@ class Job(object):
                 self.compstatus[computer]['timer'] = time.time()
             if CONFIG.verbose:
                 with threadlock:
-                    self.prints(line)
+                    self.logger.info(line)
             #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
                 match = re.search('Path Tracing Tile +?([0-9]+)\/([0-9]+)', line)
@@ -292,8 +309,7 @@ class Job(object):
             #detect PID at first line
             elif line.strip().isdigit():
                 pid = line.strip()
-                self.prints('PID detected: %s' %pid, frame=frame, 
-                            computer=computer)
+                self.logger.info('PID {} detected for frame {} on {}'.format(pid, frame, computer))
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
                 if computer in CONFIG.renice_list:
@@ -315,24 +331,22 @@ class Job(object):
                     self.totalframes.remove(0)
                 framequeue.task_done()
                 self._reset_compstatus(computer)
-                self.prints('Finished after %s' %rendertime, frame=frame, 
-                          computer=computer)
+                self.logger.info('Finished frame {} on {} after {}'.format(frame, computer, rendertime))
                 with threadlock:
                     try:
                         self.renderlog.frame_recvd(frame, computer, rendertime)
                     except:
-                        print("ERROR: Unable to write to render log.")
+                        self.logger.exception('Unable to write to render log')
                 break
     
         #NOTE omitting stderr checking for now
-        self.prints('_renderthread() terminated', frame=frame, 
-                    computer=computer)
+        self.logger.debug('_renderthread() terminated for {} on {}'.format(frame, computer))
 
     def _renderthread_tgn(self, frame, computer, framequeue):
         '''Thread to send command, monitor status, and parse return data for a
         single frame in Terragen 3.'''
 
-        print('started _renderthread_tgn()', frame, computer)
+        self.logger.debug('started _renderthread_tgn() for {} on {}'.format(frame, computer))
         #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in CONFIG.macs:
             cmd_string = (
@@ -366,24 +380,24 @@ class Job(object):
                 self.compstatus[computer]['timer'] = time.time()
             if CONFIG.verbose:
                 with threadlock:
-                    self.prints(line)
+                    self.logger.info(line)
 
             #starting overall render or one of the render passes
             if line.strip().isdigit():
                 pid = int(line.strip())
-                self.prints('Possible PID detected: %s' %pid, frame, computer)
+                self.logger.debug('Possible PID detected: {} for {} on {}'.format(
+                    pid, frame, computer))
                 if pid != frame: 
                     #necessary b/c terragen echoes frame # at start. 
                     #Hopefully PID will never be same as frame #
-                    self.prints('PID set to %s' %pid, frame, computer)
+                    self.logger.debug('PID set to {} for {} on {}'.format(pid, frame, computer))
                     with threadlock:
                         self.compstatus[computer]['pid'] = pid
                     #renice process to lowest priority on specified comps 
                     if computer in CONFIG.renice_list: 
                         subprocess.call('ssh {}@{} "renice 20 -p {}"'.format(
                             CONFIG.ssh_user, pid), shell=True)
-                        self.prints('Reniced PID %s to pri 20' %pid, frame, 
-                                  computer)
+                        self.logger.info('Reniced PID {} to pri 20 on {}'.format(pid, computer))
                     #remove oldest item from skiplist if render starts 
                     with threadlock:
                         if len(self.skiplist) > 0:
@@ -393,13 +407,13 @@ class Job(object):
             elif line.find('Starting') >= 0:
                 ellipsis = line.find('...')
                 passname = line[9:ellipsis]
-                self.prints('Starting %s' %passname, frame, computer)
+                self.logger.info('Starting pass {} for {} on {}'.format(passname, frame, computer))
 
             #finished one of the render passes
             elif line.find('Rendered') >= 0:
                 mark = line.find('of ')
                 passname = line[mark+3:]
-                self.prints('Finished %s' %passname, frame, computer)
+                self.logger.info('Finished pass {} for {} on {}'.format(passname, frame, computer))
 
             elif line.find('Rendering') >= 0:
                 #pattern 'Rendering pre pass... 0:00:30s, 2% of pre pass'
@@ -417,7 +431,7 @@ class Job(object):
                         pct_str = i
                         percent = float(pct_str[:-1])
                         break
-                self.prints('%s%% complete' %percent, frame, computer)
+                self.logger.info('Frame {} {}% complete on {}'.format(frame, percent, computer))
                 with threadlock:
                     self.compstatus[computer]['progress'] = percent
             #frame is done rendering
@@ -428,15 +442,16 @@ class Job(object):
                 framequeue.task_done()
                 self._reset_compstatus(computer)
                 rendertime = str(line.split()[2][:-1])
-                self.prints('Finished after %s' %rendertime, frame, computer)
+                self.logger.info('Finished frame {} on {} after {}'.format(
+                    frame, computer, rendertime))
                 with threadlock:
                     try:
                         self.renderlog.frame_recvd(frame, computer, rendertime)
                     except:
-                        print("ERROR: Unable to write to render log.")
+                        self.logger.exception('Unable to write to render log')
                 break
             #NOTE: omitting stderr testing for now
-        self.prints('_renderthread_tgn() terminated', frame, computer)
+        self.logger.debug('_renderthread_tgn() terminated for {} on {}'.format(frame, computer))
 
     def _thread_failed(self, frame, computer, errortype):
         '''Handles operations associated with a failed render thread.'''
@@ -445,8 +460,8 @@ class Job(object):
         #if self.compstatus[computer]['error'] == 'Killed':
         if not self.compstatus[computer]['active']:
             return
-        self.prints('Failed to render, error type: %s' %errortype, 
-                  frame, computer, error=True)
+        self.logger.error('Failed to render frame {} on {} with error type {}'.format(
+            frame, computer, errortype))
         self.skiplist.append(computer)
         with threadlock:
             self.queue.put(frame)
@@ -455,7 +470,7 @@ class Job(object):
             try:
                 self.renderlog.frame_failed(frame, computer, errortype)
             except:
-                print("ERROR: Unable to write to render log.")
+                self.logger.exception('Unable to write to render log')
         pid = self.compstatus[computer]['pid']
         #XXX Not sure if there should be an exemption for broken pipe here
         #b/c slow comptuers are having ssh issues and breaking pipes while
@@ -475,13 +490,13 @@ class Job(object):
             try:
                 self.renderlog.process_killed(pid, computer)
             except:
-                print("ERROR: Unable to write to render log.")
+                self.logger.exception('Unable to write to render log')
 
     def _threadkiller(self, computer, pid):
         '''Target thread to manage kill commands, created by _kill_thread'''
-        self.prints('entered _threadklller(), pid: %s' %pid, computer=computer)
+        self.logger.debug('entered _threadkiller(), pid: {] on {}'.format(pid, computer))
         subprocess.call('ssh {}@{} "kill {}"'.format(CONFIG.ssh_user, computer, pid), shell=True)
-        self.prints('finished _threadkiller()', computer=computer)
+        self.logger.debug('finished _threadkiller() on {}'.format(computer))
 
     def kill_thread(self, computer):
         '''Handles EXTERNAL kill thread requests.  Returns PID if 
@@ -489,19 +504,19 @@ class Job(object):
         try:
             pid = self.compstatus[computer]['pid']
             frame = self.compstatus[computer]['frame']
-        except Exception as e:
-            self.prints('Exception caught in Job.kill_thread() while getting '
-                      'pid: %s' %e, computer=computer, error=True)
+        except:
+            self.logger.exception('Caught exception in Job.kill_thread while getting'
+                + 'pid on {}'.format(computer))
             return False
         if (pid == None or frame == None):
-            self.prints('Job.kill_thread() failed, no frame or PID assigned', 
-                      computer=computer)
+            self.logger.error('Job.kill_thread() failed on {}. No PID or frame assigned.'.format(
+                computer))
             return False
         with threadlock:
             self.queue.put(frame)
         self._kill_thread(computer, pid)
         self._reset_compstatus(computer)
-        self.prints('Finished Job.kill_thread()', computer=computer)
+        self.logger.debug('Finished Job.kill_thread on {}'.format(computer))
         return pid
 
     def _start_timer(self, offset=None):
@@ -510,7 +525,7 @@ class Job(object):
         job after server restart.'''
         if offset:
             self.starttime = time.time() - offset
-            print('Offsetting job start time by %s seconds') #debug
+            self.logger.info('Offsetting job start time by {} seconds.'.format(offset))
         if (self.status == 'Stopped' or self.status == 'Paused'):
             #account for time elapsed since render was stopped
             self.starttime = time.time() - (self.stoptime - self.starttime)
@@ -561,7 +576,7 @@ class Job(object):
             'totalframes':self.totalframes,
             'progress':self.get_job_progress(),
             'times':self.get_times(),
-            '_id_':self._id_
+            '_id':self._id
             }
         return attrdict
 
@@ -576,7 +591,7 @@ class Job(object):
                     try:
                         self.renderlog.computer_added(computer)
                     except:
-                        print("ERROR: Unable to write to render log.")
+                        self.logger.exception('Unable to write to render log')
             return True
 
     def remove_computer(self, computer):
@@ -591,7 +606,7 @@ class Job(object):
                     try:
                         self.renderlog.computer_removed(computer)
                     except:
-                        print("ERROR: Unable to write to render log.")
+                        self.logger.exception('Unable to write to render log')
             return True
 
     def kill_now(self):
@@ -604,7 +619,7 @@ class Job(object):
             try:
                 self.renderlog.stop(self.get_times())
             except:
-                print("ERROR: Unable to write to render log.")
+                self.logger.exception('Unable to write to render log')
         self.status = 'Stopped'
         for computer in CONFIG.rendernodes:
             try:
@@ -631,7 +646,7 @@ class Job(object):
             try:
                 self.renderlog.stop(self.get_times())
             except:
-                print("ERROR: Unable to write to render log.")
+                self.logger.exception('Unable to write to render log')
         self.status = finalstatus
         return True
 
@@ -682,7 +697,6 @@ class Job(object):
         self.render_engine = attrdict['render_engine']
         self.totalframes = attrdict['totalframes']
         times = attrdict['times']
-        self._id_ = attrdict['_id_']
         #create new entries if list of available computers has changed
         #new computers added
         added = [comp for comp in CONFIG.rendernodes if not 
@@ -690,8 +704,8 @@ class Job(object):
         if added:
             for comp in added:
                 self._reset_compstatus(comp)
-                self.prints('New computer available, creating compstatus '
-                            'entry', computer=comp)
+                self.logger.debug('New node {} available. Creating compstatus entry.'.format(
+                    computer))
         #any computers no longer available
         removed = [comp for comp in self.compstatus if not
                    comp in CONFIG.rendernodes]
@@ -699,8 +713,8 @@ class Job(object):
             for comp in removed:
                 if comp in self.complist:
                     self.complist.remove(comp)
-                self.prints('Computer in compstatus no longer available. '
-                            'removing compstatus entry.', computer=comp)
+                self.logger.debug('Node {} in compstatus no longer available. Removing entry.'.format(
+                    computer))
         if not self.status == 'Finished':
             self.queue = queue.LifoQueue(0)
             framelist = list(range(self.startframe, self.endframe + 1))
@@ -712,14 +726,14 @@ class Job(object):
                     framelist.remove(frame)
                 else:
                     self.queue.put(frame)
-            self.prints('Restoring job with frames: %s' %framelist)
+            self.logger.info('Restoring job with frames: {}'.format(framelist))
             self.renderlog = RenderLog(
                 self.path, self.startframe, self.endframe, 
-                self.extraframes, self.complist, self._id_
+                self.extraframes, self.complist, self._id
                 )
 
         if self.status == 'Rendering':
-            self.prints('Attempting to start')
+            self.logger.debug('Attempting to start')
             #determine time offset to give correct remaining time estimate
             elapsed = times[0]
             for computer in CONFIG.rendernodes:
@@ -733,21 +747,6 @@ class Job(object):
         timestamp = time.strftime('%H:%M:%S on %Y/%m/%d', time.localtime())
         return timestamp
 
-    def prints(self, event, frame=None, computer=None, error=False):
-        '''Writes info about a status change event to stdout.'''
-        if error:
-            errstr = 'ERROR:'
-        else:
-            errstr = ''
-        if frame and computer:
-            print('%s%s| %s | Fra:%s | %s | %s' 
-                  %(errstr, self._id_, computer, frame, event, self.gettime()))
-        elif computer:
-            print('%s%s| %s | %s | %s' %(errstr, self._id_, computer, 
-                  event, self.gettime()))
-        else:
-            print('%s%s| %s | %s' %(errstr, self._id_, event, self.gettime()))
-
     def getstatus(self):
         return self.status
 
@@ -758,9 +757,9 @@ class RenderLog(Job):
     is started. Time in filename reflects time job was placed in queue.'''
     hrule = '=' * 70 + '\n' #for printing thick horizontal line
     def __init__(self, path, startframe, endframe, extraframes, complist, 
-                 _id_):
+                 _id):
         self.path = path
-        self._id_ = _id_ #object ID of the parent Job() instance
+        self._id = _id #object ID of the parent Job() instance
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
@@ -787,7 +786,7 @@ class RenderLog(Job):
                       + str(self.endframe) + ', ' + str(self.extraframes) 
                       + '\n')
             log.write('On: ' + ', '.join(self.complist) + '\n')
-            log.write('Job ID: %s\n' %self._id_)
+            log.write('Job ID: %s\n' %self._id)
             log.write(RenderLog.hrule)
 
     def frame_sent(self, frame, computer):
@@ -997,7 +996,7 @@ class Config(object):
         else:
             self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
         if not os.path.exists(self.cfg_path):
-            print('Config file not found. Generating new from defaults')
+            logger.warning('Config file not found. Generating new from defaults')
             self.write_default_file()
         self.load()
 
@@ -1008,13 +1007,13 @@ class Config(object):
             with open(self.cfg_path, 'r') as f:
                 cfg = yaml.load(f.read())
         except:
-            print('Failed to load config file. Writing new from defaults.')
+            logger.exception('Failed to load config file. Generating new from defaults')
             self.write_default_file()
             cfg = default
         # Make sure the file has all the required fields
         for key in default.keys():
             if key not in cfg:
-                print('Config file missing required field. Writing new from defaults.')
+                logger.error('Config file missing required field. Writing new from defaults.')
                 self.write_default_file
                 cfg = default
                 break
@@ -1057,6 +1056,8 @@ class RenderServer(object):
     created first to define the global configuration variables on which 
     Job's methods depend.'''
     def __init__(self, port=None):
+        self.logger = logging.getLogger('rcontroller.server.RenderServer')
+        self.logger.setLevel(logging.DEBUG)
         #read config file & set up config variables
         global CONFIG
         CONFIG = Config()
@@ -1064,6 +1065,11 @@ class RenderServer(object):
             port = CONFIG.serverport
         if not self._check_logpath():
             return
+        mainlog = logging.FileHandler(os.path.join(CONFIG.log_basepath, 'server.log'))
+        mainlog.setLevel(logging.INFO)
+        mainlog.setFormatter(file_formatter)
+        self.logger.addHandler(mainlog)
+        logger.addHandler(mainlog) # also add for the global logger
         self.statefile = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'serverstate.json')
         self.renderjobs = {}
         self.waitlist = [] #ordered list of jobs waiting to be rendered
@@ -1081,9 +1087,9 @@ class RenderServer(object):
         if not os.path.exists(CONFIG.log_basepath):
             try:
                 os.mkdir(CONFIG.log_basepath)
-                print('Created log directory at {}'.format(CONFIG.log_basepath))
+                self.logger.info('Created log directory at {}'.format(CONFIG.log_basepath))
             except PermissionError as e:
-                print('ERROR: Unable to create log directory: {}'.format(e))
+                self.logger.exception('Unable to create log directory')
                 return False
         return True
 
@@ -1092,7 +1098,7 @@ class RenderServer(object):
         regular interval. Runs in separate thread to prevent blocking other 
         processes.'''
         self.stop_update_loop = False
-        print('started update_loop')
+        self.logger.debug('started update_loop')
         while not self.stop_update_loop:
             #run tasks every 20 seconds, but subdivide loop into smaller
             #units so it's immediately interruptable when server shuts down.
@@ -1104,7 +1110,7 @@ class RenderServer(object):
             self.save_state()
             if CONFIG.autostart:
                 self.check_autostart()
-        print('update_loop done')
+        self.logger.debug('update_loop done')
         self.shutdown_server()
 
     def shutdown_server(self):
@@ -1116,9 +1122,8 @@ class RenderServer(object):
         for i in self.renderjobs:
             if self.renderjobs[i].status in log_statuses:
                 self.renderjobs[i].renderlog.server_shutdown()
-        print('Saving server state')
+        self.logger.debug('Saving server state')
         self.save_state()
-        print('Done')
         quit()
 
     def check_autostart(self):
@@ -1133,17 +1138,17 @@ class RenderServer(object):
                 elif job.status == 'Waiting':
                     times[job.queuetime] = job
         if times:
-            print('High priority render detected.')
+            self.logger.debug('High priority render detected')
             #kill all active renders
             for i in self.renderjobs:
                 job = self.renderjobs[i]
                 if job.status == 'Rendering':
-                    print('Pausing', job.path)
+                    self.logger.info('Pausing {}'.format(job.path))
                     job.kill_later(finalstatus='Paused')
                     self.waitlist.insert(0, job)
             newjob = times[min(times)]
             newjob.autostart()
-            print('Started', newjob.path)
+            self.logger.info('Started {}'.format(newjob.path))
             return
 
         #if there are no waiting jobs, no reason to continue
@@ -1157,12 +1162,12 @@ class RenderServer(object):
             if job.status == 'Rendering':
                 activejobs.append(job)
         if len(activejobs) > 1:
-            print('Autostart: more than 1 active job found, returning')#debug
+            self.logger.debug('Autostart: more than 1 active job found, returning')
             return
         elif len(activejobs) == 0:
             newjob = self.waitlist.pop(0)
             newjob.autostart()
-            print('Autostart started', newjob.path)
+            self.logger.info('Autostart started {}'.format(newjob.path))
             return
         elif len(activejobs) == 1:
             job = activejobs[0]
@@ -1170,16 +1175,15 @@ class RenderServer(object):
                 #All frames distributed, just waiting for render to finish.
                 #If one frame is taking inordinately long, don't want to wait
                 #to start the next render.
-                print('Autostart: exactly 1 job running & queue empty')#debug
+                self.logger.debug('Autostart: exactly 1 job running & queue empty')
                 if job.totalframes.count(0) > 1:
-                    print('Autostart: >1 frame rendering, returning')#debug
+                    self.logger.debug('Autostart: >1 frame rendering, returning')
                     return
                 else:
-                    print('Autostart: exactly 1 frame rendering, starting next'
-                         )#debug
+                    self.logger.debug('Autostart: exactly 1 frame rendering, starting next')
                     newjob = self.waitlist.pop(0)
                     newjob.autostart()
-                    print('Autostart started', newjob.path)
+                    self.logger.info('Autostart started {}'.format(newjob.path))
                 pass
             else:
                 return
@@ -1208,7 +1212,7 @@ class RenderServer(object):
         if os.path.exists(self.statefile):
             if input('Saved state file found. Restore previous server '
                          'state? (Y/n): ') in ['N', 'n']:
-                print('Discarding previous server state')
+                self.logger.info('Discarding previous server state')
                 return
             with open(self.statefile, 'r') as f:
                 (statevars, jobs) = json.loads(f.read())
@@ -1217,18 +1221,19 @@ class RenderServer(object):
             CONFIG.autostart = statevars['autostart']
             #restore job queue
             for index in jobs:
-                self.renderjobs[index] = Job()
+                _id = jobs[index]['_id']
+                self.renderjobs[index] = Job(_id)
                 reply = self.renderjobs[index].set_attrs(jobs[index])
                 if reply:
-                    print('Restored job ', index)
+                    self.logger.info('Restored {} from saved state'.format(index))
                     #add job to waitlist if necessary
                     status = jobs[index]['status']
                     if (status == 'Waiting' or status == 'Paused'):
                         self.waitlist.append(self.renderjobs[index])
-                        print('added %s to waitlist' %index)
+                        self.logger.debug('Added {} to waitlist'.format(index))
                 else:
-                    print('Unable to restore job ', index)
-            print('Server state restored')
+                    self.logger.error('Unable to restore {}'.format(index))
+            self.logger.info('Server state restored')
 
     def get_attrs(self, index=None):
         '''Returns dict of attributes for a given index. If no index is 
@@ -1400,11 +1405,11 @@ class RenderServer(object):
         '''Toggles the state of the verbose variable.'''
         if CONFIG.verbose == 0:
             CONFIG.verbose = 1
-            print('Verbose reporting enabled')
+            self.logger.info('Verbose reporting enabled')
             return 'verbose reporting enabled'
         else:
             CONFIG.verbose = 0
-            print('Verbose reporting disabled')
+            self.logger.info('Verbose reporting disabled')
             return 'verbose reporting disabled'
     
     def toggle_autostart(self):
@@ -1412,10 +1417,10 @@ class RenderServer(object):
         if CONFIG.autostart == 0:
             CONFIG.autostart = 1
             return 'autostart enabled'
-            print('Autostart enabled')
+            self.logger.info('Autostart enabled')
         else:
             CONFIG.autostart = 0
-            print('Autostart disabled')
+            self.logger.info('Autostart disabled')
             return 'autostart disabled'
     
     def check_path_exists(self, path):
@@ -1459,6 +1464,7 @@ class SSHKillThread(object):
         '''complist: list of hostnames or ip addresses
         msgqueue: queue.Queue object to return result to parent object
         procname: process name to be killed (case insensitive)'''
+        self.logger = getLogger('rcontroller.server.SSHKillThread')
         self.compq = queue.Queue() #job queue for child processes
         self.replyq = queue.Queue() #queue for replies from child processes
         for comp in complist:
@@ -1468,7 +1474,6 @@ class SSHKillThread(object):
             args=(threads, msgqueue, procname))
         mt.daemon = True
         mt.start()
-        print('killall master started, __init__ done')
 
     def master(self, workers, msgqueue, procname):
         '''Creates worker threads and waits for them to finish.
@@ -1479,7 +1484,6 @@ class SSHKillThread(object):
             t.daemon = True
             t.start()
         self.compq.join()
-        print('join released')
         if self.replyq.empty():
             msgqueue.put('success')
             return
@@ -1487,15 +1491,14 @@ class SSHKillThread(object):
             replies = []
             while not self.replyq.empty():
                 replies.append(self.replyq.get())
-            print('replies: %s' %replies)
+            self.logger.debug('replies: {}'.format(replies))
             msgqueue.put(replies)
-        print('killall master done')
 
     def worker(self, comp, procname):
-        print('killall thread for %s started' %comp)
+        self.logger.debug('killall thread for {} started'.format(comp))
         if comp in CONFIG.macs and procname == 'terragen':
             procname = "'Terragen 3'"
-        print('procname is ', procname)
+        self.logger.debug('procname is {}'.format(procname))
         #cmd = 'ssh igp@%s "pgrep %s | xargs kill"' %(comp, procname)
         cmd = 'ssh {}@{} "pgrep %s | xargs kill"'.format(CONFIG.ssh_user, comp, procname)
         #NOTE: By piping pgrep directly to xargs, no exception will be raised

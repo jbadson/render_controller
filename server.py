@@ -36,8 +36,14 @@ import logging
 import socketwrapper as sw
 
 
-#XXX Does not quite work because we can't add file handler after the fact. Make global logger from start
+#NOTE: All classes in this module depend on a global instance of
+# Config named CONFIG. Be sure to create one if importing.
+# This is not the best way to do things, but it is how it is.
+
+
+log_file_path = '/var/log/rcontroller.log'
 logger = logging.getLogger('rcontroller.server')
+logger.setLevel(logging.DEBUG)
 console = logging.StreamHandler()
 console.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s', 
@@ -47,7 +53,39 @@ console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s',
 console.setFormatter(console_formatter)
 logger.addHandler(console)
 
+
 illegal_characters = [';', '&'] #not allowed in paths
+
+
+def format_time(time):
+    '''Converts time in decimal seconds to human-friendly strings.
+    format is ddhhmmss.s'''
+    if time < 60:
+        newtime = [round(time, 1)]
+    elif time < 3600:
+        m, s = time / 60, time % 60
+        newtime = [int(m), round(s, 1)]
+    elif time < 86400:
+        m, s = time / 60, time % 60
+        h, m = m / 60, m % 60
+        newtime = [int(h), int(m), round(s, 1)]
+    else:
+        m, s = time / 60, time % 60
+        h, m = m / 60, m % 60
+        d, h = h / 24, h % 24
+        newtime = [int(d), int(h), int(m), round(s, 1)]
+    if len(newtime) == 1:
+        timestr = str(newtime[0])+'s'
+    elif len(newtime) == 2:
+        timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
+    elif len(newtime) == 3:
+        timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
+            +str(newtime[2])+'s')
+    else:
+        timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
+                   str(newtime[2])+'m '+str(newtime[3])+'s')
+    return timestr
+
 
 class Job(object):
     '''Represents a render job.'''
@@ -57,7 +95,6 @@ class Job(object):
             self._id = _id
         else:
             self._id = id(self)
-        self.logger = logging.getLogger('rcontroller.server.Job.{}'.format(self._id))
         #initialize all attrs for client updates
         self.status = 'Empty'
         self.queuetime = time.time()
@@ -77,7 +114,6 @@ class Job(object):
         self.render_engine = None
         self.totalframes = []
         self.progress = None
-
 
     def _reset_compstatus(self, computer):
         '''Creates compstatus dict or resets an existing one to 
@@ -115,10 +151,6 @@ class Job(object):
         for char in illegal_characters:
             if char in path:
                 return False
-        #deal with relative paths (shlex.quote will escape the ~)
-        #XXX Do this correctly using os.path.abspath when client is written
-        if path[0] == '~':
-            self.path = '~' + shlex.quote(path[1:])
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes
@@ -146,10 +178,12 @@ class Job(object):
             self.extraframes.reverse()
             for frame in self.extraframes:
                 self.queue.put(frame)
-        self.renderlog = RenderLog(
-            self.path, self.startframe, self.endframe, self.extraframes, 
-            self.complist, self._id
-            )
+        self.renderlog = logger.getChild(os.path.basename(self.path))
+        self.renderlog.info(
+            'placed in queue with startframe: {} endframe: {} extra frames: '\
+            '{} on nodes: {} with job ID {}'.format(
+            self.startframe, self.endframe, ', '.join(self.extraframes), 
+            ', '.join(self.complist), self._id))
         self.status = 'Waiting'
         return True
 
@@ -157,20 +191,13 @@ class Job(object):
         '''Starts a render for a given job.
         time_offset: correction factor in seconds used when restoring a 
         running job after server restart.'''
-        self.logger.debug('entered render()')
+        logger.debug('entered render()')
         if self.status != 'Waiting':
             return False
         self.status = 'Rendering'
         self._start_timer(offset=time_offset)
-        # Having issues with script crashing if data server goes offline and
-        # render log is inaccessible.
-        #try:
-        self.renderlog.start()
-        #except:
-        #    print("ERROR: Unable to write to render log.")
-
+        self.renderlog.info('Started render')
         self.killflag = False
-
         master = threading.Thread(target=self._masterthread, args=())
         master.start()
         return True
@@ -180,7 +207,7 @@ class Job(object):
         '''{'active':False, 'frame':None,
             'pid':None, 'timer':None, 'progress':0.0, 'error':None}'''
     
-        self.logger.debug('started _masterthread()')
+        logger.debug('started _masterthread()')
         self.threads_active = False
         #set target thread type based on render engine
         if self.render_engine == 'blend':
@@ -189,25 +216,24 @@ class Job(object):
             tgt_thread = self._renderthread_tgn
         while True:
             if self.killflag:
-                self.logger.debug('Kill flag detected, breaking render loop.')
+                logger.debug('Kill flag detected, breaking render loop.')
                 #deal with log & render timer
                 break
     
             if self.queue.empty() and not self._threadsactive():
-                self.logger.debug('Render done at detector')
+                logger.debug('Render done at detector')
                 self.status = 'Finished'
                 self._stop_timer()
-                try:
-                    self.renderlog.finished(self.get_times())
-                except:
-                    self.renderlog.exception('Unable to write to render log')
-                break
+                elapsed, avg, rem = self.get_times()
+                self.renderlog.info(
+                    'Finished render. Total time: {}, Avg time per frame: {}'.format(
+                    format_time(elapsed), format_time(avg)))
 
-            #prevent lockup if all computers end up in skiplist
+            #prevent deadlock if all computers end up in skiplist
             if len(self.skiplist) == len(self.complist):
                 #ignore if both lists are empty
                 if not len(self.complist) == 0:
-                    self.logger.info('All nodes in skiplist, popping oldest one.')
+                    logger.info('All nodes in skiplist, popping oldest one.')
                     skipcomp = self.skiplist.pop(0)
                     self._reset_compstatus(skipcomp)
     
@@ -228,11 +254,8 @@ class Job(object):
                             self.compstatus[computer]['frame'] = frame
                             self.compstatus[computer]['timer'] = time.time()
                             self.threads_active = True
-                            try:
-                                self.renderlog.frame_sent(frame, computer) 
-                            except:
-                                self.logger.exception('Unable to write to render log.')
-                        self.logger.debug('Creating renderthread')
+                            self.renderlog.info('Sent frame {} to {}'.format(frame, computer))
+                        logger.debug('Creating renderthread')
                         rthread = threading.Thread(
                             target=tgt_thread, args=(frame,  computer, 
                             self.queue)
@@ -246,9 +269,7 @@ class Job(object):
                         CONFIG.timeout):
                     self._thread_failed(self.compstatus[computer]['frame'], 
                                        computer, 'Timeout')
-
-        self.logger.debug('_masterthread() terminating')
-
+        logger.debug('_masterthread() terminating')
 
 
     def _threadsactive(self):
@@ -256,7 +277,7 @@ class Job(object):
         for computer in self.compstatus:
             if self.compstatus[computer]['active']:
                 return True
-        self.logger.debug('_threadsactive() returning false')
+        logger.debug('_threadsactive() returning false')
         return False
 
     def _renderthread(self, frame, computer, framequeue):
@@ -264,7 +285,7 @@ class Job(object):
         single frame in Blender's Cycles render engine.  NOTE: This will not
         parse output from Blender's internal engine correctly.'''
 
-        self.logger.debug('started _renderthread() for {} {}'.format(frame, computer))
+        logger.debug('started _renderthread() for {} {}'.format(frame, computer))
         thread_start_time = datetime.datetime.now()
         if computer in CONFIG.macs:
             renderpath = shlex.quote(CONFIG.blenderpath_mac)
@@ -275,10 +296,6 @@ class Job(object):
             user=CONFIG.ssh_user, host=computer, prog=renderpath, path=self.path, frame=frame), 
             stdout=subprocess.PIPE, shell=True )
         for line in iter(command.stdout.readline, ''):
-            #convert byte object to unicode string
-            #necessary for Python 3.x compatibility
-            # Starting with Blender 2.76, having problems with unicode decoding errors
-            # Not sure what's going on, but need to get things working
             try:
                 line = line.decode('UTF-8')
                 if not line:
@@ -286,7 +303,7 @@ class Job(object):
                     self._thread_failed(frame, computer, 'Broken pipe')
                     return
             except UnicodeDecodeError as e:
-                self.logger.exception('Error decoding subprocess output.')
+                logger.exception('Error decoding subprocess output.')
                 continue
 
             #reset timeout timer every time an update is received
@@ -294,7 +311,7 @@ class Job(object):
                 self.compstatus[computer]['timer'] = time.time()
             if CONFIG.verbose:
                 with threadlock:
-                    self.logger.info(line)
+                    logger.info(line)
             #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
                 match = re.search('Path Tracing Tile +?([0-9]+)\/([0-9]+)', line)
@@ -309,7 +326,7 @@ class Job(object):
             #detect PID at first line
             elif line.strip().isdigit():
                 pid = line.strip()
-                self.logger.info('PID {} detected for frame {} on {}'.format(pid, frame, computer))
+                logger.info('PID {} detected for frame {} on {}'.format(pid, frame, computer))
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
                 if computer in CONFIG.renice_list:
@@ -331,22 +348,17 @@ class Job(object):
                     self.totalframes.remove(0)
                 framequeue.task_done()
                 self._reset_compstatus(computer)
-                self.logger.info('Finished frame {} on {} after {}'.format(frame, computer, rendertime))
-                with threadlock:
-                    try:
-                        self.renderlog.frame_recvd(frame, computer, rendertime)
-                    except:
-                        self.logger.exception('Unable to write to render log')
+                self.renderlog.info('Finished frame {} on {} after {}'.format(frame, computer, rendertime))
                 break
     
         #NOTE omitting stderr checking for now
-        self.logger.debug('_renderthread() terminated for {} on {}'.format(frame, computer))
+        logger.debug('_renderthread() terminated for {} on {}'.format(frame, computer))
 
     def _renderthread_tgn(self, frame, computer, framequeue):
         '''Thread to send command, monitor status, and parse return data for a
         single frame in Terragen 3.'''
 
-        self.logger.debug('started _renderthread_tgn() for {} on {}'.format(frame, computer))
+        logger.debug('started _renderthread_tgn() for {} on {}'.format(frame, computer))
         #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in CONFIG.macs:
             cmd_string = (
@@ -380,24 +392,24 @@ class Job(object):
                 self.compstatus[computer]['timer'] = time.time()
             if CONFIG.verbose:
                 with threadlock:
-                    self.logger.info(line)
+                    logger.info(line)
 
             #starting overall render or one of the render passes
             if line.strip().isdigit():
                 pid = int(line.strip())
-                self.logger.debug('Possible PID detected: {} for {} on {}'.format(
+                logger.debug('Possible PID detected: {} for {} on {}'.format(
                     pid, frame, computer))
                 if pid != frame: 
                     #necessary b/c terragen echoes frame # at start. 
                     #Hopefully PID will never be same as frame #
-                    self.logger.debug('PID set to {} for {} on {}'.format(pid, frame, computer))
+                    logger.debug('PID set to {} for {} on {}'.format(pid, frame, computer))
                     with threadlock:
                         self.compstatus[computer]['pid'] = pid
                     #renice process to lowest priority on specified comps 
                     if computer in CONFIG.renice_list: 
                         subprocess.call('ssh {}@{} "renice 20 -p {}"'.format(
                             CONFIG.ssh_user, pid), shell=True)
-                        self.logger.info('Reniced PID {} to pri 20 on {}'.format(pid, computer))
+                        logger.info('Reniced PID {} to pri 20 on {}'.format(pid, computer))
                     #remove oldest item from skiplist if render starts 
                     with threadlock:
                         if len(self.skiplist) > 0:
@@ -407,13 +419,13 @@ class Job(object):
             elif line.find('Starting') >= 0:
                 ellipsis = line.find('...')
                 passname = line[9:ellipsis]
-                self.logger.info('Starting pass {} for {} on {}'.format(passname, frame, computer))
+                logger.info('Starting pass {} for {} on {}'.format(passname, frame, computer))
 
             #finished one of the render passes
             elif line.find('Rendered') >= 0:
                 mark = line.find('of ')
                 passname = line[mark+3:]
-                self.logger.info('Finished pass {} for {} on {}'.format(passname, frame, computer))
+                logger.info('Finished pass {} for {} on {}'.format(passname, frame, computer))
 
             elif line.find('Rendering') >= 0:
                 #pattern 'Rendering pre pass... 0:00:30s, 2% of pre pass'
@@ -431,7 +443,7 @@ class Job(object):
                         pct_str = i
                         percent = float(pct_str[:-1])
                         break
-                self.logger.info('Frame {} {}% complete on {}'.format(frame, percent, computer))
+                logger.info('Frame {} {}% complete on {}'.format(frame, percent, computer))
                 with threadlock:
                     self.compstatus[computer]['progress'] = percent
             #frame is done rendering
@@ -442,40 +454,29 @@ class Job(object):
                 framequeue.task_done()
                 self._reset_compstatus(computer)
                 rendertime = str(line.split()[2][:-1])
-                self.logger.info('Finished frame {} on {} after {}'.format(
+                self.renderlog.info('Finished frame {} on {} after {}'.format(
                     frame, computer, rendertime))
-                with threadlock:
-                    try:
-                        self.renderlog.frame_recvd(frame, computer, rendertime)
-                    except:
-                        self.logger.exception('Unable to write to render log')
                 break
             #NOTE: omitting stderr testing for now
-        self.logger.debug('_renderthread_tgn() terminated for {} on {}'.format(frame, computer))
+        logger.debug('_renderthread_tgn() terminated for {} on {}'.format(frame, computer))
 
     def _thread_failed(self, frame, computer, errortype):
         '''Handles operations associated with a failed render thread.'''
         #If pipe is broken because render was killed by user, don't
         #treat it as an error:
-        #if self.compstatus[computer]['error'] == 'Killed':
         if not self.compstatus[computer]['active']:
             return
-        self.logger.error('Failed to render frame {} on {} with error type {}'.format(
+        logger.error('Failed to render frame {} on {} with error type {}'.format(
             frame, computer, errortype))
         self.skiplist.append(computer)
         with threadlock:
             self.queue.put(frame)
             self.compstatus[computer]['active'] = False
             self.compstatus[computer]['error'] = errortype
-            try:
-                self.renderlog.frame_failed(frame, computer, errortype)
-            except:
-                self.logger.exception('Unable to write to render log')
+            self.renderlog.warning(
+                'Frame {} failed to render on {} because of {}'.format(
+                frame, computer, errortype))
         pid = self.compstatus[computer]['pid']
-        #XXX Not sure if there should be an exemption for broken pipe here
-        #b/c slow comptuers are having ssh issues and breaking pipes while
-        #blender is still running (I think)
-        #if pid and errortype != 'Broken pipe':
         if pid:
             self._kill_thread(computer, pid)
 
@@ -486,17 +487,13 @@ class Job(object):
         kthread = threading.Thread(target=self._threadkiller, 
                                    args=(computer, pid))
         kthread.start()
-        with threadlock:
-            try:
-                self.renderlog.process_killed(pid, computer)
-            except:
-                self.logger.exception('Unable to write to render log')
+        self.renderlog.info('Killed PID {} on {}'.format(pid, computer))
 
     def _threadkiller(self, computer, pid):
         '''Target thread to manage kill commands, created by _kill_thread'''
-        self.logger.debug('entered _threadkiller(), pid: {] on {}'.format(pid, computer))
+        logger.debug('entered _threadkiller(), pid: {} on {}'.format(pid, computer))
         subprocess.call('ssh {}@{} "kill {}"'.format(CONFIG.ssh_user, computer, pid), shell=True)
-        self.logger.debug('finished _threadkiller() on {}'.format(computer))
+        logger.debug('finished _threadkiller() on {}'.format(computer))
 
     def kill_thread(self, computer):
         '''Handles EXTERNAL kill thread requests.  Returns PID if 
@@ -505,18 +502,18 @@ class Job(object):
             pid = self.compstatus[computer]['pid']
             frame = self.compstatus[computer]['frame']
         except:
-            self.logger.exception('Caught exception in Job.kill_thread while getting'
+            logger.exception('Caught exception in Job.kill_thread while getting'
                 + 'pid on {}'.format(computer))
             return False
         if (pid == None or frame == None):
-            self.logger.error('Job.kill_thread() failed on {}. No PID or frame assigned.'.format(
+            logger.warning('Job.kill_thread() failed on {}. No PID or frame assigned.'.format(
                 computer))
             return False
         with threadlock:
             self.queue.put(frame)
         self._kill_thread(computer, pid)
         self._reset_compstatus(computer)
-        self.logger.debug('Finished Job.kill_thread on {}'.format(computer))
+        logger.debug('Finished Job.kill_thread on {}'.format(computer))
         return pid
 
     def _start_timer(self, offset=None):
@@ -525,7 +522,7 @@ class Job(object):
         job after server restart.'''
         if offset:
             self.starttime = time.time() - offset
-            self.logger.info('Offsetting job start time by {} seconds.'.format(offset))
+            logger.info('Offsetting job start time by {} seconds.'.format(offset))
         if (self.status == 'Stopped' or self.status == 'Paused'):
             #account for time elapsed since render was stopped
             self.starttime = time.time() - (self.stoptime - self.starttime)
@@ -581,17 +578,12 @@ class Job(object):
         return attrdict
 
     def add_computer(self, computer):
-        #if self.compstatus[computer]['pool']:
         if computer in self.complist:
             return False
         else:
             self.complist.append(computer)
             if self.status == 'Rendering':
-                with threadlock:
-                    try:
-                        self.renderlog.computer_added(computer)
-                    except:
-                        self.logger.exception('Unable to write to render log')
+                self.renderlog.info('Added node {}'.format(computer))
             return True
 
     def remove_computer(self, computer):
@@ -602,11 +594,7 @@ class Job(object):
             if computer in self.skiplist:
                 self.skiplist.remove(computer)
             if self.status == 'Rendering':
-                with threadlock:
-                    try:
-                        self.renderlog.computer_removed(computer)
-                    except:
-                        self.logger.exception('Unable to write to render log')
+                self.renderlog.info('Removed node {}'.format(computer))
             return True
 
     def kill_now(self):
@@ -615,11 +603,10 @@ class Job(object):
             return False
         self.killflag = True
         self._stop_timer()
-        with threadlock:
-            try:
-                self.renderlog.stop(self.get_times())
-            except:
-                self.logger.exception('Unable to write to render log')
+        elapsed, avg, rem = self.get_times()
+        self.renderlog.info(
+            'Render stopped by user. Total time: {}, Avg time per frame: {}'.format(
+            format_time(elapsed), format_time(avg)))
         self.status = 'Stopped'
         for computer in CONFIG.rendernodes:
             try:
@@ -642,11 +629,10 @@ class Job(object):
             return False
         self.killflag = True
         self._stop_timer()
-        with threadlock:
-            try:
-                self.renderlog.stop(self.get_times())
-            except:
-                self.logger.exception('Unable to write to render log')
+        elapsed, avg, rem = self.get_times()
+        self.renderlog.info(
+            'Render stopped by user. Total time: {}, Avg time per frame: {}'.format(
+            format_time(elapsed), format_time(avg)))
         self.status = finalstatus
         return True
 
@@ -704,7 +690,7 @@ class Job(object):
         if added:
             for comp in added:
                 self._reset_compstatus(comp)
-                self.logger.debug('New node {} available. Creating compstatus entry.'.format(
+                logger.debug('New node {} available. Creating compstatus entry.'.format(
                     computer))
         #any computers no longer available
         removed = [comp for comp in self.compstatus if not
@@ -713,7 +699,7 @@ class Job(object):
             for comp in removed:
                 if comp in self.complist:
                     self.complist.remove(comp)
-                self.logger.debug('Node {} in compstatus no longer available. Removing entry.'.format(
+                logger.debug('Node {} in compstatus no longer available. Removing entry.'.format(
                     computer))
         if not self.status == 'Finished':
             self.queue = queue.LifoQueue(0)
@@ -726,14 +712,14 @@ class Job(object):
                     framelist.remove(frame)
                 else:
                     self.queue.put(frame)
-            self.logger.info('Restoring job with frames: {}'.format(framelist))
-            self.renderlog = RenderLog(
-                self.path, self.startframe, self.endframe, 
-                self.extraframes, self.complist, self._id
-                )
+            self.renderlog = logger.getChild(os.path.basename(self.path))
+            self.renderlog.info(
+                'Restored job with startframe: {} endframe: {} extra frames: {} on nodes: '\
+                '{} with job ID {}'.format(self.startframe, self.endframe, 
+                ', '.join(self.extraframes), ', '.join(self.complist), self._id))
 
         if self.status == 'Rendering':
-            self.logger.debug('Attempting to start')
+            logger.debug('Attempting to start')
             #determine time offset to give correct remaining time estimate
             elapsed = times[0]
             for computer in CONFIG.rendernodes:
@@ -749,151 +735,6 @@ class Job(object):
 
     def getstatus(self):
         return self.status
-
-
-class RenderLog(Job):
-    '''Logs render progress for a given job.  Log instance is created when
-    job is placed in queue, but actual log file is not created until render
-    is started. Time in filename reflects time job was placed in queue.'''
-    hrule = '=' * 70 + '\n' #for printing thick horizontal line
-    def __init__(self, path, startframe, endframe, extraframes, complist, 
-                 _id):
-        self.path = path
-        self._id = _id #object ID of the parent Job() instance
-        self.startframe = startframe
-        self.endframe = endframe
-        self.extraframes = extraframes
-        self.complist = complist
-        self.log_basepath = CONFIG.log_basepath
-        self.filename, ext = os.path.splitext(os.path.basename(self.path))
-        self.enq_time = time.strftime('%Y-%m-%d_%H%M%S', time.localtime())
-        logfile = '{}.{}.txt'.format(self.filename, self.enq_time)
-        self.logpath = os.path.join(self.log_basepath, logfile)
-        self.total = str(len(range(startframe, endframe)) + 1 + 
-                         len(extraframes))
-
-    def start(self):
-        '''Creates initial entry corresponding to render start.'''
-        #check if file exists. If so, assume render is being resumed
-        if os.path.exists(self.logpath):
-            self._resume()
-            return
-        with open(self.logpath, 'w') as log:
-            log.write(RenderLog.hrule)
-            log.write('Render started at ' + self.gettime() + '\n')
-            log.write('File: ' + self.path + '\n')
-            log.write('Frames: ' + str(self.startframe) + ' - ' 
-                      + str(self.endframe) + ', ' + str(self.extraframes) 
-                      + '\n')
-            log.write('On: ' + ', '.join(self.complist) + '\n')
-            log.write('Job ID: %s\n' %self._id)
-            log.write(RenderLog.hrule)
-
-    def frame_sent(self, frame, computer):
-        with open(self.logpath, 'a') as log:
-            log.write('Sent frame ' + str(frame) + ' of ' + self.total + ' to '
-                      + computer + ' at ' + self.gettime() + '\n')
-
-    def frame_recvd(self, frame, computer, rendertime):
-        with open(self.logpath, 'a') as log:
-            log.write('Received frame ' + str(frame) + ' of ' + self.total 
-                      + ' from ' + computer + ' at ' + self.gettime() + 
-                      '. Render time was ' + rendertime + '\n')
-
-    def frame_failed(self, frame, computer, errtxt):
-        with open(self.logpath, 'a') as log:
-            log.write('ERROR: Frame ' + str(frame) + ' failed to render on ' 
-                      + computer + ' at ' + self.gettime() + ': ' + errtxt 
-                      + '\n')
-
-    def process_killed(self, pid, computer):
-        with open(self.logpath, 'a') as log:
-            log.write('Killed process ' + str(pid) + ' on ' + computer + ' at '
-                      + self.gettime() + '\n')
-
-    def computer_added(self, computer):
-        with open(self.logpath, 'a') as log:
-            log.write('Added ' + computer + ' to render pool at ' 
-                      + self.gettime() + '\n')
-
-    def computer_removed(self, computer):
-        with open(self.logpath, 'a') as log:
-            log.write('Removed ' + computer + ' from render pool at ' 
-                      + self.gettime() + '\n')
-
-    def finished(self, times):
-        '''Marks render finished, closes log file.'''
-        elapsed, avg, rem = times
-        with open(self.logpath, 'a') as log:
-            log.write(RenderLog.hrule)
-            log.write('Render finished at ' + self.gettime() + '\n')
-            log.write('Total time: ' + self.format_time(elapsed) + '\n')
-            log.write('Average time per frame: ' + self.format_time(avg) + 
-                      '\n')
-            log.write(RenderLog.hrule)
-
-    def stop(self, times):
-        '''Marks render stopped, closes log file.'''
-        elapsed, avg, rem = times
-        with open(self.logpath, 'a') as log:
-            log.write(RenderLog.hrule)
-            log.write('Render stopped by user at ' + self.gettime() + '\n')
-            log.write('Total time: ' + self.format_time(elapsed) + '\n')
-            log.write('Average time per frame: ' + self.format_time(avg) + 
-                      '\n')
-            log.write(RenderLog.hrule)
-
-    def _resume(self):
-        '''Appends a new header to the existing log file.  If the server was
-        shut down in the interim, a new file will be created.'''
-        with open(self.logpath, 'a') as log:
-            log.write(RenderLog.hrule)
-            log.write('Render resumed at ' + self.gettime() + '\n')
-            log.write('File: ' + self.path + '\n')
-            log.write('Frames: ' + str(self.startframe) + ' - ' 
-                      + str(self.endframe) + ', ' + str(self.extraframes) 
-                      + '\n')
-            log.write('On: ' + ', '.join(self.complist) + '\n')
-            log.write(RenderLog.hrule)
-
-    def server_shutdown(self):
-        '''Writes message to log if the server is manually shut down while
-        unfinished jobs are still in queue.'''
-        with open(self.logpath, 'a') as log:
-            log.write(RenderLog.hrule)
-            log.write('Server shut down at ' + self.gettime() + '\n')
-            log.write('If server is restarted and this render is resumed,\n'
-                      'a new log file will be created.\n') 
-            log.write(RenderLog.hrule)
-
-    def format_time(self, time):
-        '''Converts time in decimal seconds to human-friendly strings.
-        format is ddhhmmss.s'''
-        if time < 60:
-            newtime = [round(time, 1)]
-        elif time < 3600:
-            m, s = time / 60, time % 60
-            newtime = [int(m), round(s, 1)]
-        elif time < 86400:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            newtime = [int(h), int(m), round(s, 1)]
-        else:
-            m, s = time / 60, time % 60
-            h, m = m / 60, m % 60
-            d, h = h / 24, h % 24
-            newtime = [int(d), int(h), int(m), round(s, 1)]
-        if len(newtime) == 1:
-            timestr = str(newtime[0])+'s'
-        elif len(newtime) == 2:
-            timestr = str(newtime[0])+'m '+str(newtime[1])+'s'
-        elif len(newtime) == 3:
-            timestr = (str(newtime[0])+'h '+str(newtime[1])+'m '
-                +str(newtime[2])+'s')
-        else:
-            timestr = (str(newtime[0])+'d '+str(newtime[1])+'h ' + 
-                       str(newtime[2])+'m '+str(newtime[3])+'s')
-        return timestr
 
 
 def quit():
@@ -915,10 +756,6 @@ autostart: 1
 
 # Start server in vebose mode by default
 verbose: 0
-
-# Directory to hold render logs
-# Must be writable by user running the server
-log_basepath: /var/log/rcontroller
 
 # Timeout for failed render process in seconds
 timeout: 1000
@@ -1051,25 +888,10 @@ allowed_commands= [
 
 class RenderServer(object):
     '''This is the master class for this module. Instantiate this class to
-    start a server. The Job class and its methods can be used directly 
-    without a RenderServer instance, however an instance of Config MUST be 
-    created first to define the global configuration variables on which 
-    Job's methods depend.'''
+    start a server.'''
     def __init__(self, port=None):
-        self.logger = logging.getLogger('rcontroller.server.RenderServer')
-        self.logger.setLevel(logging.DEBUG)
-        #read config file & set up config variables
-        global CONFIG
-        CONFIG = Config()
         if not port:
             port = CONFIG.serverport
-        if not self._check_logpath():
-            return
-        mainlog = logging.FileHandler(os.path.join(CONFIG.log_basepath, 'server.log'))
-        mainlog.setLevel(logging.INFO)
-        mainlog.setFormatter(file_formatter)
-        self.logger.addHandler(mainlog)
-        logger.addHandler(mainlog) # also add for the global logger
         self.statefile = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'serverstate.json')
         self.renderjobs = {}
         self.waitlist = [] #ordered list of jobs waiting to be rendered
@@ -1081,24 +903,12 @@ class RenderServer(object):
         self.server.start()
         self.shutdown_server()
 
-
-    def _check_logpath(self):
-        #look for the renderlog base path and verify it's accessible
-        if not os.path.exists(CONFIG.log_basepath):
-            try:
-                os.mkdir(CONFIG.log_basepath)
-                self.logger.info('Created log directory at {}'.format(CONFIG.log_basepath))
-            except PermissionError as e:
-                self.logger.exception('Unable to create log directory')
-                return False
-        return True
-
     def update_loop(self):
         '''Handles miscellaneous tasks that need to be carried out on a 
         regular interval. Runs in separate thread to prevent blocking other 
         processes.'''
         self.stop_update_loop = False
-        self.logger.debug('started update_loop')
+        logger.debug('started update_loop')
         while not self.stop_update_loop:
             #run tasks every 20 seconds, but subdivide loop into smaller
             #units so it's immediately interruptable when server shuts down.
@@ -1110,7 +920,7 @@ class RenderServer(object):
             self.save_state()
             if CONFIG.autostart:
                 self.check_autostart()
-        self.logger.debug('update_loop done')
+        logger.debug('update_loop done')
         self.shutdown_server()
 
     def shutdown_server(self):
@@ -1119,14 +929,13 @@ class RenderServer(object):
         self.stop_update_loop = True
         #check for any unfinished jobs, note the shutdown in their logs
         log_statuses = ['Rendering', 'Stopped', 'Paused']
-        for i in self.renderjobs:
-            if self.renderjobs[i].status in log_statuses:
-                self.renderjobs[i].renderlog.server_shutdown()
-        self.logger.debug('Saving server state')
+        logger.info('Pausing any active jobs and saving server state')
         self.save_state()
+        logger.info('Shutting down server')
         quit()
 
     def check_autostart(self):
+        '''Checks all active and queued jobs and starts them if needed.'''
         #handle high priority renders
         times = {}
         for i in self.renderjobs:
@@ -1138,17 +947,17 @@ class RenderServer(object):
                 elif job.status == 'Waiting':
                     times[job.queuetime] = job
         if times:
-            self.logger.debug('High priority render detected')
+            logger.debug('High priority render detected')
             #kill all active renders
             for i in self.renderjobs:
                 job = self.renderjobs[i]
                 if job.status == 'Rendering':
-                    self.logger.info('Pausing {}'.format(job.path))
+                    logger.info('Pausing {}'.format(job.path))
                     job.kill_later(finalstatus='Paused')
                     self.waitlist.insert(0, job)
             newjob = times[min(times)]
             newjob.autostart()
-            self.logger.info('Started {}'.format(newjob.path))
+            logger.info('Started {}'.format(newjob.path))
             return
 
         #if there are no waiting jobs, no reason to continue
@@ -1162,12 +971,12 @@ class RenderServer(object):
             if job.status == 'Rendering':
                 activejobs.append(job)
         if len(activejobs) > 1:
-            self.logger.debug('Autostart: more than 1 active job found, returning')
+            logger.debug('Autostart: more than 1 active job found, returning')
             return
         elif len(activejobs) == 0:
             newjob = self.waitlist.pop(0)
             newjob.autostart()
-            self.logger.info('Autostart started {}'.format(newjob.path))
+            logger.info('Autostart started {}'.format(newjob.path))
             return
         elif len(activejobs) == 1:
             job = activejobs[0]
@@ -1175,15 +984,15 @@ class RenderServer(object):
                 #All frames distributed, just waiting for render to finish.
                 #If one frame is taking inordinately long, don't want to wait
                 #to start the next render.
-                self.logger.debug('Autostart: exactly 1 job running & queue empty')
+                logger.debug('Autostart: exactly 1 job running & queue empty')
                 if job.totalframes.count(0) > 1:
-                    self.logger.debug('Autostart: >1 frame rendering, returning')
+                    logger.debug('Autostart: >1 frame rendering, returning')
                     return
                 else:
-                    self.logger.debug('Autostart: exactly 1 frame rendering, starting next')
+                    logger.debug('Autostart: exactly 1 frame rendering, starting next')
                     newjob = self.waitlist.pop(0)
                     newjob.autostart()
-                    self.logger.info('Autostart started {}'.format(newjob.path))
+                    logger.info('Autostart started {}'.format(newjob.path))
                 pass
             else:
                 return
@@ -1212,7 +1021,7 @@ class RenderServer(object):
         if os.path.exists(self.statefile):
             if input('Saved state file found. Restore previous server '
                          'state? (Y/n): ') in ['N', 'n']:
-                self.logger.info('Discarding previous server state')
+                logger.info('Discarding previous server state')
                 return
             with open(self.statefile, 'r') as f:
                 (statevars, jobs) = json.loads(f.read())
@@ -1225,15 +1034,15 @@ class RenderServer(object):
                 self.renderjobs[index] = Job(_id)
                 reply = self.renderjobs[index].set_attrs(jobs[index])
                 if reply:
-                    self.logger.info('Restored {} from saved state'.format(index))
+                    logger.info('Restored {} from saved state'.format(index))
                     #add job to waitlist if necessary
                     status = jobs[index]['status']
                     if (status == 'Waiting' or status == 'Paused'):
                         self.waitlist.append(self.renderjobs[index])
-                        self.logger.debug('Added {} to waitlist'.format(index))
+                        logger.debug('Added {} to waitlist'.format(index))
                 else:
-                    self.logger.error('Unable to restore {}'.format(index))
-            self.logger.info('Server state restored')
+                    logger.error('Unable to restore {}'.format(index))
+            logger.info('Server state restored')
 
     def get_attrs(self, index=None):
         '''Returns dict of attributes for a given index. If no index is 
@@ -1322,7 +1131,6 @@ class RenderServer(object):
     def toggle_comp(self, index, computer):
         if not computer in CONFIG.rendernodes:
             return 'Computer "%s" not recognized.' %computer
-        #if self.renderjobs[index].get_comp_status(computer)['pool']:
         if computer in self.renderjobs[index].complist:
             reply = self.renderjobs[index].remove_computer(computer)
             if reply: return (computer+' removed from render pool for ' + 
@@ -1345,9 +1153,7 @@ class RenderServer(object):
                     rstr += ', %s removed from render pool' %computer
                 else:
                     rstr += ', unable to remove %s from render pool.' %computer
-                #return 'Sent kill signal for pid '+str(pid)+' on '+computer
             else:
-                #return 'Failed to kill thread.'
                 rstr = 'Failed to kill thread'
                 if remove:
                     rstr += ', removed %s from render pool.' %computer
@@ -1405,11 +1211,11 @@ class RenderServer(object):
         '''Toggles the state of the verbose variable.'''
         if CONFIG.verbose == 0:
             CONFIG.verbose = 1
-            self.logger.info('Verbose reporting enabled')
+            logger.info('Verbose reporting enabled')
             return 'verbose reporting enabled'
         else:
             CONFIG.verbose = 0
-            self.logger.info('Verbose reporting disabled')
+            logger.info('Verbose reporting disabled')
             return 'verbose reporting disabled'
     
     def toggle_autostart(self):
@@ -1417,10 +1223,10 @@ class RenderServer(object):
         if CONFIG.autostart == 0:
             CONFIG.autostart = 1
             return 'autostart enabled'
-            self.logger.info('Autostart enabled')
+            logger.info('Autostart enabled')
         else:
             CONFIG.autostart = 0
-            self.logger.info('Autostart disabled')
+            logger.info('Autostart disabled')
             return 'autostart disabled'
     
     def check_path_exists(self, path):
@@ -1464,7 +1270,6 @@ class SSHKillThread(object):
         '''complist: list of hostnames or ip addresses
         msgqueue: queue.Queue object to return result to parent object
         procname: process name to be killed (case insensitive)'''
-        self.logger = getLogger('rcontroller.server.SSHKillThread')
         self.compq = queue.Queue() #job queue for child processes
         self.replyq = queue.Queue() #queue for replies from child processes
         for comp in complist:
@@ -1491,15 +1296,14 @@ class SSHKillThread(object):
             replies = []
             while not self.replyq.empty():
                 replies.append(self.replyq.get())
-            self.logger.debug('replies: {}'.format(replies))
+            logger.debug('replies: {}'.format(replies))
             msgqueue.put(replies)
 
     def worker(self, comp, procname):
-        self.logger.debug('killall thread for {} started'.format(comp))
+        logger.debug('killall thread for {} started'.format(comp))
         if comp in CONFIG.macs and procname == 'terragen':
             procname = "'Terragen 3'"
-        self.logger.debug('procname is {}'.format(procname))
-        #cmd = 'ssh igp@%s "pgrep %s | xargs kill"' %(comp, procname)
+        logger.debug('procname is {}'.format(procname))
         cmd = 'ssh {}@{} "pgrep %s | xargs kill"'.format(CONFIG.ssh_user, comp, procname)
         #NOTE: By piping pgrep directly to xargs, no exception will be raised
         # if there are no procname processes running on the computer.
@@ -1515,4 +1319,14 @@ class SSHKillThread(object):
 
 
 if __name__ == '__main__':
+    try:
+        logfile = logging.FileHandler(log_file_path)
+        logfile.setLevel(logging.INFO)
+        logfile.setFormatter(file_formatter)
+        logger.addHandler(logfile)
+    except PermissionError:
+        print('WARNING Permissions error writing log file at {}. '\
+              'Will log to console only.'.format(log_file_path))
+    # Create global config object
+    CONFIG = Config()
     server = RenderServer()

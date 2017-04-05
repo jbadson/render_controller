@@ -4,17 +4,16 @@
 # or operating system, you probably want to add a global ignore instead:
 #   git config --global core.excludesfile '~/.gitignore_global'
 
-# Ignore all logfiles and tempfiles.
-/log/*.log
-/tmp
-
 #ignore vim temp files
 *.swp
-.DS_Store
+*.DS_Store
 
 #ignore config files and bytecode
-cfgfile.pyc
 *.json
 *.conf
-__pycache__
+*__pycache__
 *.pyc
+
+# Ignore setup stuff
+dist
+*.egg-info

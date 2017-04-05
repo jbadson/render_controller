@@ -228,6 +228,7 @@ class Job(object):
                 self.renderlog.info(
                     'Finished render. Total time: {}, Avg time per frame: {}'.format(
                     format_time(elapsed), format_time(avg)))
+                break
 
             #prevent deadlock if all computers end up in skiplist
             if len(self.skiplist) == len(self.complist):

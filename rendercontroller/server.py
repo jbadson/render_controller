@@ -41,7 +41,7 @@ import socketwrapper as sw
 # This is not the best way to do things, but it is how it is.
 
 
-log_file_path = '/var/log/rcontroller.log'
+log_file_path = '/var/log/rendercontroller/server.log'
 logger = logging.getLogger('rcontroller.server')
 logger.setLevel(logging.DEBUG)
 console = logging.StreamHandler()
@@ -55,6 +55,7 @@ logger.addHandler(console)
 
 
 illegal_characters = [';', '&'] #not allowed in paths
+threadlock = threading.RLock()
 
 
 def format_time(time):
@@ -743,122 +744,53 @@ def quit():
     os._exit(1)
 
 
-#----------GLOBAL VARIABLES----------
-threadlock = threading.RLock()
-
-#----------DEFAULTS / CONFIG FILE----------
-default_cfg_file = """# YAML configuration file for rcontroller server
-
-# Server listen port
-serverport: 2020
-
-# Enable autostart by default (1=True, 0=False)
-autostart: 1
-
-# Start server in vebose mode by default
-verbose: 0
-
-# Timeout for failed render process in seconds
-timeout: 1000
-
-# SSH username for connecting to nodes
-ssh_user: igp
-
-# List of all render nodes
-rendernodes:
-  - hex1
-  - hex2
-  - hex3
-  - borg1
-  - borg2
-  - borg3
-  - borg4
-  - borg5
-  - grob1
-  - grob2
-  - grob3
-  - grob4
-  - grob5
-  - grob6
-  - eldiente
-  - lindsey
-  - conundrum
-  - paradox
-
-# Render nodes running Mac OSX
-macs:
-  - conundrum
-  - paradox
-
-# Renice render processes to low priority on these nodes
-# Useful if rendering on a workstation that's in use
-renice_list:
-  - conundrum
-  - paradox
-
-# Path to render software executables
-blenderpath_mac: /Applications/blender.app/Contents/MacOS/blender
-blenderpath_linux: /usr/local/bin/blender
-terragenpath_mac: '/mnt/data/software/terragen_rendernode/osx/Terragen\ 3.app/Contents/MacOS/Terragen\ 3'
-terragenpath_linux: /mnt/data/software/terragen_rendernode/linux/terragen
-
-# File extensions of rendered frames recognized by Check Missing Frames function
-allowed_filetypes:
-  - .png
-  - .jpg
-  - .peg
-  - .gif
-  - .tif
-  - .iff
-  - .exr
-  - .PNG
-  - .JPG
-  - .PEG
-  - .GIF
-  - .TIF
-  - .IFF
-  - .EXR"""
+#----------CONFIG FILE----------
+cfg_file_required_fields = {
+    'allowed_filetypes',
+    'autostart',
+    'blenderpath_linux',
+    'blenderpath_mac',
+    'macs',
+    'rendernodes',
+    'renice_list',
+    'server_state_file',
+    'serverport',
+    'ssh_user',
+    'terragenpath_linux',
+    'terragenpath_mac',
+    'timeout',
+    'verbose',
+}
 
 class Config(object):
     '''Represents contents of config file as attributes.'''
 
-    DEFAULT_DIR = os.path.dirname(os.path.realpath(__file__))
+    DEFAULT_DIR = "/etc/rendercontroller"
     DEFAULT_FILENAME = 'server.conf'
 
     def __init__(self, cfg_path=None):
         '''Args:
-        cfg_path -- Path to server config file (default=server.conf in same dir as this file)
+        cfg_path -- Path to server config file
         '''
         if cfg_path:
             self.cfg_path = cfg_path
         else:
             self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
         if not os.path.exists(self.cfg_path):
-            logger.warning('Config file not found. Generating new from defaults')
-            self.write_default_file()
+            raise RuntimeError('Config file not found at {}'.format(self.cfg_path))
         self.load()
 
     def load(self):
-        '''Loads the config file then populates attributes'''
-        default = yaml.load(default_cfg_file)
-        try:
-            with open(self.cfg_path, 'r') as f:
-                cfg = yaml.load(f.read())
-        except:
-            logger.exception('Failed to load config file. Generating new from defaults')
-            self.write_default_file()
-            cfg = default
-        # Make sure the file has all the required fields
-        for key in default.keys():
-            if key not in cfg:
-                logger.error('Config file missing required field. Writing new from defaults.')
-                self.write_default_file
-                cfg = default
-                break
+        '''Loads the config file and populates attributes.'''
+        with open(self.cfg_path, 'r') as f:
+            cfg = yaml.load(f.read())
+        missing = cfg_file_required_fields.difference(set(cfg.keys()))
+        if missing:
+            raise KeyError('Config file missing required fields(s): {}'.format(', '.join(missing)))
         self.from_dict(cfg)
 
     def from_dict(self, dictionary):
-        '''Sets attributes from a dictionary
+        '''Sets attributes from a dictionary 
 
         Args:
         dictionary -- Dict to be converted to attrs
@@ -866,11 +798,6 @@ class Config(object):
         self.dictionary = dictionary
         for key in dictionary:
             self.__setattr__(key, dictionary[key])
-
-    def write_default_file(self):
-        '''Writes the default file to disk'''
-        with open(self.cfg_path, 'w') as f:
-            f.write(default_cfg_file)
 
 
 
@@ -893,7 +820,7 @@ class RenderServer(object):
     def __init__(self, port=None):
         if not port:
             port = CONFIG.serverport
-        self.statefile = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'serverstate.json')
+        self.statefile = CONFIG.server_state_file
         self.renderjobs = {}
         self.waitlist = [] #ordered list of jobs waiting to be rendered
         self.msgq = queue.Queue() #queue for misc. messages to clients
@@ -1329,5 +1256,9 @@ if __name__ == '__main__':
         print('WARNING Permissions error writing log file at {}. '\
               'Will log to console only.'.format(log_file_path))
     # Create global config object
-    CONFIG = Config()
+    try:
+        CONFIG = Config()
+    except:
+        logger.exception('Error loading config file')
+        os._exit(1)
     server = RenderServer()

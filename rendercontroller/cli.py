@@ -27,6 +27,15 @@ import os
 import framechecker
 import socketwrapper as sw
 
+logger = logging.getLogger('rcontroller.gui')
+logger.setLevel(logging.DEBUG)
+console = logging.StreamHandler()
+console.setLevel(logging.DEBUG)
+console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
+    datefmt='%Y-%m-%d %H:%M:%S')
+console.setFormatter(console_formatter)
+logger.addHandler(console)
+
 illegal_characters = [';', '&'] #not allowed in path
 
 class Config(object):
@@ -39,16 +48,11 @@ class Config(object):
         '''Gets config info from the server.'''
         try:
             servercfg = self.sock.send_cmd('get_config_vars')
-        except Exception as e:
-            return e
-        (
-        self.computers, self.renice_list, 
-        self.macs, self.blenderpath_mac, self.blenderpath_linux, 
-        self.terragenpath_mac, self.terragenpath_linux, 
-        self.allowed_filetypes, self.timeout, self.serverport,
-        self.autostart, self.verbose, self.log_basepath 
-        ) = servercfg
-        return False
+        except:
+            logger.exception('Failed to get server config')
+            return False
+        self.from_dict(servercfg)
+        return True
 
 
 
@@ -58,7 +62,9 @@ class Cli(object):
         #var to contain all current server job attributes
         self.socket = sw.ClientSocket(host, port)
         self.cfg = Config(self.socket)
-        self.cfg.get_server_cfg()
+        if not self.cfg.get_server_cfg():
+            print('Failed to get server config')
+            return
         self.serverjobs = self.socket.send_cmd('get_attrs')
         '''Need a list of integer IDs corresponding to jobs on the server to
         make manipulating them easier from the command line.  Because dict keys

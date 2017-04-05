@@ -28,12 +28,27 @@ import tkinter.filedialog as tk_filedialog
 import tkinter.messagebox as tk_msgbox
 import tkinter.scrolledtext as tk_st
 import time
+import logging
 import threading
 import os
 import yaml
 import framechecker
 import tk_extensions as tkx
 import socketwrapper as sw
+
+
+log_file_path = '/var/log/rendercontroller/gui.log'
+logger = logging.getLogger('rcontroller.gui')
+logger.setLevel(logging.DEBUG)
+console = logging.StreamHandler()
+console.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s', 
+    datefmt='%Y-%m-%d %H:%M:%S')
+console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
+    datefmt='%Y-%m-%d %H:%M:%S')
+console.setFormatter(console_formatter)
+logger.addHandler(console)
+
 
 illegal_characters = [';', '&'] #not allowed in path
 
@@ -44,86 +59,65 @@ def quit(event=None):
 
 
 #----------CONFIG VARIABLES----------
-default_cfg_file = """# YAML config for rendercontroller GUI
-
-# Server connection settings
-host: localhost
-port: 2020
-
-# Default values that appear in new job window
-default_path: /mnt/data/test_render/test_render.blend
-default_startframe: 1
-default_endframe: 4
-default_render_engine: blend
-
-# Number of columns for widget arrays
-input_win_cols: 5
-comp_status_panel_cols: 3
-
-# How often to poll server for updates (seconds)
-refresh_interval: 0.5"""
+cfg_file_required_fields = {
+    'host',
+    'port',
+    'default_path',
+    'default_startframe',
+    'default_endframe',
+    'default_render_engine',
+    'input_win_cols',
+    'comp_status_panel_cols',
+    'refresh_interval',
+}
 
 class Config(object):
     '''Represents contents of config file as attributes.'''
 
-    DEFAULT_DIR = os.path.dirname(os.path.realpath(__file__))
+    DEFAULT_DIR = "/etc/rendercontroller"
     DEFAULT_FILENAME = 'gui.conf'
 
     def __init__(self, cfg_path=None):
         '''Args:
-        cfg_path -- Path to server config file (default=gui.conf in same dir as this file)
+        cfg_path -- Path to server config file
         '''
         if cfg_path:
             self.cfg_path = cfg_path
         else:
             self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
         if not os.path.exists(self.cfg_path):
-            print('Config file not found. Generating new from defaults')
-            self.write_default_file()
+            raise RuntimeError('Config file not found at {}'.format(self.cfg_path))
         self.load()
 
     def load(self):
-        '''Loads the config file then populates attributes'''
-        default = yaml.load(default_cfg_file)
-        try:
-            with open(self.cfg_path, 'r') as f:
-                cfg = yaml.load(f.read())
-        except:
-            print('Failed to load config file. Writing new from defaults.')
-            self.write_default_file()
-            cfg = default
-        # Make sure the file has all the required fields
-        for key in default.keys():
-            if key not in cfg:
-                print('Config file missing required field. Writing new from defaults.')
-                self.write_default_file
-                cfg = default
-                break
+        '''Loads the config file and populates attributes.'''
+        with open(self.cfg_path, 'r') as f:
+            cfg = yaml.load(f.read())
+        missing = cfg_file_required_fields.difference(set(cfg.keys()))
+        if missing:
+            raise KeyError('Config file missing required fields(s): {}'.format(', '.join(missing)))
         self.from_dict(cfg)
 
     def from_dict(self, dictionary):
-        '''Sets attributes from a dictionary
+        '''Sets attributes from a dictionary 
 
         Args:
         dictionary -- Dict to be converted to attrs
         '''
+        self.dictionary = dictionary
         for key in dictionary:
             self.__setattr__(key, dictionary[key])
-
-    def write_default_file(self):
-        '''Writes the default file to disk'''
-        with open(self.cfg_path, 'w') as f:
-            f.write(default_cfg_file)
 
     def get_server_cfg(self):
         '''Gets config info from the server.'''
         try:
             servercfg = sw.ClientSocket(
                 self.host, self.port).send_cmd('get_config_vars')
-        except Exception as e:
-            return e
+        except:
+            logger.exception('Failed to get server config')
+            return False
         self.from_dict(servercfg)
-        return False
+        return True
 
 
 
@@ -218,7 +212,13 @@ class MasterWin(_gui_, tk.Tk):
         self.tk_host = tk.StringVar()
         self.tk_port = tk.StringVar()
         #initialize local config variables
-        self.cfg = Config() #config properties to be used by all children
+        try:
+            self.cfg = Config() #config properties to be used by all children
+        except:
+            logger.exception('Error loading config file')
+            ttk.Label(self.setupframe, 
+                text='Error loading config file. See log for details.').pack()
+            return
         #put default values where they go
         self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
         self.socket.setup(host=self.cfg.host, port=self.cfg.port)
@@ -257,12 +257,8 @@ class MasterWin(_gui_, tk.Tk):
         self.cfg.port = newport
         self.socket.setup(newhost, newport)
         #get the server config variables
-        msg = self.cfg.get_server_cfg()
-        if msg:
-            print('Could not retrieve config vars form server:', msg)
-            self.server_errlabel = ttk.Label(
-                self, text='Server connection failed: ' + str(msg)
-                )
+        if not self.cfg.get_server_cfg():
+            self.server_errlabel = ttk.Label(self, text='Server connection failed')
             self.server_errlabel.pack()
             return
         # If a server error msg was set on prev. run, remove it
@@ -1596,5 +1592,13 @@ class StatusThread(threading.Thread):
 
 
 if __name__ == '__main__':
+    try:
+        logfile = logging.FileHandler(log_file_path)
+        logfile.setLevel(logging.INFO)
+        logfile.setFormatter(file_formatter)
+        logger.addHandler(logfile)
+    except PermissionError:
+        print('WARNING Permissions error writing log file at {}. '\
+              'Will log to console only.'.format(log_file_path))
     masterwin = MasterWin()
     masterwin.mainloop()

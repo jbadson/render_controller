@@ -944,13 +944,17 @@ class RenderServer(object):
         from the file. If yes, loads the file contents and attempts to
         create new Job instances with attributes from the file. Can only
         be called at startup to avoid overwriting exiting Job instances.'''
-        if os.path.exists(self.statefile):
+        if os.path.exists(self.statefile) and os.stat(self.statefile).st_size > 0:
             if input('Saved state file found. Restore previous server '
                          'state? (Y/n): ') in ['N', 'n']:
                 logger.info('Discarding previous server state')
                 return
-            with open(self.statefile, 'r') as f:
-                (statevars, jobs) = json.loads(f.read())
+            try:
+                with open(self.statefile, 'r') as f:
+                    (statevars, jobs) = json.loads(f.read())
+            except:
+                logger.exception('Failed to read saved state file')
+                return
             #restore state variables
             CONFIG.verbose = statevars['verbose']
             CONFIG.autostart = statevars['autostart']

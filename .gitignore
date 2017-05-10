@@ -4,13 +4,11 @@
 # or operating system, you probably want to add a global ignore instead:
 #   git config --global core.excludesfile '~/.gitignore_global'
 
-#ignore vim temp files
+#ignore temp files
 *.swp
 *.DS_Store
 
 #ignore config files and bytecode
-*.json
-*.conf
 *__pycache__
 *.pyc
 

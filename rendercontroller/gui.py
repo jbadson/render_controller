@@ -32,9 +32,9 @@ import logging
 import threading
 import os
 import yaml
-import framechecker
-import tk_extensions as tkx
-import socketwrapper as sw
+from . import framechecker
+from . import tk_extensions as tkx
+from . import socketwrapper as sw
 
 
 log_file_path = '/var/log/rendercontroller/gui.log'
@@ -1591,7 +1591,7 @@ class StatusThread(threading.Thread):
 
 
 
-if __name__ == '__main__':
+def main():
     try:
         logfile = logging.FileHandler(log_file_path)
         logfile.setLevel(logging.INFO)
@@ -1602,3 +1602,7 @@ if __name__ == '__main__':
               'Will log to console only.'.format(log_file_path))
     masterwin = MasterWin()
     masterwin.mainloop()
+
+
+if __name__ == '__main__':
+    main()

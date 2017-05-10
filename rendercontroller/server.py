@@ -33,7 +33,7 @@ import re
 import yaml
 import json
 import logging
-import socketwrapper as sw
+from . import socketwrapper as sw
 
 
 #NOTE: All classes in this module depend on a global instance of
@@ -817,9 +817,7 @@ allowed_commands= [
 class RenderServer(object):
     '''This is the master class for this module. Instantiate this class to
     start a server.'''
-    def __init__(self, port=None):
-        if not port:
-            port = CONFIG.serverport
+    def __init__(self):
         self.statefile = CONFIG.server_state_file
         self.renderjobs = {}
         self.waitlist = [] #ordered list of jobs waiting to be rendered
@@ -827,7 +825,7 @@ class RenderServer(object):
         self._check_restore_state()
         self.updatethread = threading.Thread(target=self.update_loop)
         self.updatethread.start()
-        self.server = sw.Server(self, port, allowed_commands)
+        self.server = sw.Server(self, CONFIG.serverport, allowed_commands)
         self.server.start()
         self.shutdown_server()
 
@@ -1246,7 +1244,7 @@ class SSHKillThread(object):
         self.compq.task_done()
 
 
-if __name__ == '__main__':
+def main():
     try:
         logfile = logging.FileHandler(log_file_path)
         logfile.setLevel(logging.INFO)
@@ -1257,8 +1255,12 @@ if __name__ == '__main__':
               'Will log to console only.'.format(log_file_path))
     # Create global config object
     try:
+        global CONFIG
         CONFIG = Config()
     except:
         logger.exception('Error loading config file')
         os._exit(1)
     server = RenderServer()
+
+if __name__ == '__main__':
+    main()

@@ -7,14 +7,16 @@ setup(name='rendercontroller',
     author='James Adson',
     license='GPLv3',
     packages=['rendercontroller'],
-    install_requires=['pyyaml', 'tkinter'],
+    install_requires=['pyyaml'],
     data_files=[
         ('/etc/rendercontroller', ['conf/server.conf', 'conf/gui.conf']),
-        ('/var/log/rendercontroller', []),
-        ('/var/run/rendercontroller', []),
+        ('/var/log/rendercontroller', ['conf/server.log', 'conf/gui.log']),
+        ('/var/rendercontroller', ['conf/serverstate.json']),
     ],
     entry_points={
-        'console_scripts': [ ]
+        'console_scripts': [
+            'rcontroller = rendercontroller:main',
+        ]
     },
     setup_requires=[],
     tests_require=[],

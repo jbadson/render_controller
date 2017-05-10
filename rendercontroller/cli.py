@@ -24,8 +24,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 import os
-import framechecker
-import socketwrapper as sw
+import logging
+from . import framechecker
+from . import socketwrapper as sw
 
 logger = logging.getLogger('rcontroller.gui')
 logger.setLevel(logging.DEBUG)
@@ -43,6 +44,16 @@ class Config(object):
     def __init__(self, socket):
         self.sock = socket
         pass
+
+    def from_dict(self, dictionary):
+        '''Sets attributes from a dictionary 
+
+        Args:
+        dictionary -- Dict to be converted to attrs
+        '''
+        self.dictionary = dictionary
+        for key in dictionary:
+            self.__setattr__(key, dictionary[key])
 
     def get_server_cfg(self):
         '''Gets config info from the server.'''
@@ -107,9 +118,9 @@ class Cli(object):
         self.fprint.jobsummary(
             job['path'], job['status'], job['progress'], elapsed, avg, remaining
             )
-        colwidth = self.fprint.get_maxlen(self.cfg.computers) + 3
+        colwidth = self.fprint.get_maxlen(self.cfg.rendernodes) + 3
         self.fprint.complist_header(colwidth)
-        for comp in self.cfg.computers:
+        for comp in self.cfg.rendernodes:
             cs = self.serverjobs[index]['compstatus'][comp]
             if cs['active']:
                 status = 'Active'
@@ -149,7 +160,7 @@ class Cli(object):
             print('Invalid argument. Must be "terragen" or "blender".')
             return
         if not input('This will attempt to kill all instances of %s '
-                     'on all computers. Proceed? (y/N): ' %program) in ['Y', 'y']:
+                     'on all nodes. Proceed? (y/N): ' %program) in ['Y', 'y']:
             print('Cancelled')
             return
         if program == 'terragen':
@@ -212,8 +223,8 @@ class Cli(object):
         else:
             extraframes = []
         # Get the computer list
-        print('Enter a space-separated list of computers to render on. Type '
-              '"list" to see available computers, type "all" to select them all.')
+        print('Enter a space-separated list of nodes to render on. Type '
+              '"list" to see available nodes, type "all" to select them all.')
         while True:
             complist = self._get_complist()
             if complist:
@@ -222,7 +233,7 @@ class Cli(object):
         print('Ready to place %s into queue.' %index)
         print('Path: %s\n'
               'Start frame: %s\t End frame: %s\t Extras: %s\n'
-              'On computers:' %(path, start, end, extras))
+              'On nodes:' %(path, start, end, extras))
         self.fprint.print_complist(complist)
         if input('Proceed? (Y/n): ') in ['N', 'n']:
             return
@@ -236,18 +247,18 @@ class Cli(object):
 
     def _get_complist(self):
         '''Internal method for getting computer list when creating a new job.'''
-        txt = input('Computers: ')
+        txt = input('Nodes: ')
         if txt == 'list':
-            self.fprint.print_complist(self.cfg.computers)
+            self.fprint.print_complist(self.cfg.rendernodes)
             return False
         elif txt == 'all':
-            return self.cfg.computers
+            return self.cfg.rendernodes
         elif not txt:
             return False
         else:
             comps = txt.split()
             for comp in comps:
-                if not comp in self.cfg.computers:
+                if not comp in self.cfg.rendernodes:
                     print('%s is not a recognized computer name' %comp)
                     return False
         return comps
@@ -256,7 +267,6 @@ class Cli(object):
         '''Attempts to set the server's autostart variable.  Mode can be
         "off", "on" or "get".  If mode is "get", the server's autostart
         status will be printed.'''
-        print('called with', mode)
         print('self.autostart:', self.autostart)
         if mode == 'get':
             if not self.autostart:
@@ -353,7 +363,7 @@ class FPrinter(object):
         of the first column in chars, used to keep lables aligned with computer
         lines.  All other columns are fixed width.'''
         formatstr = '{:<%s} {:<11} {:8} {:11} {:15}' %colwidth
-        print(formatstr.format('Computer', 'Status', 'Frame', 'Progress', 
+        print(formatstr.format('Node', 'Status', 'Frame', 'Progress', 
              'Error'))
         # Determine width of separator line based on col widths
         sep = colwidth + 11 + 8 + 11 + 15
@@ -416,7 +426,7 @@ class FPrinter(object):
               avtime, remtime) + '\n')
 
     def print_complist(self, complist):
-        '''Prints a formatted list of computers.'''
+        '''Prints a formatted list of nodes.'''
         # Determine how many columns to print
         longest = self.get_maxlen(complist) + 2 # add 2 chars space
         cols = os.get_terminal_size().columns // longest

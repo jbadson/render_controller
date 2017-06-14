@@ -196,86 +196,35 @@ class MasterWin(_gui_, tk.Tk):
         self.title('IGP Render Controller Client')
         self.config(bg=_gui_.LightBGColor)
         self.minsize(width=1257, height=730)
-        #create dictionaries to hold job-specific GUI elements
-        #format is {'index':object}
         self.firstrun = True
         self.jobboxes = {}
-        self.boxlist = [] #ordered list of job boxes (for sorting)
+        self.boxlist = [] #list of job boxes (for sorting)
         self.comppanels = {}
-        #at startup, display startup frame first
-        self._setup_panel()
+        self._start()
 
-    def _setup_panel(self):
-        '''Gets server connection info from the user.'''
-        self.setupframe = ttk.Frame(self)
-        self.setupframe.pack(padx=50, pady=50)
-        self.tk_host = tk.StringVar()
-        self.tk_port = tk.StringVar()
-        #initialize local config variables
+    def _start(self):
+        '''Apply server config info then build the main window.'''
         try:
-            self.cfg = Config() #config properties to be used by all children
+            self.cfg = Config()
+            logger.debug('Read config file')
         except:
             logger.exception('Error loading config file')
-            ttk.Label(self.setupframe, 
-                text='Error loading config file. See log for details.').pack()
             return
-        #put default values where they go
         self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
-        self.socket.setup(host=self.cfg.host, port=self.cfg.port)
-        #self.statthread = StatusThread(masterwin=self, config=self.cfg, 
-        #                               socket=self.socket)
-        self.tk_host.set(self.socket.host)
-        self.tk_port.set(self.socket.port)
-        ttk.Label(
-            self.setupframe, text='Connection Setup', font='TkCaptionFont'
-            ).grid(row=0, column=0, columnspan=2, pady=10)
-        ttk.Label(self.setupframe, text='Server address:').grid(
-            row=1, column=0, sticky=tk.E, pady=5
-            )
-        ttk.Entry(self.setupframe, width=30, textvariable=self.tk_host).grid(
-            row=1, column=1, sticky=tk.W, padx=5, pady=5
-            )
-        ttk.Label(self.setupframe, text='Port:').grid(
-            row=2, column=0, sticky=tk.E, pady=5
-            )
-        ttk.Entry(self.setupframe, width=10, textvariable=self.tk_port).grid(
-            row=2, column=1, sticky=tk.W, padx=5, pady=5
-            )
-        ttk.Button(
-            self.setupframe, text='Connect', command=self._apply_setup
-            ).grid(row=3, column=0, columnspan=2, padx=10, pady=10)
-        self.bind('<Return>', self._apply_setup)
-        self.bind('<KP_Enter>', self._apply_setup)
-
-    def _apply_setup(self, event=None):
-        '''Apply server config info then build the main window.'''
-        print('setup done') #debug
-        #configure host and port class attributes
-        newhost = self.tk_host.get()
-        newport = int(self.tk_port.get())
-        self.cfg.host = newhost
-        self.cfg.port = newport
-        self.socket.setup(newhost, newport)
         #get the server config variables
         if not self.cfg.get_server_cfg():
-            self.server_errlabel = ttk.Label(self, text='Server connection failed')
-            self.server_errlabel.pack()
+            logger.error('Unable to connect to server at {}:{}'.format(self.cfg.host, self.cfg.port))
             return
-        # If a server error msg was set on prev. run, remove it
-        if hasattr(self, 'server_errlabel'):
-            self.server_errlabel.destroy()
         self.verbosity = tk.IntVar()
         self.verbosity.set(self.cfg.verbose)
         self.autostart = tk.IntVar()
         self.autostart.set(self.cfg.autostart)
-        self.setupframe.destroy()
         self._build_main()
         self.statthread = StatusThread(
-            masterwin=self, config=self.cfg, host=newhost, port=newport
+            masterwin=self, config=self.cfg, host=self.cfg.host, port=self.cfg.port
             )
         self.statthread.start()
-        self.unbind('<Return>')
-        self.unbind('<KP_Enter>')
+        logger.debug('Started status thread')
 
     def _build_main(self):
         '''Creates the main window elements.'''
@@ -394,7 +343,7 @@ class MasterWin(_gui_, tk.Tk):
         if not Dialog('Delete ' + index + ' from the queue?').confirm():
             return
         reply = self.socket.send_cmd('clear_job', index)
-        print(reply)
+        logger.debug(reply)
 
     def _create_job(self, index):
         '''Creates GUI elements for a given index.'''
@@ -480,7 +429,7 @@ class MasterWin(_gui_, tk.Tk):
         new window.'''
         for index in self.jobboxes:
             if self.jobboxes[index].selected:
-                print(index, 'selected, populating checkframes fields')
+                logger.debug('{} selected, populating checkframes fields'.format(index))
                 job = self.serverjobs[index]
                 self.checkwin = MissingFramesWindow(
                     self.cfg, job['path'], job['startframe'], job['endframe']
@@ -491,12 +440,12 @@ class MasterWin(_gui_, tk.Tk):
     def _toggle_verbose(self):
         '''Toggles verbose reporting state on the server.'''
         reply = self.socket.send_cmd('toggle_verbose')
-        print(reply)
+        logger.debug(reply)
 
     def _toggle_autostart(self):
         '''Toggles the autostart state on the server.'''
         reply = self.socket.send_cmd('toggle_autostart')
-        print(reply)
+        logger.debug(reply)
 
     def killall(self):
         '''Creates instance of KillProcWindow to kill render processes
@@ -589,7 +538,7 @@ class ComputerPanel(_gui_, ttk.Frame):
             Dialog('Cannot start render unless status is "Waiting"').warn()
             return
         reply = self.socket.send_cmd('start_render', self.index)
-        print(reply)
+        logger.debug(reply)
 
     def _kill_render(self):
         '''Kill the current render.'''
@@ -606,7 +555,7 @@ class ComputerPanel(_gui_, ttk.Frame):
         elif confirm == 'no':
             kill_now = True
         reply = self.socket.send_cmd('kill_render', self.index, kill_now)
-        print(reply)
+        logger.debug(reply)
 
     def _resume_render(self):
         resumestatuses = ['Stopped', 'Paused']
@@ -623,13 +572,11 @@ class ComputerPanel(_gui_, ttk.Frame):
         else:
             return
         reply = self.socket.send_cmd('resume_render', self.index, startnow)
-        print(reply)
+        logger.debug(reply)
 
     def _set_priority(self, value='Normal'):
-        print('value:', value)
-        print('self.tk_priority', self.tk_priority.get())
         reply = self.socket.send_cmd('set_job_priority', self.index, value)
-        print(reply)
+        logger.debug(reply)
 
     def update(self, attrdict):
         '''Calls the update methods for all child elements.'''
@@ -786,11 +733,11 @@ class SmallBox(_gui_, tk.Frame):
             bottomrow, font=self.font, text='0d0h0m0s', bg=self.bgcolor
             )
         self.rem_time_lbl.pack(side=tk.RIGHT)
-        for child in self.winfo_children():
-            child.bind('<Button-1>', self.toggle)
-            if len(child.winfo_children()) > 0:
-                for babby in child.winfo_children():
-                    babby.bind('<Button-1>', self.toggle)
+        for a in self.winfo_children():
+            a.bind('<Button-1>', self.toggle)
+            if len(a.winfo_children()) > 0:
+                for b in a.winfo_children():
+                    b.bind('<Button-1>', self.toggle)
 
     def toggle(self, event=None):
         '''Switches between selected and deselected state.'''
@@ -812,11 +759,11 @@ class SmallBox(_gui_, tk.Frame):
     def _changecolor(self, color):
         '''Changes background color to the specified color.'''
         self.config(bg=color)
-        for child in self.winfo_children():
-            child.config(bg=color)
-            if len(child.winfo_children()) > 0:
-                for babby in child.winfo_children():
-                    babby.config(bg=color)
+        for a in self.winfo_children():
+            a.config(bg=color)
+            if len(a.winfo_children()) > 0:
+                for b in a.winfo_children():
+                    b.config(bg=color)
 
     def update(self, status, startframe, endframe, path, progress, times, 
                queuetime):
@@ -894,30 +841,29 @@ class CompCube(_gui_, ttk.LabelFrame):
     def _toggle_pool_state(self):
         '''Adds or removes the computer from the pool.'''
         reply = self.socket.send_cmd('toggle_comp', self.index, self.computer)
-        print(reply)
+        logger.debug(reply)
 
     def _kill_thread(self):
         reply = self.socket.send_cmd('kill_single_thread', self.index, 
                                      self.computer)
-        print(reply)
+        logger.debug(reply)
 
     def _change_bgcolor(self, bgcolor):
         if bgcolor == self.bgcolor:
             #don't try to change colors if status hasn't changed
             return
         self.bgcolor = bgcolor
-        for child in self.winfo_children():
-            child.config(bg=bgcolor)
-            for babby in child.winfo_children():
+        for a in self.winfo_children():
+            a.config(bg=bgcolor)
+            for b in a.winfo_children():
                 try:
-                    babby.config(bg=bgcolor, highlightbackground=bgcolor)
+                    b.config(bg=bgcolor, highlightbackground=bgcolor)
                 #progressbar will throw exception because it lacks bg option
                 except:
-                    print('caught exception in CompCube._change_bgcolor, '
-                          'ignoring.')
+                    logger.exception('Caught exception, ignoring')
                     continue
-                for subbabby in babby.winfo_children():
-                    subbabby.config(bg=bgcolor)
+                for c in b.winfo_children():
+                    c.config(bg=bgcolor)
         #self.frameno.config(bg=bgcolor)
         #self.frameprog.config(bg=bgcolor)
 
@@ -1097,7 +1043,7 @@ class InputWindow(_gui_, tk.Toplevel):
             for i in range(startframe, endframe + 1):
                 if i in extraframes:
                     extraframes.remove(i)
-            print('extraframes:', extraframes) #debug
+            logger.debug('Extraframes: {}'.format(','.join(extraframes)))
         else:
             extraframes = []
         complist = []
@@ -1152,7 +1098,7 @@ class InputWindow(_gui_, tk.Toplevel):
             'complist':complist,
             }
         reply = self.socket.send_cmd('enqueue', render_args)
-        print(reply)
+        logger.debug(reply)
         self.destroy()
 
     def job_exists(self, index):
@@ -1368,13 +1314,13 @@ class KillProcWindow(tk.Toplevel):
             if self.compvars[comp].get() == 1:
                 complist.append(comp)
         procname = self.process.get()
-        print('procname: ', procname)
+        logger.debug('procname: {}'.format(procname))
         if not Dialog('Kill all instances of %s on %s?' 
             %(procname, ', '.join(complist))).confirm():
             return
         else:
             reply = self.socket.send_cmd('killall', complist, procname)
-        print(reply)
+        logger.debug(reply)
         self.destroy()
 
 
@@ -1474,20 +1420,20 @@ class MissingFramesWindow(tk.Toplevel):
     def _start(self, event=None):
         renderpath = self.check_path.get()
         if not renderpath:
-            print('no path')#debug
+            logger.warning('No path specified')
             return
         if not os.path.exists(renderpath):
-            print('path does not exist')#debug
+            logger.warning('Path does not exist')
             return
         for char in illegal_characters:
             if char in renderpath:
-                print('Illegal characters in path')#debug
+                logger.warning('Illegal characters in path')
                 return
         try:
             startframe = int(self.check_startframe.get())
             endframe = int(self.check_endframe.get())
         except ValueError:
-            print('Start and end frames must be integers')#debug
+            logger.warning('Start and end frames must be integers')
             return
         self.checker = framechecker.Framechecker(
             renderpath, startframe, endframe,
@@ -1565,28 +1511,27 @@ class StatusThread(threading.Thread):
         config = instance of Config from parent''' 
         self.masterwin = masterwin
         self.cfg = config
-        #Must have its own instance of ClientSocket to prevent
-        #asynchronous calls to socket.close().
         self.socket = sw.ClientSocket(host, port)
         threading.Thread.__init__(self, target=self._statusthread)
 
     def _statusthread(self):
         while True:
             if StatusThread.stop:
-                print('stopping statusthread')
+                logger.debug('Stopping status thread')
                 break
             try:
                 serverjobs = self.socket.send_cmd('get_attrs')
-            except Exception as e:
-                print('Could not connect to server:', e)
-                time.sleep(self.cfg.refresh_interval)
+            except:
+                logger.exception('Could not connect to server')
                 continue
             try:
                 self.masterwin.update(serverjobs)
-            except Exception as e:
-                print('MasterWin.updat() failed: %s:%s' 
-                      %(e.__class__.__name__, e))
-            #refresh interval in seconds
+            except RuntimeError:
+                logger.exception('Caught RuntimeError while updating masterwin, exiting')
+                quit()
+            except:
+                logger.exception('Caught exception while updating masterwin, continuing')
+                continue
             time.sleep(self.cfg.refresh_interval)
 
 
@@ -1598,8 +1543,9 @@ def main():
         logfile.setFormatter(file_formatter)
         logger.addHandler(logfile)
     except PermissionError:
-        print('WARNING Permissions error writing log file at {}. '\
-              'Will log to console only.'.format(log_file_path))
+        logger.error(
+            'Permissions error while writing log file {}. Will log to console only'.format(
+            log_file_path))
     masterwin = MasterWin()
     masterwin.mainloop()
 

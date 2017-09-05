@@ -61,6 +61,9 @@ import threading
 import socket
 import json
 import ast
+import logging
+
+logger = logging.getLogger('rcontroller.socketwrapper')
 
 class Server(object):
     '''Basic server. Listens on specified port. Incoming connections are 
@@ -136,7 +139,9 @@ class ClientThread(threading.Thread):
             msglen = '0' + msglen
         msglen = bytes(msglen, 'UTF-8')
         self.sock.sendall(msglen)
+        logger.debug('sending "{}"'.format(msglen))
         self.sock.sendall(msg)
+        logger.debug('sending "{}"'.format(msg))
 
     def _recvall(self):
         '''Receives a message of a specified length, returns original type.'''
@@ -146,6 +151,7 @@ class ClientThread(threading.Thread):
         chunks = []
         while bytes_recvd < msglen:
             chunk = self.sock.recv(2048)
+            logger.debug('recv: "{}"'.format(chunk))
             if not chunk:
                 break
             chunks.append(chunk.decode('UTF-8'))
@@ -154,21 +160,21 @@ class ClientThread(threading.Thread):
         return data
 
     def _clientthread(self):
-        command = self._recvall()
-        #validate command first
-        if not command in self.allowed_commands:
-            self._sendmsg('False')
-            return
-        else:
-            self._sendmsg('True')
-        #now get the args
-        #convert to tuple for formatting in next step
-        args = tuple(self._recvall())
-        return_str = eval('self.master.%s%s' %(command, args))
-        #send the return string (T/F for success or fail, or other requested 
-        #data)
-        self._sendmsg(return_str)
-        self.sock.close()
+        try:
+            cmddict = self._recvall()
+            command = cmddict['__cmd__']
+            #validate command first
+            if not command in self.allowed_commands:
+                logger.warning('Received invalid request: {}'.format(command))
+                return
+            args = cmddict['__args__']
+            kwargs = cmddict['__kwargs__']
+            return_str = eval('self.master.{}'.format(command))(*args, **kwargs)
+            #send the return string (T/F for success or fail, or other requested 
+            #data)
+            self._sendmsg(return_str)
+        finally:
+            self.sock.close()
 
 class ClientSocket(object):
     '''Wrapper for socket to handle command-response protocol for interacting 
@@ -177,8 +183,6 @@ class ClientSocket(object):
     def __init__(self, host, port):
         self.host = host
         self.port = port
-        #self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #self.socket.connect((self.host, self.port))
 
     def setup(self, host, port):
         self.host = host
@@ -197,6 +201,7 @@ class ClientSocket(object):
         chunks = []
         while bytes_recvd < msglen:
             chunk = self.socket.recv(2048)
+            logger.debug('recv: "{}"'.format(chunk))
             if not chunk:
                 break
             chunks.append(chunk.decode('UTF-8'))
@@ -206,36 +211,28 @@ class ClientSocket(object):
 
     def _sendmsg(self, message):
         '''Wrapper for socket.sendall() that formats message for server.
-        Message must be compatible with json.dumps/json.loads.'''
-        #now doing everything in json for web interface convenience
-        message = json.dumps(message)
+        Message must be UTF-8 string'''
         msg = bytes(message, 'UTF-8')
         msglen = str(len(msg))
         #first 8 bytes contains message length 
         while len(msglen) < 8:
             msglen = '0' + msglen
         msglen = bytes(msglen, 'UTF-8')
+        logger.debug('sending "{}"'.format(msglen))
         self.socket.sendall(msglen)
+        logger.debug('sending "{}"'.format(msg))
         self.socket.sendall(msg)
 
-    def send_cmd(self, command, *args):
+    def send_cmd(self, command, *args, **kwargs):
         '''Sends a command to the server. Command must be a UTF-8 string.
-        Associated args should be supplied as a dict. Returns a string'''
+        Positional and keword args are passed as-is.
+        Returns a string'''
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((self.host, self.port))
-        #send command first, wait for response, then send args
-        self._sendmsg(command)
-        #check that the command was valid
-        cmd_ok = ast.literal_eval(self._recvall())
-        if not cmd_ok:
-            return 'Invalid command'
-        #if command was valid, send associated arguments
-        self._sendmsg(args)
-        #collect the return string (True/False for success/fail or requested 
-        #data)
-        return_str = self._recvall()
-        self.socket.close()
+        cmd = json.dumps({'__cmd__': command, '__args__': args, '__kwargs__': kwargs})
+        try:
+            self.socket.connect((self.host, self.port))
+            self._sendmsg(cmd)
+            return_str = self._recvall()
+        finally:
+            self.socket.close()
         return return_str
-
-
-

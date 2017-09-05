@@ -32,16 +32,19 @@ import logging
 import threading
 import os
 import yaml
+
 from . import framechecker
 from . import tk_extensions as tkx
 from . import socketwrapper as sw
+from . import util
 
 
 log_file_path = '/var/log/rendercontroller/gui.log'
+default_cfg_path = "/etc/rendercontroller/gui.conf"
 logger = logging.getLogger('rcontroller.gui')
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
 console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+#console.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s', 
     datefmt='%Y-%m-%d %H:%M:%S')
 console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
@@ -70,55 +73,6 @@ cfg_file_required_fields = {
     'comp_status_panel_cols',
     'refresh_interval',
 }
-
-class Config(object):
-    '''Represents contents of config file as attributes.'''
-
-    DEFAULT_DIR = "/etc/rendercontroller"
-    DEFAULT_FILENAME = 'gui.conf'
-
-    def __init__(self, cfg_path=None):
-        '''Args:
-        cfg_path -- Path to server config file
-        '''
-        if cfg_path:
-            self.cfg_path = cfg_path
-        else:
-            self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
-        if not os.path.exists(self.cfg_path):
-            raise RuntimeError('Config file not found at {}'.format(self.cfg_path))
-        self.load()
-
-    def load(self):
-        '''Loads the config file and populates attributes.'''
-        with open(self.cfg_path, 'r') as f:
-            cfg = yaml.load(f.read())
-        missing = cfg_file_required_fields.difference(set(cfg.keys()))
-        if missing:
-            raise KeyError('Config file missing required fields(s): {}'.format(', '.join(missing)))
-        self.from_dict(cfg)
-
-    def from_dict(self, dictionary):
-        '''Sets attributes from a dictionary 
-
-        Args:
-        dictionary -- Dict to be converted to attrs
-        '''
-        self.dictionary = dictionary
-        for key in dictionary:
-            self.__setattr__(key, dictionary[key])
-
-    def get_server_cfg(self):
-        '''Gets config info from the server.'''
-        try:
-            servercfg = sw.ClientSocket(
-                self.host, self.port).send_cmd('get_config_vars')
-        except:
-            logger.exception('Failed to get server config')
-            return False
-        self.from_dict(servercfg)
-        return True
-
 
 
 #----------GUI----------
@@ -205,15 +159,18 @@ class MasterWin(_gui_, tk.Tk):
     def _start(self):
         '''Apply server config info then build the main window.'''
         try:
-            self.cfg = Config()
-            logger.debug('Read config file')
+            logger.debug('Reading config file')
+            self.cfg = util.Config()
+            self.cfg.set_from_file(default_cfg_path, cfg_file_required_fields)
         except:
             logger.exception('Error loading config file')
             return
         self.socket = sw.ClientSocket(self.cfg.host, self.cfg.port)
         #get the server config variables
-        if not self.cfg.get_server_cfg():
-            logger.error('Unable to connect to server at {}:{}'.format(self.cfg.host, self.cfg.port))
+        try:
+            self.cfg.set_from_server(self.cfg.host, self.cfg.port)
+        except:
+            logger.exception('Unable to connect to server at {}:{}'.format(self.cfg.host, self.cfg.port))
             return
         self.verbosity = tk.IntVar()
         self.verbosity.set(self.cfg.verbose)
@@ -456,7 +413,7 @@ class MasterWin(_gui_, tk.Tk):
 class ComputerPanel(_gui_, ttk.Frame):
     '''Main job info panel with computer boxes.'''
     def __init__(self, master, index, config, socket):
-        '''config is Config instance from parent.
+        '''config is util.Config instance from parent.
         socket is ClientSocket instance from parent'''
         self.index = index
         self.cfg = config
@@ -895,7 +852,7 @@ class InputWindow(_gui_, tk.Toplevel):
             self, config, socket, index=None, paths=None, 
             start=None, end=None, extras=None, complist=None
             ):
-        '''config is Config instance belonginng to parent'''
+        '''config is util.Config instance belonginng to parent'''
         tk.Toplevel.__init__(self)
         self.bind('<Command-q>', quit) 
         self.bind('<Control-q>', quit)
@@ -1508,7 +1465,7 @@ class StatusThread(threading.Thread):
     stop = False
     def __init__(self, masterwin, config, host, port):
         '''masterwin = parent instance of MasterWin
-        config = instance of Config from parent''' 
+        config = instance of util.Config from parent''' 
         self.masterwin = masterwin
         self.cfg = config
         self.socket = sw.ClientSocket(host, port)
@@ -1539,7 +1496,7 @@ class StatusThread(threading.Thread):
 def main():
     try:
         logfile = logging.FileHandler(log_file_path)
-        logfile.setLevel(logging.INFO)
+        #logfile.setLevel(logging.INFO)
         logfile.setFormatter(file_formatter)
         logger.addHandler(logfile)
     except PermissionError:

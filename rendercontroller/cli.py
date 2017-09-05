@@ -22,16 +22,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
 
-
 import os
 import logging
+
 from . import framechecker
 from . import socketwrapper as sw
+from . import util
 
 logger = logging.getLogger('rcontroller.gui')
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
 console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+#console.setLevel(logging.DEBUG)
 console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
     datefmt='%Y-%m-%d %H:%M:%S')
 console.setFormatter(console_formatter)
@@ -39,43 +40,14 @@ logger.addHandler(console)
 
 illegal_characters = [';', '&'] #not allowed in path
 
-class Config(object):
-    '''Object to hold config variables imported from server.'''
-    def __init__(self, socket):
-        self.sock = socket
-        pass
-
-    def from_dict(self, dictionary):
-        '''Sets attributes from a dictionary 
-
-        Args:
-        dictionary -- Dict to be converted to attrs
-        '''
-        self.dictionary = dictionary
-        for key in dictionary:
-            self.__setattr__(key, dictionary[key])
-
-    def get_server_cfg(self):
-        '''Gets config info from the server.'''
-        try:
-            servercfg = self.sock.send_cmd('get_config_vars')
-        except:
-            logger.exception('Failed to get server config')
-            return False
-        self.from_dict(servercfg)
-        return True
-
-
 
 class Cli(object):
     '''Master object for command line interface.'''
     def __init__(self, host='localhost', port=2020):
         #var to contain all current server job attributes
+        self.cfg = util.Config()
+        self.cfg.set_from_server(host, port)
         self.socket = sw.ClientSocket(host, port)
-        self.cfg = Config(self.socket)
-        if not self.cfg.get_server_cfg():
-            print('Failed to get server config')
-            return
         self.serverjobs = self.socket.send_cmd('get_attrs')
         '''Need a list of integer IDs corresponding to jobs on the server to
         make manipulating them easier from the command line.  Because dict keys

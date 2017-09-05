@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 
+import argparse
+import logging
+
+loglevels = {
+    'debug': logging.DEBUG,
+    'info': logging.INFO,
+    'warning': logging.WARNING,
+    'error': logging.ERROR,
+}
+
 def server():
     """Launches the server"""
     import rendercontroller.server
@@ -12,13 +22,7 @@ def gui():
     master = rendercontroller.gui.main()
 
 
-def cli(argv):
-    """Command line interface
-    
-    Args:
-    argv -- (list) List of args a la sys.argv
-    """
-    import argparse
+def main():
     import rendercontroller.cli
     helpstr = ("A multi-platform, multi-engine network rendering service.\n"
         + "Launches GUI client if no options are supplied.\n")
@@ -38,6 +42,8 @@ def cli(argv):
     parser.add_argument('--start', action='store', default=-1,
         dest='start', help='Start render for job witn given ID.', 
         metavar='ID', type=int)
+    parser.add_argument('--loglevel', action='store', default='info',
+        help='Log level (debug, info, warning, error)')
     parser.add_argument('--stop', action='store', default=-1, dest='stop',
         help='Stop render for job with given ID.', metavar='ID', type=int)
     parser.add_argument('--resume', action='store', default=-1, 
@@ -65,7 +71,8 @@ def cli(argv):
         'current autostart status. If "on" or "off" is specified, sets '
         'the autostart mode to the specified state.')
 
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
+    logging.basicConfig(level=loglevels[args.loglevel])
     if args.server:
         server()
         return
@@ -96,14 +103,9 @@ def cli(argv):
         interface.enqueue()
     if args.autostart:
         interface.toggle_autostart(args.autostart)
-
-
-def main():
-    import sys
-    if len(sys.argv) > 1:
-        cli(sys.argv[1:])
     else:
         gui()
+
 
 if __name__ == '__main__':
     main()

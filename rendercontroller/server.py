@@ -33,7 +33,9 @@ import re
 import yaml
 import json
 import logging
+
 from . import socketwrapper as sw
+from . import util
 
 
 #NOTE: All classes in this module depend on a global instance of
@@ -42,17 +44,17 @@ from . import socketwrapper as sw
 
 
 log_file_path = '/var/log/rendercontroller/server.log'
+default_cfg_path = "/etc/rendercontroller/server.conf"
 logger = logging.getLogger('rcontroller.server')
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
 console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+#console.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s', 
     datefmt='%Y-%m-%d %H:%M:%S')
 console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
     datefmt='%Y-%m-%d %H:%M:%S')
 console.setFormatter(console_formatter)
 logger.addHandler(console)
-
 
 illegal_characters = [';', '&'] #not allowed in paths
 threadlock = threading.RLock()
@@ -762,45 +764,6 @@ cfg_file_required_fields = {
     'verbose',
 }
 
-class Config(object):
-    '''Represents contents of config file as attributes.'''
-
-    DEFAULT_DIR = "/etc/rendercontroller"
-    DEFAULT_FILENAME = 'server.conf'
-
-    def __init__(self, cfg_path=None):
-        '''Args:
-        cfg_path -- Path to server config file
-        '''
-        if cfg_path:
-            self.cfg_path = cfg_path
-        else:
-            self.cfg_path = os.path.join(self.DEFAULT_DIR, self.DEFAULT_FILENAME)
-        if not os.path.exists(self.cfg_path):
-            raise RuntimeError('Config file not found at {}'.format(self.cfg_path))
-        self.load()
-
-    def load(self):
-        '''Loads the config file and populates attributes.'''
-        with open(self.cfg_path, 'r') as f:
-            cfg = yaml.load(f.read())
-        missing = cfg_file_required_fields.difference(set(cfg.keys()))
-        if missing:
-            raise KeyError('Config file missing required fields(s): {}'.format(', '.join(missing)))
-        self.from_dict(cfg)
-
-    def from_dict(self, dictionary):
-        '''Sets attributes from a dictionary 
-
-        Args:
-        dictionary -- Dict to be converted to attrs
-        '''
-        self.dictionary = dictionary
-        for key in dictionary:
-            self.__setattr__(key, dictionary[key])
-
-
-
 
 #----------SERVER INTERFACE----------
 
@@ -1135,7 +1098,7 @@ class RenderServer(object):
     def get_config_vars(self):
         '''Gets server-side configuration variables and returns them as 
         a dict.'''
-        return CONFIG.dictionary
+        return CONFIG.dump()
     
     def toggle_verbose(self):
         '''Toggles the state of the verbose variable.'''
@@ -1258,9 +1221,10 @@ def main():
         print('WARNING Permissions error writing log file at {}. '\
               'Will log to console only.'.format(log_file_path))
     # Create global config object
+    global CONFIG
+    CONFIG = util.Config()
     try:
-        global CONFIG
-        CONFIG = Config()
+        CONFIG.set_from_file(default_cfg_path, cfg_file_required_fields)
     except:
         logger.exception('Error loading config file')
         os._exit(1)

@@ -11,6 +11,8 @@
 #ignore config files and bytecode
 *__pycache__
 *.pyc
+*.mypy_cache
+*.idea
 
 # Ignore setup stuff
 dist

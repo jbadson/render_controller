@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import logging
-from typing import Sequence, Optional, Dict, List, Any
-from rendercontroller import job
+from typing import Sequence, Optional, Dict, Any, Type
+from . import job
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("controller")
 
 
 class Config(object):
@@ -37,7 +37,7 @@ class RenderController(object):
     less terrible.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Type[Config]) -> None:
         # self.jobs = OrderedDict()
         # This is bad but will get things moving until I have time to
         # rewrite all the terrible stuff in RenderServer.
@@ -102,7 +102,7 @@ class RenderController(object):
         """
         self.server.toggle_autostart()
 
-    def get_status(self) -> List[Dict]:
+    def get_status(self) -> Dict[str, Any]:
         """
         Returns a list of dicts with server state and summary
         of each job in queue.

@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='rendercontroller',
-    version='0.5.0',
+    version='0.6.0',
     description='A network rendering manager for Blender and Terragen',
     url='https://github.com/jbadson/render_controller',
     author='James Adson',
@@ -9,9 +9,7 @@ setup(name='rendercontroller',
     install_requires=['pyyaml'],
     packages=['rendercontroller'],
     data_files=[
-        ('/etc/rendercontroller', ['conf/server.conf', 'conf/gui.conf']),
-        ('/var/log/rendercontroller', ['conf/server.log', 'conf/gui.log']),
-        ('/var/rendercontroller', ['conf/serverstate.json']),
+        ('/etc', ['conf/rendercontroller.conf']),
     ],
     entry_points={
         'console_scripts': [

@@ -26,15 +26,12 @@ import threading
 import time
 import subprocess
 import os
-import socket
 import shlex
 import datetime
 import re
-import yaml
 import json
 import logging
 
-from . import socketwrapper as sw
 from . import util
 
 
@@ -43,18 +40,7 @@ from . import util
 # This is not the best way to do things, but it is how it is.
 
 
-log_file_path = '/var/log/rendercontroller/server.log'
-default_cfg_path = "/etc/rendercontroller/server.conf"
 logger = logging.getLogger('rcontroller.server')
-#logger.setLevel(logging.DEBUG)
-console = logging.StreamHandler()
-#console.setLevel(logging.DEBUG)
-file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s', 
-    datefmt='%Y-%m-%d %H:%M:%S')
-console_formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s', 
-    datefmt='%Y-%m-%d %H:%M:%S')
-console.setFormatter(console_formatter)
-logger.addHandler(console)
 
 illegal_characters = [';', '&'] #not allowed in paths
 threadlock = threading.RLock()
@@ -313,9 +299,7 @@ class Job(object):
             #reset timeout timer every time an update is received
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
-            if CONFIG.verbose:
-                with threadlock:
-                    logger.info(line)
+            logger.debug(line)
             #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
                 match = re.search('Path Tracing Tile +?([0-9]+)\/([0-9]+)', line)
@@ -394,9 +378,7 @@ class Job(object):
             #reset timer
             with threadlock:
                 self.compstatus[computer]['timer'] = time.time()
-            if CONFIG.verbose:
-                with threadlock:
-                    logger.info(line)
+            logger.debug(line)
 
             #starting overall render or one of the render passes
             if line.strip().isdigit():
@@ -756,12 +738,14 @@ cfg_file_required_fields = {
     'rendernodes',
     'renice_list',
     'server_state_file',
-    'serverport',
+    'listen_addr',
+    'listen_port',
+    'cors_origin',
+    'log_level',
     'ssh_user',
     'terragenpath_linux',
     'terragenpath_mac',
     'timeout',
-    'verbose',
 }
 
 
@@ -772,7 +756,7 @@ allowed_commands= [
 'get_attrs', 'job_exists', 'enqueue',
 'start_render', 'toggle_comp', 'kill_single_thread', 'kill_render',
 'get_status', 'resume_render', 'clear_job', 'get_config_vars', 'create_job',
-'toggle_verbose', 'toggle_autostart', 'check_path_exists', 'set_job_priority',
+'toggle_autostart', 'check_path_exists', 'set_job_priority',
 'killall',
 ]
 
@@ -788,9 +772,6 @@ class RenderServer(object):
         self._check_restore_state()
         self.updatethread = threading.Thread(target=self.update_loop)
         self.updatethread.start()
-        self.server = sw.Server(self, CONFIG.serverport, allowed_commands)
-        self.server.start()
-        self.shutdown_server()
 
     def update_loop(self):
         '''Handles miscellaneous tasks that need to be carried out on a 
@@ -892,7 +873,7 @@ class RenderServer(object):
         case the server crashes or needs to be restarted.  The update_loop
         method periodically calls this function whenever the server is 
         running.'''
-        statevars = {'verbose':CONFIG.verbose, 'autostart':CONFIG.autostart}
+        statevars = {'autostart':CONFIG.autostart}
         jobs = {}
         for index in self.renderjobs:
             jobs[index] = self.renderjobs[index].get_attrs()
@@ -908,10 +889,6 @@ class RenderServer(object):
         create new Job instances with attributes from the file. Can only
         be called at startup to avoid overwriting exiting Job instances.'''
         if os.path.exists(self.statefile) and os.stat(self.statefile).st_size > 0:
-            if input('Saved state file found. Restore previous server '
-                         'state? (Y/n): ') in ['N', 'n']:
-                logger.info('Discarding previous server state')
-                return
             try:
                 with open(self.statefile, 'r') as f:
                     (statevars, jobs) = json.loads(f.read())
@@ -919,7 +896,6 @@ class RenderServer(object):
                 logger.exception('Failed to read saved state file')
                 return
             #restore state variables
-            CONFIG.verbose = statevars['verbose']
             CONFIG.autostart = statevars['autostart']
             #restore job queue
             for index in jobs:
@@ -961,8 +937,7 @@ class RenderServer(object):
         for i in self.renderjobs:
             attrdict[i] = self.renderjobs[i].get_attrs()
         #append non-job-related update info
-        attrdict['__STATEVARS__'] = {'autostart':CONFIG.autostart, 
-                               'verbose':CONFIG.verbose}
+        attrdict['__STATEVARS__'] = {'autostart':CONFIG.autostart, }
         if not self.msgq.empty():
             attrdict['__MESSAGE__'] = self.msgq.get()
             self.msgq.task_done()
@@ -1096,20 +1071,9 @@ class RenderServer(object):
         return index + ' deleted.'
     
     def get_config_vars(self):
-        '''Gets server-side configuration variables and returns them as 
+        '''DEPRECATED Gets server-side configuration variables and returns them as
         a dict.'''
         return CONFIG.dump()
-    
-    def toggle_verbose(self):
-        '''Toggles the state of the verbose variable.'''
-        if CONFIG.verbose == 0:
-            CONFIG.verbose = 1
-            logger.info('Verbose reporting enabled')
-            return 'verbose reporting enabled'
-        else:
-            CONFIG.verbose = 0
-            logger.info('Verbose reporting disabled')
-            return 'verbose reporting disabled'
     
     def toggle_autostart(self):
         '''Toggles the state of the autostart variable.'''
@@ -1123,14 +1087,14 @@ class RenderServer(object):
             return 'autostart disabled'
     
     def check_path_exists(self, path):
-        '''Checks if a path is accessible from the server.'''
+        '''DEPRECATED Checks if a path is accessible from the server.'''
         if os.path.exists(path):
             return True
         else:
             return False
     
     def set_job_priority(self, index, priority):
-        '''Sets the render priority for a given index.'''
+        '''DEPRECATED Sets the render priority for a given index.'''
         if not index in self.renderjobs:
             return 'Index not found'
         if self.renderjobs[index].set_priority(priority):
@@ -1139,7 +1103,7 @@ class RenderServer(object):
             return 'Priority not changed'
 
     def killall(self, complist, procname):
-        '''Attempts to kill all instances of the given processess on the
+        '''DEPRECATED Attempts to kill all instances of the given processess on the
         given machines.'''
         # First make sure that everything is OK
         for comp in complist:
@@ -1153,7 +1117,10 @@ class RenderServer(object):
 
 
 class SSHKillThread(object):
-    '''Sends kill commands by ssh to specified hostnames. Returns a 
+    '''
+    DEPRECATED
+
+    Sends kill commands by ssh to specified hostnames. Returns a
     success or failure message via the msgqueue parameter. Any errors
     or other information generated by worker threads will be appended
     to that message, i.e. this will add one and only one item to the
@@ -1209,26 +1176,3 @@ class SSHKillThread(object):
         if result:
             self.replyq.put('%s returned %s' %(comp, result))
         self.compq.task_done()
-
-
-def main():
-    try:
-        logfile = logging.FileHandler(log_file_path)
-        logfile.setLevel(logging.INFO)
-        logfile.setFormatter(file_formatter)
-        logger.addHandler(logfile)
-    except PermissionError:
-        print('WARNING Permissions error writing log file at {}. '\
-              'Will log to console only.'.format(log_file_path))
-    # Create global config object
-    global CONFIG
-    CONFIG = util.Config()
-    try:
-        CONFIG.set_from_file(default_cfg_path, cfg_file_required_fields)
-    except:
-        logger.exception('Error loading config file')
-        os._exit(1)
-    server = RenderServer()
-
-if __name__ == '__main__':
-    main()

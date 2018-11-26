@@ -51,7 +51,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     """
 
     get_endpoints = {"status", "job"}
-    post_endpoints = {"enqueue", "start", "stop", "delete", "autostart"}
+    post_endpoints = {"enqueue", "start", "stop", "delete", "autostart", "rendernode"}
 
     def __init__(self, *args, **kwargs):
         self._parsed_path = None
@@ -70,7 +70,8 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         """Override to allow logging to file."""
         logger.error(format, *args)
 
-    def parse_path(self):
+    @property
+    def parsed_path(self):
         """Parses path and sets related instance variables."""
         if not self._parsed_path:
             ppath = urllib.parse.urlparse(self.path)
@@ -81,19 +82,17 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Handles HTTP GET requests."""
-        path = self.parse_path()
-        logger.debug("path parts: %s, query: '%s'" % (path.parts, path.query))
-        if path.endpoint in self.get_endpoints:
-            getattr(self, path.endpoint)()
+        logger.debug("path parts: %s, query: '%s'" % (self.parsed_path.parts, self.parsed_path.query))
+        if self.parsed_path.endpoint in self.get_endpoints:
+            getattr(self, self.parsed_path.endpoint)()
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Invalid endpoint")
 
     def do_POST(self):
         """Handles HTTP POST requests."""
-        path = self.parse_path()
-        logger.debug("path parts: %s, query: '%s'" % (path.parts, path.query))
-        if path.endpoint in self.post_endpoints:
-            getattr(self, path.endpoint)()
+        logger.debug("path parts: %s, query: '%s'" % (self.parsed_path.parts, self.parsed_path.query))
+        if self.parsed_path.endpoint in self.post_endpoints:
+            getattr(self, self.parsed_path.endpoint)()
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Invalid endpoint")
 
@@ -120,7 +119,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     def job(self):
         """Returns full info for a job"""
         try:
-            job_id = self.parse_path().parts[1]
+            job_id = self.parsed_path.parts[1]
         except IndexError:
             return self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
         job_data = self.controller.get_job_status(job_id)
@@ -151,10 +150,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         end = data.get("end", None)
         engine = data.get("engine", None)
         nodes = data.get("nodes", None)
-        extras = data.get("extraframes", None)
         job_id, error = None
         try:
-            job_id = self.controller.new_job(path, start, end, engine, nodes, extras)
+            job_id = self.controller.new_job(path, start, end, engine, nodes)
         except Exception as e:
             logger.exception("Error while creating job")
             error = str(e)
@@ -162,8 +160,11 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def start(self):
         """Starts a render job."""
-        # Just return 200 if OK
-        pass
+        try:
+            job_id = self.parsed_path.parts[1]
+        except IndexError:
+            return self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
+        self.controller.start(job_id)
 
     def stop(self):
         """Stops a render job."""
@@ -187,6 +188,17 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     def autostart(self):
         """Toggles state of server autostart mode."""
         pass
+
+    def rendernode(self):
+        """Sets paramters related to rendernodes."""
+        # /rendernode/name/job_id/toggle
+        try:
+            node, job_id, action = self.parsed_path.parts[1:]
+        except ValueError:
+            return self.send_error(HTTPStatus.NOT_FOUND, "Expected pattern: /rendernode/{node}/{job_id}/{action}")
+        if action != "toggle":
+            return self.send_error(HTTPStatus.NOT_FOUND, "Unrecognized action")
+        self.controller.toggle_node(job_id, node)
 
 
 def main(config_path: str) -> int:

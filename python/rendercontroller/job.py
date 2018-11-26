@@ -680,7 +680,7 @@ class Job(object):
             for comp in added:
                 self._reset_compstatus(comp)
                 logger.debug('New node {} available. Creating compstatus entry.'.format(
-                    computer))
+                    comp))
         #any computers no longer available
         removed = [comp for comp in self.compstatus if not
                    comp in CONFIG.rendernodes]

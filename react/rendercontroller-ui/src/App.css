@@ -1,0 +1,124 @@
+body {
+  font: 14px Helvetica, Arial, sans-serif;
+  margin: 10px;
+  background: #e0e0e0;
+}
+
+ul, ol {
+  padding-left: 0px;
+  margin: 0px;
+}
+
+.queue-pane {
+  position: fixed;
+  background: #f9f9f9;
+  width: 230px;
+}
+
+.status-pane {
+  margin-left: 240px;
+}
+
+
+.status-box {
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 5px;
+  border-color: #A9A9A9;
+  background: #F9F9F9;
+  margin-right: 5px;
+  padding: 5px;
+}
+
+.status-row {
+  display: table;
+  clear: both;
+  width: 100%;
+  margin-bottom: 5px;
+}
+
+.left {
+  float: left;
+  padding-right: 10px;
+  margin: 0px;
+}
+
+.right {
+  float: right;
+  padding-left: 20px;
+  margin: 0px;
+}
+
+.progress-container {
+  position: relative;
+}
+
+.progress-number {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.progress-bar {
+  background: #D3D3D3;
+  height: 15px;
+  border-radius: 3px;
+  border: 1px solid #333;
+}
+
+.node-progress-bar {
+  background: #D3D3D3;
+  height: 8px;
+  border-radius: 3px;
+  border: 1px solid #333;
+}
+
+
+.progress-fill {
+  background: #32CD32;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}
+
+.node-status-box {
+  border-style: solid;
+  border-radius: 5px;
+  border-width: 1px;
+  border-color: #A9A9A9;
+  background: #f3f3f3;
+  font-size: 11px;
+  float: left;
+  width: 230px;
+  margin-right: 5px;
+  margin-bottom: 5px;
+  padding: 5px;
+}
+
+.queue-status-box {
+  float: left;
+  background: #f9f9f9;
+  font-size: 11px;
+  width: 220px;
+  padding: 5px;
+}
+
+.queue-status-box:hover {
+  background: #c0c0c0;
+}
+
+.queue-status-box-active {
+  float: left;
+  background: #55b5f0;
+  font-size: 11px;
+  width: 220px;
+  padding: 5px;
+}
+
+
+.node-progress-container {
+}
+
+.node-pane {
+}

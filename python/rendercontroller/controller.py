@@ -51,7 +51,6 @@ class RenderController(object):
         end: int,
         engine: str,
         nodes: Sequence[str],
-        extraframes: Optional[Sequence[int]] = None,
     ) -> str:
         """
         Creates a new render job and places it in queue.
@@ -61,11 +60,9 @@ class RenderController(object):
         :param int end: End frame number.
         :param str engine: Render engine.
         :param list nodes: List of render nodes to use.
-        :param list extraframes: Optional list of extra frames, i.e.
-            outside of start:end range, to render.
         :return str: ID of newly created job.
         """
-        pass
+        raise NotImplementedError
 
     def start(self, job_id: str) -> None:
         """Starts a render job."""
@@ -102,6 +99,16 @@ class RenderController(object):
         """
         self.server.toggle_autostart()
 
+    def toggle_node(self, job_id: str, node: str) -> None:
+        """
+        Toggles the enabled/disabled state of a render node for a given job.
+
+        :param str job_id: ID of job to modify.
+        :param str node: Name of render node to toggle.
+        """
+        # TODO raise exception if fails
+        self.server.toggle_comp(job_id, node)
+
     def get_status(self) -> Dict[str, Any]:
         """
         Returns a list of dicts with server state and summary
@@ -130,13 +137,14 @@ class RenderController(object):
         ret["jobs"] = jobs
         return ret
 
-    def _reformat_node_list(self, data):
+    def _reformat_node_list(self, complist, compstatus):
         node_status = []
-        for node, info in data.items():
+        for node, info in compstatus.items():
             node_status.append(
                 {
                     "name": node,
-                    "is_active": info["active"],
+                    "is_rendering": info["active"],
+                    "is_enabled": True if node in complist else False,
                     "frame": info["frame"],
                     "progress": info["progress"],
                 }
@@ -154,26 +162,15 @@ class RenderController(object):
             "file_path": data["path"],
             "start_frame": data["startframe"],
             "end_frame": data["endframe"],
-            "extra_frames": data["extraframes"],
             "engine": data["render_engine"],
             "status": data["status"],
             "progress": data["progress"],
             "time_avg": data["times"][1],
             "time_elapsed": data["times"][0],
             "time_remaining": data["times"][2],
-            "node_status": self._reformat_node_list(data["compstatus"]),
+            "node_status": self._reformat_node_list(data["complist"], data["compstatus"]),
         }
         return ret
-
-    def toggle_node(self, job_id: str, node: str) -> None:
-        """
-        Toggles the enabled/disabled state of a render node for a given job.
-
-        :param str job_id: ID of job to modify.
-        :param str node: Name of render node to toggle.
-        """
-        # TODO raise exception if fails
-        self.server.toggle_comp(job_id, node)
 
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""

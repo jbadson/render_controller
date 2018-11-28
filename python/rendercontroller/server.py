@@ -5,10 +5,11 @@ import http.server
 from http import HTTPStatus
 import json
 from json import JSONDecodeError
+import os
 import yaml
 import socketserver
 import urllib.parse
-from typing import Sequence, Optional
+from typing import Sequence, Optional, Dict, List, Any
 from .controller import RenderController, Config
 
 CONFIG_FILE_PATH = "/etc/rendercontroller.conf"
@@ -17,6 +18,37 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING}
 
 logger = logging.getLogger("server")
+
+
+def get_file_type(entry: os.DirEntry) -> str:
+    if entry.is_dir():
+        return "d"
+    elif entry.is_file():
+        return "f"
+    elif entry.is_symlink():
+        return "l"
+    else:
+        return ""
+
+
+def browse_dir(dir: str) -> List[Dict[str, Any]]:
+    """
+    Presents the output of os.scandir() as something JSON-serializable.
+    """
+    contents = []
+    for i in os.scandir(dir):
+        contents.append(
+            {
+                "name": i.name,
+                "path": i.path,
+                "type": get_file_type(i),
+                "size": i.stat().st_size,
+                "atime": i.stat().st_atime,
+                "mtime": i.stat().st_mtime,
+                "ctime": i.stat().st_ctime,
+            }
+        )
+    return contents
 
 
 class ParsedPath(object):
@@ -41,9 +73,6 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     """
     Handles HTTP requests for a REST-type API.
 
-    By convention, GET requests may not change the state of the server.
-    POST requests may.
-
     :param set[str] endpoints: Set of API endpoints this class handles.
     :param str origin: CORS domain to allow with
                        Access-Control-Allow-Origin header.
@@ -51,7 +80,15 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     """
 
     get_endpoints = {"status", "job"}
-    post_endpoints = {"enqueue", "start", "stop", "delete", "autostart", "rendernode"}
+    post_endpoints = {
+        "enqueue",
+        "start",
+        "stop",
+        "delete",
+        "autostart",
+        "rendernode",
+        "browse",
+    }
 
     def __init__(self, *args, **kwargs):
         self._parsed_path = None
@@ -82,7 +119,10 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Handles HTTP GET requests."""
-        logger.debug("path parts: %s, query: '%s'" % (self.parsed_path.parts, self.parsed_path.query))
+        logger.debug(
+            "path parts: %s, query: '%s'"
+            % (self.parsed_path.parts, self.parsed_path.query)
+        )
         if self.parsed_path.endpoint in self.get_endpoints:
             getattr(self, self.parsed_path.endpoint)()
         else:
@@ -90,7 +130,10 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         """Handles HTTP POST requests."""
-        logger.debug("path parts: %s, query: '%s'" % (self.parsed_path.parts, self.parsed_path.query))
+        logger.debug(
+            "path parts: %s, query: '%s'"
+            % (self.parsed_path.parts, self.parsed_path.query)
+        )
         if self.parsed_path.endpoint in self.post_endpoints:
             getattr(self, self.parsed_path.endpoint)()
         else:
@@ -111,6 +154,21 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(bdata)
 
+    def receive_json(self):
+        """Receives JSON from a request and returns an object."""
+        msglen = int(self.headers.get("Content-Length", 0))
+        data = self.rfile.read(msglen)
+        if not data:
+            return self.send_error(HTTPStatus.BAD_REQUEST, "No data")
+        try:
+            data = json.loads(data)
+        except JSONDecodeError:
+            return self.send_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to decode JSON"
+            )
+        logger.debug(data)
+        return data
+
     def status(self):
         """Returns list of all jobs and with basic summary data."""
         # self.send_json(summary_data)
@@ -129,17 +187,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def enqueue(self):
         """Creates a new render job and places it in queue."""
-        msglen = int(self.headers.get("Content-Length", 0))
-        data = self.rfile.read(msglen)
-        if not data:
-            return self.send_error(HTTPStatus.BAD_REQUEST, "No data")
-        try:
-            data = json.loads(data)
-        except JSONDecodeError:
-            return self.send_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, "Unable to decode data"
-            )
-        logger.debug(data)
+        data = self.receive_json()
         # New server enqueue func should do:
         #   1. Validate required fields
         #   2. Create job
@@ -195,10 +243,36 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         try:
             node, job_id, action = self.parsed_path.parts[1:]
         except ValueError:
-            return self.send_error(HTTPStatus.NOT_FOUND, "Expected pattern: /rendernode/{node}/{job_id}/{action}")
+            return self.send_error(
+                HTTPStatus.NOT_FOUND,
+                "Expected pattern: /rendernode/{node}/{job_id}/{action}",
+            )
         if action != "toggle":
             return self.send_error(HTTPStatus.NOT_FOUND, "Unrecognized action")
         self.controller.toggle_node(job_id, node)
+
+    def browse(self):
+        """
+        Returns contents of a directory on the local filesystem.
+
+        Requires path to be passed as a JSON object to avoid problems
+        with non-URL-legal path elements.
+        """
+        data = self.receive_json()
+        path = os.path.normpath(data.get("path", "") or "").strip("/")
+        logger.debug("normalized path: %s" % path)
+        if path.startswith(".."):
+            logger.warning("Rejected request to browse illegal path: '%s'" % path)
+            return self.send_error(HTTPStatus.BAD_REQUEST, "Invalid path")
+        if not path.startswith(Config.fileserver_base_dir):
+            path = Config.fileserver_base_dir + "/" + path
+        logger.debug("absolute path: %s" % path)
+        try:
+            contents = browse_dir(path)
+        except:
+            logger.exception("Caught exception while browsing filesystem")
+            return self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Filesystem error")
+        self.send_json(contents)
 
 
 def main(config_path: str) -> int:

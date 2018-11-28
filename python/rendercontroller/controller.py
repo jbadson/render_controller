@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import logging
-from typing import Sequence, Optional, Dict, Any, Type
+from typing import Sequence, Dict, Any, Type
 from . import job
 
 
@@ -41,16 +41,11 @@ class RenderController(object):
         # self.jobs = OrderedDict()
         # This is bad but will get things moving until I have time to
         # rewrite all the terrible stuff in RenderServer.
-        job.CONFIG = Config
+        job.CONFIG = config
         self.server = job.RenderServer()
 
     def new_job(
-        self,
-        path: str,
-        start: int,
-        end: int,
-        engine: str,
-        nodes: Sequence[str],
+        self, path: str, start: int, end: int, engine: str, nodes: Sequence[str]
     ) -> str:
         """
         Creates a new render job and places it in queue.
@@ -168,7 +163,9 @@ class RenderController(object):
             "time_avg": data["times"][1],
             "time_elapsed": data["times"][0],
             "time_remaining": data["times"][2],
-            "node_status": self._reformat_node_list(data["complist"], data["compstatus"]),
+            "node_status": self._reformat_node_list(
+                data["complist"], data["compstatus"]
+            ),
         }
         return ret
 

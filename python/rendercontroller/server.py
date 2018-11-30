@@ -31,12 +31,12 @@ def get_file_type(entry: os.DirEntry) -> str:
         return ""
 
 
-def browse_dir(dir: str) -> List[Dict[str, Any]]:
+def browse_dir(directory: str) -> List[Dict[str, Any]]:
     """
     Presents the output of os.scandir() as something JSON-serializable.
     """
     contents = []
-    for i in os.scandir(dir):
+    for i in os.scandir(directory):
         contents.append(
             {
                 "name": i.name,
@@ -139,6 +139,32 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Invalid endpoint")
 
+    def do_OPTIONS(self):
+        logger.debug("options request")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", 0)
+        self.send_header("Access-Control-Allow-Origin", self.origin)
+        self.send_header("Access-Control-Allow-Credentials", True)
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "origin, content-type, request")
+        self.end_headers()
+
+    def send_all_headers(self, code=HTTPStatus.OK, content_type="text/html", content_length=0):
+        """
+        Sends a complete set of headers.
+
+        :param int code: HTTP status code.
+        :param str content_type: HTTP Content-Type header value.
+        :param int content_length: Length of content in bytes.
+        """
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", content_length)
+        self.send_header("Access-Control-Allow-Origin", self.origin)
+        self.send_header("Access-Control-Allow-Credentials", True)
+        self.end_headers()
+
     def send_json(self, data, code=HTTPStatus.OK):
         """
         Sends a response serialized as JSON
@@ -147,11 +173,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         :param int code: HTTP response code.
         """
         bdata = bytes(json.dumps(data), "UTF-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=UTF-8")
-        self.send_header("Content-Length", len(bdata))
-        self.send_header("Access-Control-Allow-Origin", self.origin)
-        self.end_headers()
+        self.send_all_headers(code, "application/json; charset=UTF-8", len(bdata))
         self.wfile.write(bdata)
 
     def receive_json(self):
@@ -212,7 +234,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             job_id = self.parsed_path.parts[1]
         except IndexError:
             return self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
+        #FIXME Fails messily if job status is wrong
         self.controller.start(job_id)
+        self.send_all_headers()
 
     def stop(self):
         """Stops a render job."""
@@ -238,18 +262,25 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
     def rendernode(self):
-        """Sets paramters related to rendernodes."""
-        # /rendernode/name/job_id/toggle
+        """
+        Sets paramters related to render nodes.
+
+        Currently only supports toggling render node enabled state.
+        """
+        data = self.receive_json()
         try:
-            node, job_id, action = self.parsed_path.parts[1:]
-        except ValueError:
-            return self.send_error(
-                HTTPStatus.NOT_FOUND,
-                "Expected pattern: /rendernode/{node}/{job_id}/{action}",
-            )
+            action = data["action"]
+            node = data["node"]
+            job_id = data["id"]
+        except KeyError:
+            logger.exception("Rendernode request missing required parameters")
+            return self.send_error(HTTPStatus.BAD_REQUEST, "Missing required parameters")
         if action != "toggle":
+            logger.error("Rendernode action '%s' not recognized" %action)
             return self.send_error(HTTPStatus.NOT_FOUND, "Unrecognized action")
         self.controller.toggle_node(job_id, node)
+        self.send_all_headers()
+
 
     def browse(self):
         """
@@ -257,22 +288,26 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
         Requires path to be passed as a JSON object to avoid problems
         with non-URL-legal path elements.
+
+        If the user-supplied path does not start with the base path
+        as set in the config file, it will be concatenated with it.
         """
         data = self.receive_json()
-        path = os.path.normpath(data.get("path", "") or "").strip("/")
+        path = os.path.normpath(data.get("path", "") or "")
         logger.debug("normalized path: %s" % path)
         if path.startswith(".."):
             logger.warning("Rejected request to browse illegal path: '%s'" % path)
             return self.send_error(HTTPStatus.BAD_REQUEST, "Invalid path")
         if not path.startswith(Config.fileserver_base_dir):
-            path = Config.fileserver_base_dir + "/" + path
+            # Don't use os.path.join() because it replaces abs path root.
+            path = os.path.normpath(Config.fileserver_base_dir + "/" + path)
         logger.debug("absolute path: %s" % path)
         try:
             contents = browse_dir(path)
         except:
             logger.exception("Caught exception while browsing filesystem")
             return self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Filesystem error")
-        self.send_json(contents)
+        self.send_json({"current": path, "contents": contents})
 
 
 def main(config_path: str) -> int:

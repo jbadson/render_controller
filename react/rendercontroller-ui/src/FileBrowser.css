@@ -1,0 +1,33 @@
+.browser-container {
+  border-style: solid;
+  border-width: 1px;
+  padding: 5px;
+}
+
+.browser {
+  display: table;
+  clear: both;
+}
+
+.browser-dir {
+  display: table;
+  clear: both;
+  font-weight: bold;
+  color: blue;
+}
+
+.browser-dir:hover {
+  color: yellow;
+}
+
+.browser-file {
+  display: table;
+  clear: both;
+  color: red;
+}
+
+.browser-current {
+  display: table;
+  clear: both;
+  color: green;
+}

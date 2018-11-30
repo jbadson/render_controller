@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import axios from 'axios';
 import './App.css';
+import FileBrowser from './FileBrowser';
 
 /* TODO:
 - Get REST API completely working -- will make remaining UI development much easier
@@ -15,7 +16,7 @@ import './App.css';
   Delete -- How to do confirmation?
 √- Node enable/disable checkboxes
 - Finish styling buttons
-- Deal with Windows path conversion
+√- Deal with Windows path conversion
     -> Alternatively could allow uploading of project directory
        (might be more complex to make sure paths are all relative)
     -> Or can have custom thing in UI to convert windows paths to linux
@@ -71,30 +72,36 @@ class StatusBox extends Component {
   /* Displays the overall status of a render job */
   startJob() {
     axios.post(API_CONNECT + "/start/" + this.props.id)
+      .then(
+        (result) => {console.log(result)},
+        (error) => {console.error(error.message)}
+      );
+
   }
+
   render() {
     return (
       <div className="status-box">
         <ul>
-          <li className="status-row">
+          <li className="layout-row">
             <p className="left">Status: {this.props.status}</p>
             <p className="right">End frame: {this.props.endFrame}</p>
             <p className="right">Start frame: {this.props.startFrame}</p>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <p className="left">Project file: {this.props.filePath}</p>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <div className="progress-container">
               <ProgressBar percent={this.props.progress} />
               <div className="progress-number">{this.props.progress} %</div>
             </div>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <p className="left">Time elapsed: {this.props.timeElapsed}</p>
             <p className="right">Time remaining: {this.props.timeRemaining}</p>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <button onClick={() => this.editJob()}>Edit</button>
             <button onClick={() => this.startJob()}>Start</button>
             <button onClick={() => this.stopJob()}>Stop</button>
@@ -112,7 +119,11 @@ class StatusBox extends Component {
 class NodeStatusBox extends Component {
   /* Displays the status of a render node */
   handleToggle() {
-    axios.post(API_CONNECT + "/rendernode/" + this.props.name + "/" + this.props.jobId + "/toggle")
+    axios.post(API_CONNECT + "/rendernode", {id: this.props.jobId, node: this.props.name, action: "toggle"})
+      .then(
+        (result) => {console.log(result)},
+        (error) => {console.error(error.message)}
+      );
   }
 
   renderCheckbox() {
@@ -136,16 +147,16 @@ class NodeStatusBox extends Component {
     return (
       <div className="node-status-box" key={this.props.name}>
         <ul>
-          <li className="status-row">
+          <li className="layout-row">
             <div className="left">{this.props.name}</div>
             <div className="right">{this.renderCheckbox()}</div>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <div className="node-progress-container">
               <NodeProgressBar percent={this.props.progress} />
             </div>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <p className="left">Frame: {this.props.frame}</p>
             <p className="right">{this.props.progress} % Complete</p>
           </li>
@@ -169,16 +180,16 @@ class QueueStatusBox extends Component {
         onClick={this.props.onClick}
       >
         <ul>
-          <li className="status-row">
+          <li className="layout-row">
             <div className="left">{this.props.fileName}</div>
             <div className="right">{this.props.status}</div>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <div className="node-progress-container">
               <NodeProgressBar percent={this.props.progress} />
             </div>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <p className="left">{this.props.progress} % Complete</p>
             <p className="right">{this.props.timeRemaining} Remaining</p>
           </li>
@@ -244,7 +255,7 @@ class JobStatusPane extends Component {
   renderNodeBox(nodeStatus) {
     return (
       <NodeStatusBox
-        key={this.props.id + nodeStatus.name}
+        key={nodeStatus.name}
         jobId={this.props.id}
         isRendering={nodeStatus.is_rendering}
         isEnabled={nodeStatus.is_enabled}
@@ -259,10 +270,10 @@ class JobStatusPane extends Component {
     return (
       <div>
         <ul>
-          <li className="status-row">
+          <li className="layout-row">
             {this.renderMainBox(this.state.data)}
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             {this.state.data.node_status.map(nodeStatus => this.renderNodeBox(nodeStatus))}
           </li>
         </ul>
@@ -328,7 +339,7 @@ class App extends Component {
       selected = true;
     };
     return (
-      <li className="status-row">
+      <li className="layout-row" key={job.id}>
         <QueueStatusBox
           key={job.id}
           fileName={getBasename(job.file_path)}
@@ -363,13 +374,13 @@ class App extends Component {
     return (
       <div className="wrapper">
         <ul>
-          <li className="status-row">
+          <li className="layout-row">
             Queue
             <button>New</button>
             <ToggleSwitch label="Autostart" checked={data.autostart} onChange={() => alert('garble')}/>
             <h1>Stop fiddling with appearance and make work w/ existing script</h1>
           </li>
-          <li className="status-row">
+          <li className="layout-row">
             <div className="queue-pane">
               <ul>
                 {data.jobs.map(job => this.renderQueueBox(job))}
@@ -384,5 +395,18 @@ class App extends Component {
     )
   }
 }
+
+
+// browser example
+function oFK(path) {
+  console.log("got click for " + path)
+}
+
+class Browser extends Component {
+  render() {
+    return <FileBrowser path="/" url={API_CONNECT + "/browse"} onFileClick={(path) => oFK(path)} />
+  }
+}
+
 
 export default App;

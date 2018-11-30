@@ -30,7 +30,7 @@ ul, ol {
   padding: 5px;
 }
 
-.status-row {
+.layout-row {
   display: table;
   clear: both;
   width: 100%;
@@ -114,11 +114,4 @@ ul, ol {
   font-size: 11px;
   width: 220px;
   padding: 5px;
-}
-
-
-.node-progress-container {
-}
-
-.node-pane {
 }

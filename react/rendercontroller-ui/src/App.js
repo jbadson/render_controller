@@ -2,6 +2,7 @@ import React, { Component } from 'react';
 import axios from 'axios';
 import './App.css';
 import FileBrowser from './FileBrowser';
+import JobInput from './JobInput';
 
 /* TODO:
 - Get REST API completely working -- will make remaining UI development much easier
@@ -290,7 +291,7 @@ class JobStatusPane extends Component {
 }
 
 function getBasename(path) {
-  var parts = path.split('/')
+  const parts = path.split('/')
   return parts[parts.length - 1]
 }
 
@@ -334,7 +335,7 @@ class App extends Component {
   }
 
   renderQueueBox(job) {
-    var selected = false;
+    let selected = false;
     if (this.state.selectedJob && this.state.selectedJob.id === job.id) {
       selected = true;
     };
@@ -409,4 +410,5 @@ class Browser extends Component {
 }
 
 
-export default App;
+//export default App;
+export default JobInput;

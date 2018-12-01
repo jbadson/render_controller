@@ -17,6 +17,9 @@ class FileBrowser extends Component {
       pathHistory: [],
       error: null,
     };
+    this.onFileClick = props.onFileClick.bind(this);
+    this.handleDirClick = this.handleDirClick.bind(this);
+    this.handleBackClick = this.handleBackClick.bind(this);
   }
 
   getDirContents(path) {
@@ -31,12 +34,14 @@ class FileBrowser extends Component {
     this.getDirContents(path)
       .then(
         (result) => {
-          var history = this.state.pathHistory;
-          history.push(this.state.path);
-          this.setState({
-            fileList: result.data.contents,
-            pathHistory: history,
-            path: result.data.current,
+          this.setState(state => {
+            let history = state.pathHistory;
+            history.push(state.path);
+            return ({
+              fileList: result.data.contents,
+              pathHistory: history,
+              path: result.data.current,
+            })
           });
         },
         (error) => {
@@ -46,7 +51,7 @@ class FileBrowser extends Component {
   }
 
   handleBackClick() {
-    var history = this.state.pathHistory;
+    let history = this.state.pathHistory;
     const path = history.pop();
     if (!path) {
       return;
@@ -72,15 +77,15 @@ class FileBrowser extends Component {
     }
 
     // Format based on file type
-    var className = "browser";
-    var handler;
+    let className = "browser";
+    let handler;
     if (line.type === "d") {
       className += "-dir";
-      handler = (path) => this.handleDirClick(path);
+      handler = this.handleDirClick;
     } else {
       // Treat symlinks as files because we can't tell what they point to.
       className += "-file";
-      handler = (path) => this.props.onFileClick(path);
+      handler = this.onFileClick;
     }
     return(
       <li
@@ -98,7 +103,7 @@ class FileBrowser extends Component {
       return  null;
     }
     return (
-      <li className="browser" onClick={() => this.handleBackClick()}>
+      <li className="browser" onClick={this.handleBackClick}>
         &#8656; Back
       </li>
     )

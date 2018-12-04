@@ -3,6 +3,7 @@ import axios from 'axios';
 import './App.css';
 import FileBrowser from './FileBrowser';
 import JobInput from './JobInput';
+import CheckBox from './CheckBox';
 
 /* TODO:
 - Get REST API completely working -- will make remaining UI development much easier
@@ -27,21 +28,6 @@ import JobInput from './JobInput';
 
 const POLL_INTERVAL = 1000; // Milliseconds
 const API_CONNECT = "http://localhost:2020";
-
-class ToggleSwitch extends Component {
-  render() {
-    return (
-      <label>
-        {this.props.label}
-        <input
-          type="checkbox"
-          checked={this.props.checked}
-          onChange={this.props.onChange}
-        />
-      </label>
-    )
-  }
-}
 
 
 function ProgressFill(props) {
@@ -72,7 +58,7 @@ class NodeProgressBar extends Component {
 class StatusBox extends Component {
   /* Displays the overall status of a render job */
   startJob() {
-    axios.post(API_CONNECT + "/start/" + this.props.id)
+    axios.post(API_CONNECT + "/job/status/" + this.props.id)
       .then(
         (result) => {console.log(result)},
         (error) => {console.error(error.message)}
@@ -120,28 +106,15 @@ class StatusBox extends Component {
 class NodeStatusBox extends Component {
   /* Displays the status of a render node */
   handleToggle() {
-    axios.post(API_CONNECT + "/rendernode", {id: this.props.jobId, node: this.props.name, action: "toggle"})
+    let action = "enable";
+    if (this.props.isEnabled) {
+      action = "disable";
+    }
+    axios.get(API_CONNECT + "/node/" + action + "/" + this.props.name + "/" + this.props.jobId)
       .then(
         (result) => {console.log(result)},
         (error) => {console.error(error.message)}
       );
-  }
-
-  renderCheckbox() {
-    return (
-      <label>
-        <form>
-          <input
-            type="checkbox"
-            className="right"
-            value={this.props.name}
-            checked={this.props.isEnabled}
-            onChange={() => this.handleToggle()}
-          />
-        Enabled:&nbsp;
-        </form>
-      </label>
-    )
   }
 
   render() {
@@ -150,7 +123,13 @@ class NodeStatusBox extends Component {
         <ul>
           <li className="layout-row">
             <div className="left">{this.props.name}</div>
-            <div className="right">{this.renderCheckbox()}</div>
+            <CheckBox
+                className="right"
+                label="Enabled:&nbsp;"
+                value={this.props.name}
+                checked={this.props.isEnabled}
+                onChange={() => this.handleToggle()}
+            />
           </li>
           <li className="layout-row">
             <div className="node-progress-container">
@@ -211,7 +190,7 @@ class JobStatusPane extends Component {
   }
 
   getUpdate() {
-    axios.get(API_CONNECT + "/job/" + this.props.id)
+    axios.get(API_CONNECT + "/job/status/" + this.props.id)
       .then(
         (result) => {
           this.setState({
@@ -239,7 +218,6 @@ class JobStatusPane extends Component {
     const data = this.state.data;
     return (
       <StatusBox
-        key={data.id}
         id={data.id}
         status={data.status}
         filePath={data.file_path}
@@ -253,14 +231,14 @@ class JobStatusPane extends Component {
     )
   }
 
-  renderNodeBox(nodeStatus) {
+  renderNodeBox(name, nodeStatus) {
     return (
       <NodeStatusBox
-        key={nodeStatus.name}
+        key={name}
+        name={name}
         jobId={this.props.id}
-        isRendering={nodeStatus.is_rendering}
-        isEnabled={nodeStatus.is_enabled}
-        name={nodeStatus.name}
+        isRendering={nodeStatus.rendering}
+        isEnabled={nodeStatus.enabled}
         frame={nodeStatus.frame}
         progress={nodeStatus.progress}
       />
@@ -275,7 +253,7 @@ class JobStatusPane extends Component {
             {this.renderMainBox(this.state.data)}
           </li>
           <li className="layout-row">
-            {this.state.data.node_status.map(nodeStatus => this.renderNodeBox(nodeStatus))}
+            {Object.keys(this.state.data.node_status).map(node => this.renderNodeBox(node, this.state.data.node_status[node]))}
           </li>
         </ul>
       </div>
@@ -307,7 +285,7 @@ class App extends Component {
 
   getUpdate() {
     // Fetch data from server and update UI
-    axios.get(API_CONNECT + "/status")
+    axios.get(API_CONNECT + "/job/summary")
       .then(
         (result) => {
           this.setState({
@@ -378,7 +356,7 @@ class App extends Component {
           <li className="layout-row">
             Queue
             <button>New</button>
-            <ToggleSwitch label="Autostart" checked={data.autostart} onChange={() => alert('garble')}/>
+            <CheckBox label="Autostart" checked={data.autostart} onChange={() => alert('garble')}/>
             <h1>Stop fiddling with appearance and make work w/ existing script</h1>
           </li>
           <li className="layout-row">
@@ -394,18 +372,6 @@ class App extends Component {
         </ul>
       </div>
     )
-  }
-}
-
-
-// browser example
-function oFK(path) {
-  console.log("got click for " + path)
-}
-
-class Browser extends Component {
-  render() {
-    return <FileBrowser path="/" url={API_CONNECT + "/browse"} onFileClick={(path) => oFK(path)} />
   }
 }
 

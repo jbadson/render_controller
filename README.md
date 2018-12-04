@@ -29,6 +29,19 @@ What this really needs is a complete rewrite from the ground up, but I moved on 
 
 If you run into a cryptic error message like "error: can't copy 'conf/server.conf': doesn't exist or not a regular file" when building the pip package, try upgrading to the latest version of setuptools: `pip3 install --upgrade setuptools`
 
+
+# REST API reference
+/job/summary -> summary of all jobs on server
+/job/new -> Start a new job
+/job/status/{id} -> Detailed status for a given job
+/job/start/{id} -> Start a given job
+/job/stop/{id} -> Stop a given job
+/job/delete/{id} -> Remove a given job from the server
+/node/list -> List render nodes
+/node/enable/{name}/{id} -> Enable a render node for a given job
+/node/disable/{name}/{id} -> Disable a render node for a given job
+/storage/ls -> List the contents of a directory on shared storage
+
 ## Here's the old overview:
 This is a network rendering utility written for the Interactive Geology Projectat the University of Colorado Boulder (http://igp.colorado.edu).
 

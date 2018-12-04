@@ -26,7 +26,7 @@ class FileBrowser extends Component {
     return axios.post(this.props.url, {"path": path});
   }
 
-  componentWillMount() {
+  componentDidMount() {
     this.handleDirClick(this.props.path);
   }
 
@@ -35,11 +35,10 @@ class FileBrowser extends Component {
       .then(
         (result) => {
           this.setState(state => {
-            let history = state.pathHistory;
-            history.push(state.path);
+            const history = state.pathHistory;
             return ({
               fileList: result.data.contents,
-              pathHistory: history,
+              pathHistory: history.concat([state.path]),
               path: result.data.current,
             })
           });
@@ -51,8 +50,8 @@ class FileBrowser extends Component {
   }
 
   handleBackClick() {
-    let history = this.state.pathHistory;
-    const path = history.pop();
+    const history = this.state.pathHistory;
+    const path = history[history.length - 1]
     if (!path) {
       return;
     }
@@ -60,7 +59,7 @@ class FileBrowser extends Component {
       (result) => {
         this.setState({
           fileList: result.data.contents,
-          pathHistory: history,
+          pathHistory: history.slice(0, history.length -1),
           path: path,
         });
       },
@@ -75,7 +74,6 @@ class FileBrowser extends Component {
     if (line.name.startsWith(".")) {
       return;
     }
-
     // Format based on file type
     let className = "browser";
     let handler;
@@ -112,16 +110,14 @@ class FileBrowser extends Component {
   render() {
     const { fileList, error } = this.state;
     if (error) {
-      return <div>FileBrowser load failed: {error.message}</div>
+      return <p>FileBrowser load failed: {error.message}</p>
     }
     return (
-      <div className="browser-container">
         <ul>
           {this.renderBackButton()}
           <li className="browser-current">[{this.state.path}]</li>
           {fileList.map(line => this.renderLine(line))}
         </ul>
-      </div>
     );
   }
 }

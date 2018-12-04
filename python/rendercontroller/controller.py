@@ -2,6 +2,7 @@
 import logging
 from typing import Sequence, Dict, Any, Type
 from . import job
+from .exceptions import JobNotFoundError, NodeNotFoundError
 
 
 logger = logging.getLogger("controller")
@@ -43,6 +44,7 @@ class RenderController(object):
         # rewrite all the terrible stuff in RenderServer.
         job.CONFIG = config
         self.server = job.RenderServer()
+        self.render_nodes = set(config.render_nodes)
 
     def new_job(
         self, path: str, start: int, end: int, engine: str, nodes: Sequence[str]
@@ -94,15 +96,35 @@ class RenderController(object):
         """
         self.server.toggle_autostart()
 
-    def toggle_node(self, job_id: str, node: str) -> None:
+    def enable_node(self, job_id: str, node: str) -> None:
         """
-        Toggles the enabled/disabled state of a render node for a given job.
+        Enables a render node for a given job.
 
         :param str job_id: ID of job to modify.
-        :param str node: Name of render node to toggle.
+        :param str node: Name of render node.
         """
-        # TODO raise exception if fails
-        self.server.toggle_comp(job_id, node)
+        logger.debug("Enable %s for %s" % (node, job_id))
+        if node not in self.render_nodes:
+            raise NodeNotFoundError("Node '%s' not found" % node)
+        try:
+            self.server.renderjobs[job_id].add_computer(node)
+        except KeyError:
+            raise JobNotFoundError("Job '%s' not found" % job_id)
+
+    def disable_node(self, job_id: str, node: str) -> None:
+        """
+        Disables a render node for a given job.
+
+        :param str job_id: ID of job to modify.
+        :param str node: Name of render node.
+        """
+        logger.debug("Disable %s for %s" % (node, job_id))
+        if node not in self.render_nodes:
+            raise NodeNotFoundError("Node '%s' not found" % node)
+        try:
+            self.server.renderjobs[job_id].remove_computer(node)
+        except KeyError:
+            raise JobNotFoundError("Job '%s' not found" % job_id)
 
     def get_status(self) -> Dict[str, Any]:
         """
@@ -133,17 +155,14 @@ class RenderController(object):
         return ret
 
     def _reformat_node_list(self, complist, compstatus):
-        node_status = []
+        node_status = {}
         for node, info in compstatus.items():
-            node_status.append(
-                {
-                    "name": node,
-                    "is_rendering": info["active"],
-                    "is_enabled": True if node in complist else False,
-                    "frame": info["frame"],
-                    "progress": info["progress"],
-                }
-            )
+            node_status[node] = {
+                "rendering": info["active"],
+                "enabled": True if node in complist else False,
+                "frame": info["frame"],
+                "progress": info["progress"],
+            }
         return node_status
 
     def get_job_status(self, job_id: str) -> Dict:
@@ -151,7 +170,7 @@ class RenderController(object):
         # Rearrange data to match new format
         data = self.server.get_attrs(job_id)
         if data == "Index not found.":
-            raise KeyError("Job not found")
+            raise JobNotFoundError("Job '%s' not found" % job_id)
         ret = {
             "id": job_id,
             "file_path": data["path"],

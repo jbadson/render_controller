@@ -26,5 +26,13 @@
 }
 
 .number-input-bad {
-  box-shadow: 0px 0px 5px 1px #ff0000;
+  box-shadow: 0px 0px 6px 2px #ff0000;
+}
+
+.text-link {
+  color: blue;
+}
+
+.text-link:hover {
+  color: yellow;
 }

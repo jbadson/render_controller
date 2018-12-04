@@ -1,6 +1,7 @@
 import React, { Component } from "react";
 import "./JobInput.css";
 import FileBrowser from './FileBrowser';
+import CheckBox from './CheckBox';
 
 /**
  * Displays FileBrowser in a popup overlay.
@@ -28,7 +29,8 @@ function BrowserPopup(props) {
 
 
 /**
- * Number input form that changes CSS className if value contains a non-digit.
+ * Number input field that changes CSS className if value contains a non-digit.
+ * @param {str} name: Name attribute of HTML input
  * @param {int} value: Contents of input field.
  * @param {function} onChange - Callback on input change.
  */
@@ -59,6 +61,7 @@ class NumberInput extends Component {
       <label>
         Input:
         <input type="text"
+          name={this.props.name}
           className={this.state.className}
           value={this.props.value}
           onChange={this.handleChange}
@@ -66,6 +69,34 @@ class NumberInput extends Component {
       </label>
     )
   }
+}
+
+/**
+ * Widget for selecting render nodes.
+ * @param {Array} renderNodes - Array of objects describing render nodes.
+ */
+function NodePicker(props) {
+  return (
+    <ul>
+      <li className="layout-row">
+        <div className="left"><p className="text-link" onClick={props.onSelectAll}>Select All</p></div>
+        <div className="left"><p className="text-link" onClick={props.onSelectNone}>Select None</p></div>
+      </li>
+      <li className="layout-row">
+        {Object.keys(props.renderNodes).map(name => {
+          return (
+              <CheckBox
+                key={name}
+                label={name}
+                checked={props.renderNodes[name].enabled}
+                className="left"
+                onChange={props.onCheckNode}
+              />
+          )
+        })}
+      </li>
+    </ul>
+  )
 }
 
 
@@ -87,9 +118,10 @@ class JobInput extends Component {
     }
     this.toggleBrowser = this.toggleBrowser.bind(this);
     this.setPath = this.setPath.bind(this);
-    this.handlePathChange = this.handlePathChange.bind(this);
-    this.handleStartChange = this.handleStartChange.bind(this);
-    this.handleEndChange = this.handleEndChange.bind(this);
+    this.selectAllNodes = this.selectAllNodes.bind(this);
+    this.deselectAllNodes = this.deselectAllNodes.bind(this);
+    this.setNodeState = this.setNodeState.bind(this);
+    this.handleChange = this.handleChange.bind(this);
   }
 
   toggleBrowser() {
@@ -103,18 +135,39 @@ class JobInput extends Component {
     });
   }
 
-  handlePathChange(event) {
-    this.setState({path: event.target.value})
+  selectAllNodes() {
+    this.setState(state => {
+      let newNodes = state.renderNodes;
+      for (var name in newNodes) {
+        newNodes[name]["enabled"] = true;
+      }
+      console.log(newNodes)
+      return {renderNodes: newNodes}
+    });
   }
 
-  handleStartChange(event) {
-    //FIXME complain if not number
-    this.setState({startFrame: event.target.value})
+  deselectAllNodes() {
+    this.setState(state => {
+      let newNodes = state.renderNodes;
+      for (var name in newNodes) {
+        newNodes[name]["enabled"] = false;
+      }
+      console.log(newNodes)
+      return {renderNodes: newNodes}
+    });
   }
 
-  handleEndChange(event) {
-    //FIXME complain if not number
-    this.setState({endFrame: event.target.value})
+  setNodeState(event) {
+    const name = event.target.name;
+    this.setState(state => {
+      let newNodes = state.renderNodes;
+      newNodes[name]["enabled"] = !state.renderNodes[name]["enabled"];
+      return {renderNodes: newNodes}
+    });
+  }
+
+  handleChange(event) {
+    this.setState({[event.target.name]: event.target.value});
   }
 
   render() {
@@ -122,7 +175,7 @@ class JobInput extends Component {
       <div className="input-container">
         {this.state.showBrowser &&
           <BrowserPopup
-            url={this.props.url}
+            url={this.props.url + "/storage/ls"}
             path={this.props.path}
             onClose={this.toggleBrowser}
             onFileClick={this.setPath}
@@ -133,17 +186,30 @@ class JobInput extends Component {
             <li className="layout-row">
               <label>
                 Path:
-                <input type="text" value={this.state.path} onChange={this.handlePathChange} />
+                <input type="text" name="path" value={this.state.path} onChange={this.handleChange} />
                 <input type="button" value="Browse" onClick={this.toggleBrowser} />
               </label>
             </li>
             <li className="layout-row">
-              <NumberInput value={this.state.startFrame} onChange={this.handleStartChange} />
-              <NumberInput value={this.state.endFrame} onChange={this.handleEndChange} />
+              <NumberInput name="startFrame" value={this.state.startFrame} onChange={this.handleChange} />
+              <NumberInput name="endFrame" value={this.state.endFrame} onChange={this.handleChange} />
             </li>
-            <li className="layout-row">Render nodes</li>
-            <li className="layout-row">OK, Cancel</li>
-            <li className="layout-row">Check:<br />Path: "{this.state.path}"<br />Start: {this.state.startFrame} End: {this.state.endFrame}</li>
+            <li className="layout-row">
+              Render nodes
+              <NodePicker
+                renderNodes={this.props.renderNodes}
+                onCheckNode={this.setNodeState}
+                onSelectAll={this.selectAllNodes}
+                onSelectNone={this.deselectAllNodes}
+              />
+            </li>
+            <li className="layout-row">
+              //FIXME Buttons are causing the page to refresh for some reason.
+              <div className="left"><button>OK</button></div>
+              <div className="left"><button>Cancel</button></div>
+            </li>
+            <li className="layout-row"><br />Check:<br />Path: "{this.state.path}"<br />Start: {this.state.startFrame} End: {this.state.endFrame}<br />
+            Nodes: {Object.keys(this.state.renderNodes).map(node => " " + node + ": " + this.state.renderNodes[node]["enabled"].toString())}</li>
           </ul>
         </form>
       </div>
@@ -155,7 +221,9 @@ class JobInput extends Component {
 
 class Wrapper extends Component {
   render() {
-    return <JobInput path="/" url={"http://localhost:2020"+ "/browse"} />
+    //const testNodes = [{name: "node1", enabled:true}, {name: "node2", enabled: false}]
+    const testNodes = {node1: {enabled: true, rendering: false}, node2: {enabled: false, rendering: false}}
+    return <JobInput path="/" url={"http://localhost:2020"} renderNodes={testNodes} />
   }
 }
 

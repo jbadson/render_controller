@@ -96,7 +96,7 @@ class Job(object):
         self.complist = []
         #generate dict of computer statuses
         self.compstatus = dict()
-        for computer in CONFIG.rendernodes:
+        for computer in CONFIG.render_nodes:
             self._reset_compstatus(computer)
         self.skiplist = []
         self.path = None
@@ -230,7 +230,7 @@ class Job(object):
                     skipcomp = self.skiplist.pop(0)
                     self._reset_compstatus(skipcomp)
     
-            for computer in CONFIG.rendernodes:
+            for computer in CONFIG.render_nodes:
                 time.sleep(0.01)
                 if not computer in self.complist:
                     continue
@@ -597,7 +597,7 @@ class Job(object):
             'Render stopped by user. Total time: {}, Avg time per frame: {}'.format(
             format_time(elapsed), format_time(avg)))
         self.status = 'Stopped'
-        for computer in CONFIG.rendernodes:
+        for computer in CONFIG.render_nodes:
             try:
                 if self.compstatus[computer]['active']:
                     self.kill_thread(computer)
@@ -632,7 +632,7 @@ class Job(object):
         if not (self.status == 'Stopped' or self.status == 'Paused'):
             return False
         self.killflag = False
-        for computer in CONFIG.rendernodes:
+        for computer in CONFIG.render_nodes:
             self._reset_compstatus(computer)
         self.status = 'Waiting'
         if startnow:
@@ -674,7 +674,7 @@ class Job(object):
         times = attrdict['times']
         #create new entries if list of available computers has changed
         #new computers added
-        added = [comp for comp in CONFIG.rendernodes if not 
+        added = [comp for comp in CONFIG.render_nodes if not
                  comp in self.compstatus]
         if added:
             for comp in added:
@@ -683,7 +683,7 @@ class Job(object):
                     comp))
         #any computers no longer available
         removed = [comp for comp in self.compstatus if not
-                   comp in CONFIG.rendernodes]
+                   comp in CONFIG.render_nodes]
         if removed:
             for comp in removed:
                 if comp in self.complist:
@@ -711,7 +711,7 @@ class Job(object):
             logger.debug('Attempting to start')
             #determine time offset to give correct remaining time estimate
             elapsed = times[0]
-            for computer in CONFIG.rendernodes:
+            for computer in CONFIG.render_nodes:
                 self._reset_compstatus(computer)
             self.status = 'Waiting'
             self.render(time_offset=elapsed)
@@ -967,7 +967,7 @@ class RenderServer(object):
             return 'Failed to start render.'
     
     def toggle_comp(self, index, computer):
-        if not computer in CONFIG.rendernodes:
+        if not computer in CONFIG.render_nodes:
             return 'Computer "%s" not recognized.' %computer
         if computer in self.renderjobs[index].complist:
             reply = self.renderjobs[index].remove_computer(computer)
@@ -1077,7 +1077,7 @@ class RenderServer(object):
         given machines.'''
         # First make sure that everything is OK
         for comp in complist:
-            if not comp in CONFIG.rendernodes:
+            if not comp in CONFIG.render_nodes:
                 return 'Killall failed. Computer %s not recognized.' %comp
         if not procname in ['blender', 'terragen']:
             return 'Process name %s not recognized.' %procname

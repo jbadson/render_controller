@@ -1,7 +1,6 @@
 import React, { Component } from 'react';
 import axios from 'axios';
 import './App.css';
-import FileBrowser from './FileBrowser';
 import JobInput from './JobInput';
 import CheckBox from './CheckBox';
 
@@ -58,7 +57,7 @@ class NodeProgressBar extends Component {
 class StatusBox extends Component {
   /* Displays the overall status of a render job */
   startJob() {
-    axios.post(API_CONNECT + "/job/status/" + this.props.id)
+    axios.post(API_CONNECT + "/job/start/" + this.props.id)
       .then(
         (result) => {console.log(result)},
         (error) => {console.error(error.message)}
@@ -280,6 +279,8 @@ class App extends Component {
       data: {},
       error: null,
       selectedJob: null,
+      showInputPane: false,
+      renderNodes: [],
     }
   }
 
@@ -288,9 +289,15 @@ class App extends Component {
     axios.get(API_CONNECT + "/job/summary")
       .then(
         (result) => {
-          this.setState({
+          this.setState(state => {
+            let selectedJob = state.selectedJob;
+            if (!state.selectedJob) {
+              selectedJob = result.data.jobs[0];
+            }
+            return {
             data: result.data,
-          });
+            selectedJob: selectedJob,
+          }});
         },
         (error) => {
           this.setState({
@@ -300,16 +307,34 @@ class App extends Component {
     )
   }
 
+  getRenderNodes() {
+    axios.get(API_CONNECT + "/node/list")
+      .then(
+        (result) => {
+          let renderNodes = {}
+          for (var i = 0; i < result.data.length; i++) {
+            renderNodes[result.data[i]] = false;
+          }
+          return this.setState({renderNodes: renderNodes})},
+        (error) => {console.log(error)}
+      )
+  }
+
   componentDidMount() {
     // Set interval to poll server for updates
     // Performance is bad especially if interval is short
     // Websockets would probably be even better
-    this.getUpdate()
+    this.getUpdate();
+    this.getRenderNodes();
     this.interval = setInterval(() => this.getUpdate(), POLL_INTERVAL);
   }
 
   componentWillUnmount() {
     clearInterval(this.interval);
+  }
+
+  toggleInputPane() {
+    this.setState(state => ({showInputPane: !state.showInputPane}))
   }
 
   renderQueueBox(job) {
@@ -349,13 +374,25 @@ class App extends Component {
       //FIXME will be empty if server is idle. Handle correctly
       return <div>Error: No data to render</div>
     }
-
+    // FIXME: App never unmounts even when status pane is hidden, so App's
+    // update interval never stops.
+    if (this.state.showInputPane) {
+      console.log(this.state.renderNodes)
+      return (
+        <JobInput
+          path="/"
+          url={API_CONNECT}
+          renderNodes={this.state.renderNodes}
+          onClose={() => this.toggleInputPane()}
+        />
+      )
+    }
     return (
       <div className="wrapper">
         <ul>
           <li className="layout-row">
             Queue
-            <button>New</button>
+            <button onClick={() => this.toggleInputPane()} >New</button>
             <CheckBox label="Autostart" checked={data.autostart} onChange={() => alert('garble')}/>
             <h1>Stop fiddling with appearance and make work w/ existing script</h1>
           </li>
@@ -376,5 +413,5 @@ class App extends Component {
 }
 
 
-//export default App;
-export default JobInput;
+export default App;
+//export default JobInput;

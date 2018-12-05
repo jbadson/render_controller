@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging
 from typing import Sequence, Dict, Any, Type
+from uuid import uuid4
 from . import job
 from .exceptions import JobNotFoundError, NodeNotFoundError
 
@@ -47,19 +48,31 @@ class RenderController(object):
         self.render_nodes = set(config.render_nodes)
 
     def new_job(
-        self, path: str, start: int, end: int, engine: str, nodes: Sequence[str]
+        self, path: str, start_frame: int, end_frame: int, render_engine: str, nodes: Sequence[str]
     ) -> str:
         """
         Creates a new render job and places it in queue.
 
         :param str path: Path to project file.
-        :param int start: Start frame number.
-        :param int end: End frame number.
-        :param str engine: Render engine.
-        :param list nodes: List of render nodes to use.
+        :param int start_frame: Start frame number.
+        :param int end_frame: End frame number.
+        :param str render_engine: Render engine.
+        :param list nodes: List of render nodes to enable for this job.
         :return str: ID of newly created job.
         """
-        raise NotImplementedError
+        job_id = uuid4().hex
+        result = self.server.enqueue({
+            "index": job_id,
+            "path": path,
+            "startframe": start_frame,
+            "endframe": end_frame,
+            "extraframes": None , # Deprecated
+            "render_engine": render_engine,
+            "complist": nodes,
+        })
+        if result != job_id:
+            raise RuntimeError(result)
+        return job_id
 
     def start(self, job_id: str) -> None:
         """Starts a render job."""
@@ -176,7 +189,7 @@ class RenderController(object):
             "file_path": data["path"],
             "start_frame": data["startframe"],
             "end_frame": data["endframe"],
-            "engine": data["render_engine"],
+            "render_engine": data["render_engine"],
             "status": data["status"],
             "progress": data["progress"],
             "time_avg": data["times"][1],

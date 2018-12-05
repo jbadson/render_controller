@@ -307,23 +307,25 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     def new_job(self):
         """Creates a new render job and places it in queue."""
         data = self.receive_json()
-        # New server enqueue method should do:
-        #   1. Validate required fields
-        #   2. Create job
-        #   3. Place in queue
-        #   4. Return nullable job ID and error
-        path = data.get("path", None)
-        start = data.get("start", None)
-        end = data.get("end", None)
-        engine = data.get("engine", None)
-        nodes = data.get("nodes", None)
-        job_id, error = None
+        try:
+            path = data["path"]
+            start = int(data["start_frame"])
+            end = int(data["end_frame"])
+            engine = data["render_engine"]
+            nodes = data["nodes"]
+        except KeyError:
+            logger.exception("New job request missing required data")
+            return self.send_error(HTTPStatus.BAD_REQUEST, "Missing required data")
         try:
             job_id = self.controller.new_job(path, start, end, engine, nodes)
         except Exception as e:
             logger.exception("Error while creating job")
             error = str(e)
-        self.send_json({"job_id": job_id, "error": error})
+            #TODO: Be more specific
+            return self.send_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                f"Failed to create job", "Server caught {error}")
+        self.send_json({"job_id": job_id})
 
     def node(self) -> None:
         """Handles requests for the `node` endpoint."""

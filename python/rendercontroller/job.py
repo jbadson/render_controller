@@ -136,7 +136,7 @@ class Job(object):
         return self.compstatus[computer]
 
     def enqueue(self, path, startframe, endframe, render_engine, complist, 
-                extraframes=[]):
+                extraframes=None):
         '''Create a new job and place it in queue.'''
         #make sure path is properly shell-escaped
         self.path = shlex.quote(path)
@@ -145,7 +145,7 @@ class Job(object):
                 return False
         self.startframe = startframe
         self.endframe = endframe
-        self.extraframes = extraframes
+        self.extraframes = extraframes or []
 
         self.render_engine = render_engine
         self.complist = complist
@@ -951,7 +951,7 @@ class RenderServer(object):
             extraframes=extras, 
             )
         if success:
-            return (index + ' successfully placed in queue')
+            return index
         else:
             del self.renderjobs[index]
             return 'Enqueue failed, job deleted'

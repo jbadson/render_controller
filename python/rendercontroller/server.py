@@ -89,18 +89,21 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         to handler method names.
     :param dict[str, str] storage_handlers: Mapping of storage endpoint options
         to handler method names.
+    :param dict[str, str] config_handlers: Mapping of config endpoint options
+        to handler method names.
     """
 
     controller = None
     origin = "*"
     fileserver_base_dir = "/dev/null"
-    get_endpoints = {"job", "node"}
-    post_endpoints = {"job", "node", "storage"}
+    get_endpoints = {"job", "node", "config"}
+    post_endpoints = {"job", "node", "storage", "config"}
     job_handlers = {
         "summary": "job_summary",
         "status": "job_status",
         "start": "start_job",
         "stop": "stop_job",
+        "enqueue": "enqueue_job",
         "delete": "delete_job",
         "new": "new_job",
     }
@@ -110,6 +113,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         "disable": "disable_node",
     }
     storage_handlers = {"ls": "list_directory"}
+    config_handlers = {"autostart": "configure_autostart"}
 
     def __init__(self, *args, **kwargs) -> None:
         self._parsed_path: Optional[ParsedPath] = None
@@ -247,7 +251,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         try:
             data = json.loads(data)
         except JSONDecodeError:
-            return self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to decode JSON")
+            return self.send_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to decode JSON"
+            )
         logger.debug(data)
         return data
 
@@ -292,17 +298,49 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
             return
         # FIXME Fails messily if job status is wrong
-        self.controller.start(self.parsed_path.target)
+        try:
+            self.controller.start(self.parsed_path.target)
+        except JobNotFoundError:
+            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         self.send_all_headers()
 
     def stop_job(self):
         """Stops a render job."""
-        # Just return 200 if OK
-        raise NotImplementedError
+        if not self.parsed_path.target:
+            logger.warning("Job ID not specified in '%s'" % self.parsed_path)
+            self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
+            return
+        # For now, always kill all rendering frames immediately.
+        # We can restore the old functionality if requested.
+        try:
+            self.controller.stop(self.parsed_path.target, True)
+        except JobNotFoundError:
+            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
+        self.send_all_headers()
+
+    def enqueue_job(self):
+        """Places a stopped job back in the render queue."""
+        if not self.parsed_path.target:
+            logger.warning("Job ID not specified in '%s'" % self.parsed_path)
+            self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
+            return
+        try:
+            self.controller.enqueue(self.parsed_path.target)
+        except JobNotFoundError:
+            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
+        self.send_all_headers()
 
     def delete_job(self):
         """Deletes a render job."""
-        raise NotImplementedError
+        if not self.parsed_path.target:
+            logger.warning("Job ID not specified in '%s'" % self.parsed_path)
+            self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
+            return
+        try:
+            self.controller.delete(self.parsed_path.target)
+        except JobNotFoundError:
+            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
+        self.send_all_headers()
 
     def new_job(self):
         """Creates a new render job and places it in queue."""
@@ -321,10 +359,12 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.exception("Error while creating job")
             error = str(e)
-            #TODO: Be more specific
+            # TODO: Be more specific
             return self.send_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                f"Failed to create job", "Server caught {error}")
+                f"Failed to create job",
+                "Server caught {error}",
+            )
         self.send_json({"job_id": job_id})
 
     def node(self) -> None:
@@ -333,7 +373,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def list_nodes(self) -> None:
         """Sends a list of configured render nodes."""
-        self.send_json(list(self.controller.render_nodes))
+        self.send_json(self.controller.render_nodes)
 
     def enable_node(self) -> None:
         """Enables a node for rendering."""
@@ -398,6 +438,25 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             logger.exception("Caught exception while browsing filesystem")
             return self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Filesystem error")
         self.send_json({"current": path, "contents": contents})
+
+    def config(self) -> None:
+        """Handles requests for the `config` endpoint."""
+        self.exec_handler(self.config_handlers)
+
+    def configure_autostart(self) -> None:
+        """Gets or sets the autostart mode."""
+        if not self.parsed_path.target:
+            # Send current state
+            self.send_json({"autostart": self.controller.autostart})
+            return
+        if self.parsed_path.target == "enable":
+            self.controller.enable_autostart()
+        elif self.parsed_path.target == "disable":
+            self.controller.disable_autostart()
+        else:
+            logger.error("Invalid autostart target '%s'" % self.parsed_path.target)
+            return self.send_error(HTTPStatus.NOT_FOUND, "Invalid target")
+        self.send_all_headers()
 
 
 def main(config_path: str) -> int:

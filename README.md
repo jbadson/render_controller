@@ -36,11 +36,26 @@ If you run into a cryptic error message like "error: can't copy 'conf/server.con
 /job/status/{id} -> Detailed status for a given job
 /job/start/{id} -> Start a given job
 /job/stop/{id} -> Stop a given job
+/job/enqueue/{id} -> Place a stopped job back in render queue
 /job/delete/{id} -> Remove a given job from the server
 /node/list -> List render nodes
 /node/enable/{name}/{id} -> Enable a render node for a given job
 /node/disable/{name}/{id} -> Disable a render node for a given job
 /storage/ls -> List the contents of a directory on shared storage
+    Filesystem access is restricted by the filesystem_base_dir config file setting.
+/config/autostart -> Returns autostart state
+/config/autostart/enable -> Enables autostart
+/config/autostart/disable -> Disables autostart
+
+
+# Render Queue, Status, and Autostart
+New jobs are automatically placed in the render queue. If autostart is enabled, jobs will be rendered one at a time in the order in which they were submitted. If multiple renders are started manually, none will be started automatically until all active renders have finished. If autostart is not enabled, the render queue just represents the list of jobs available for rendering, but they must be manually started.
+
+## Job Statuses
+* Waiting: Job is in queue and waiting to be rendered.
+* Stopped: Job was stopped by user. Stopped jobs are excluded from the render queue and will not be rendered without user intervention.  A user may either resume rendering the job by clicking the Start button, or may place it back in queue with the Enqueue button.
+* Rendering: Job is actively rendering.
+* Finished: Job is finished rendering.
 
 ## Here's the old overview:
 This is a network rendering utility written for the Interactive Geology Projectat the University of Colorado Boulder (http://igp.colorado.edu).

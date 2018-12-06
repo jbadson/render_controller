@@ -151,7 +151,6 @@ class JobInput extends Component {
       for (var name in newNodes) {
         newNodes[name] = true;
       }
-      console.log(newNodes)
       return {renderNodes: newNodes}
     });
   }
@@ -162,7 +161,6 @@ class JobInput extends Component {
       for (var name in newNodes) {
         newNodes[name] = false;
       }
-      console.log(newNodes)
       return {renderNodes: newNodes}
     });
   }
@@ -185,8 +183,6 @@ class JobInput extends Component {
     const startFrame = this.state.startFrame;
     const endFrame = this.state.endFrame;
     const renderNodes = this.state.renderNodes;
-    console.log(path, startFrame, endFrame, renderNodes)
-
 
     // Validate inputs
     if (!startFrame || isNaN(startFrame)) {
@@ -209,7 +205,6 @@ class JobInput extends Component {
     // TODO Might be better to do this on the render server.
     const pathArray = path.split('.');
     const ext = pathArray[pathArray.length - 1];
-    console.log(ext)
     if (!RENDER_ENGINES.includes(ext)) {
       // FIXME: handle this correctly.
       alert('Project file name must end with ".blend" or ".tgd"')
@@ -222,7 +217,6 @@ class JobInput extends Component {
       render_engine: ext,
       nodes: selectedNodes
     }
-    console.log(ret);
     axios.post(this.props.url + "/job/new", ret)
       .then((result) => {console.log(result)}, (error) => console.error(error))
     this.props.onClose();

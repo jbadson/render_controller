@@ -82,6 +82,21 @@ ul, ol {
   transition: width .2s ease-in;
 }
 
+.progress-fill-finished {
+  background: #6F6F6F;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}
+
+.progress-fill-stopped {
+  background: #E60000;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}
+
+
 .node-status-box {
   border-style: solid;
   border-radius: 5px;

@@ -5,23 +5,28 @@ import JobInput from './JobInput';
 import CheckBox from './CheckBox';
 
 /* TODO:
-- Get REST API completely working -- will make remaining UI development much easier
-  Translation layer done. Need to finish methods in server to talk to it.
+√- Get REST API completely working -- will make remaining UI development much easier
 √- Select active jobs from queue
-- New job input (new pane or page?)
+√- New job input (new pane or page?)
 - Make all buttons work
-  Edit -- Could remove this and just make people put in new job
   √Start
-  Stop -- How to handle kill/no? Can't do popups
-  Resume -- How to handle  start now/later
-  Delete -- How to do confirmation?
+  √Stop -- How to handle kill/no? Can't do popups
+  √Resume -- How to handle  start now/later
+  √Delete -- How to do confirmation?
+  Autostart (make a dropdown or something so we only query state when needed)
+- Disable (preferably gray out or hide) buttons in irrelevant contexts:
+  Enqueue when state != stopped
+  Start when state == running
+- Tooltips for buttons, especially start, stop, enqueue
 √- Node enable/disable checkboxes
-- Finish styling buttons
+- Color-coded progress bars and queue blocks
+- Finish styling
 √- Deal with Windows path conversion
     -> Alternatively could allow uploading of project directory
        (might be more complex to make sure paths are all relative)
     -> Or can have custom thing in UI to convert windows paths to linux
     -> Finally, can just make them manually enter the path
+- Review all FIXMEs and TODOs
 - Figure out how to package this for distribution
 */
 
@@ -29,28 +34,49 @@ const POLL_INTERVAL = 1000; // Milliseconds
 const API_CONNECT = "http://localhost:2020";
 
 
+// Formats time like {days}d {hrs}h {min}m {sec}s
+function fmtTime(time) {
+  let m, s, h, d;
+  m = Math.floor(time / 60);
+  s = time % 60;
+  h = Math.floor(m / 60);
+  m = m % 60; // Get remaining min from total
+  d = Math.floor(h / 24);
+  h = h % 24; // Get remaining hr from total
+  let timestr = s.toFixed(1) + "s";
+  if (time >= 60) {
+    timestr = m.toFixed(0) + "m " + s.toFixed(0) + "s";
+  }
+  if (time >= 3600) {
+    timestr = h.toFixed(0) + "h " + timestr;
+  }
+  if (time >= 86400) {
+    timestr = d.toFixed(0) + "d " + timestr;
+  }
+  return timestr;
+}
+
+
 function ProgressFill(props) {
-  return <div className="progress-fill" style={{ width: `${props.percent}%`}} />
+  const className = props.className || "progress-fill";
+  return <div className={className} style={{ width: `${props.percent}%`}} />
 }
 
-class ProgressBar extends Component {
-  render() {
-    return (
-      <div className="progress-bar">
-        <ProgressFill percent={this.props.percent} />
-      </div>
-    )
-  }
+
+function ProgressBar(props) {
+  return (
+    <div className="progress-bar">
+      <ProgressFill className={props.className} percent={props.percent} />
+    </div>
+  )
 }
 
-class NodeProgressBar extends Component {
-  render() {
-    return (
-      <div className="node-progress-bar">
-        <ProgressFill percent={this.props.percent} />
-      </div>
-    )
-  }
+function NodeProgressBar(props) {
+  return (
+    <div className="node-progress-bar">
+      <ProgressFill className={props.className} percent={props.percent} />
+    </div>
+  )
 }
 
 
@@ -62,10 +88,43 @@ class StatusBox extends Component {
         (result) => {console.log(result)},
         (error) => {console.error(error.message)}
       );
+  }
 
+  stopJob() {
+    axios.post(API_CONNECT + "/job/stop/" + this.props.id)
+    .then(
+      //FIXME: Add confirmation of some kind
+      (result) => {console.log(result)},
+      (error) => {console.error(error.message)}
+    );
+  }
+
+  enqueueJob() {
+    axios.post(API_CONNECT + "/job/enqueue/" + this.props.id)
+    .then(
+      //FIXME: Add note about starting job manually
+      (result) => {console.log(result)},
+      (error) => {console.error(error.message)}
+    );
+  }
+
+  deleteJob() {
+    axios.post(API_CONNECT + "/job/delete/" + this.props.id)
+    .then(
+      //FIXME: Add confirmation and warning if job is not stopped
+      (result) => {console.log(result)},
+      (error) => {console.error(error.message)}
+    );
   }
 
   render() {
+    let progBarClass = "progress-fill";
+    if (this.props.status === "Stopped") {
+      progBarClass += "-stopped";
+    } else if (this.props.status === "Finished") {
+      progBarClass += "-finished"
+    }
+
     return (
       <div className="status-box">
         <ul>
@@ -79,21 +138,20 @@ class StatusBox extends Component {
           </li>
           <li className="layout-row">
             <div className="progress-container">
-              <ProgressBar percent={this.props.progress} />
-              <div className="progress-number">{this.props.progress} %</div>
+              <ProgressBar className={progBarClass} percent={this.props.progress.toFixed(1)} />
+              <div className="progress-number">{this.props.progress.toFixed(1)} %</div>
             </div>
           </li>
           <li className="layout-row">
-            <p className="left">Time elapsed: {this.props.timeElapsed}</p>
-            <p className="right">Time remaining: {this.props.timeRemaining}</p>
+            <p className="left">Time elapsed: {fmtTime(this.props.timeElapsed)}</p>
+            <p className="right">Time remaining: {fmtTime(this.props.timeRemaining)}</p>
           </li>
           <li className="layout-row">
-            <button onClick={() => this.editJob()}>Edit</button>
             <button onClick={() => this.startJob()}>Start</button>
             <button onClick={() => this.stopJob()}>Stop</button>
-            <button onClick={() => this.resumeJob()}>Resume</button>
+            <button onClick={() => this.enqueueJob()}>Enqueue</button>
             <button onClick={() => this.deleteJob()}>Delete</button>
-            <p className="right">Avg. time/frame: {this.props.timeAvg}</p>
+            <p className="right">Avg. time/frame: {fmtTime(this.props.timeAvg)}</p>
           </li>
         </ul>
       </div>
@@ -137,7 +195,7 @@ class NodeStatusBox extends Component {
           </li>
           <li className="layout-row">
             <p className="left">Frame: {this.props.frame}</p>
-            <p className="right">{this.props.progress} % Complete</p>
+            <p className="right">{this.props.progress.toFixed(0)} % Complete</p>
           </li>
         </ul>
       </div>
@@ -152,6 +210,14 @@ class QueueStatusBox extends Component {
     if (this.props.isSelected) {
       className += "-active";
     }
+
+    let progBarClass = "progress-fill";
+    if (this.props.status === "Stopped") {
+      progBarClass += "-stopped";
+    } else if (this.props.status === "Finished") {
+      progBarClass += "-finished"
+    }
+
     return (
       <div
         className={className}
@@ -165,11 +231,11 @@ class QueueStatusBox extends Component {
           </li>
           <li className="layout-row">
             <div className="node-progress-container">
-              <NodeProgressBar percent={this.props.progress} />
+              <NodeProgressBar className={progBarClass} percent={this.props.progress} />
             </div>
           </li>
           <li className="layout-row">
-            <p className="left">{this.props.progress} % Complete</p>
+            <p className="left">{this.props.progress.toFixed(0)} % Complete</p>
             <p className="right">{this.props.timeRemaining} Remaining</p>
           </li>
         </ul>

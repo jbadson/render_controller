@@ -45,10 +45,35 @@ class RenderController(object):
         # rewrite all the terrible stuff in RenderServer.
         job.CONFIG = config
         self.server = job.RenderServer()
-        self.render_nodes = set(config.render_nodes)
+
+    @property
+    def render_nodes(self) -> Sequence[str]:
+        """List of render nodes."""
+        return job.CONFIG.render_nodes
+
+    @property
+    def autostart(self) -> bool:
+        """State of autostart mode."""
+        return job.CONFIG.autostart
+
+    def enable_autostart(self) -> None:
+        """Enable automatic rendering jobs in the render queue."""
+        #FIXME This is a bad way to do this, but need to rewrite job module
+        job.CONFIG.autostart = True
+        logger.info("Enabled autostart")
+
+    def disable_autostart(self) -> None:
+        """Disable automatic rendering of jobs in the render queue."""
+        job.CONFIG.autostart = False
+        logger.info("Disabled autostart")
 
     def new_job(
-        self, path: str, start_frame: int, end_frame: int, render_engine: str, nodes: Sequence[str]
+        self,
+        path: str,
+        start_frame: int,
+        end_frame: int,
+        render_engine: str,
+        nodes: Sequence[str],
     ) -> str:
         """
         Creates a new render job and places it in queue.
@@ -61,15 +86,17 @@ class RenderController(object):
         :return str: ID of newly created job.
         """
         job_id = uuid4().hex
-        result = self.server.enqueue({
-            "index": job_id,
-            "path": path,
-            "startframe": start_frame,
-            "endframe": end_frame,
-            "extraframes": None , # Deprecated
-            "render_engine": render_engine,
-            "complist": nodes,
-        })
+        result = self.server.enqueue(
+            {
+                "index": job_id,
+                "path": path,
+                "startframe": start_frame,
+                "endframe": end_frame,
+                "extraframes": None,  # Deprecated
+                "render_engine": render_engine,
+                "complist": nodes,
+            }
+        )
         if result != job_id:
             raise RuntimeError(result)
         return job_id
@@ -77,37 +104,44 @@ class RenderController(object):
     def start(self, job_id: str) -> None:
         """Starts a render job."""
         # TODO raise exception if fails
-        self.server.start_render(job_id)
+        try:
+            self.server.start_render(job_id)
+        except KeyError:
+            logger.exception("Failed to start '%s': KeyError" % job_id)
+            raise JobNotFoundError("Job '%s' not found" % job_id)
 
     def stop(self, job_id: str, kill: bool = True) -> None:
         """
-        Stops a render job
+        Stops a render job.
 
         :param str job_id: ID of job to stop.
-        :param bool kill: Kill active render processes. Default True.
-            If False, currently rendering frames will be allowed to finish.
+        :param bool kill: Kill active render processes. If False,
+            currently rendering frames will be allowed to finish.
         """
-        self.server.kill_render(job_id, kill)
+        try:
+            self.server.kill_render(job_id, kill)
+        except KeyError:
+            logger.exception("Failed to stop '%s': KeyError" % job_id)
+            raise JobNotFoundError("Job '%s' not found" % job_id)
 
-    def resume(self, job_id: str, startnow: bool = False) -> None:
-        """
-        Changes a job's status from "Stopped" or "Paused" to "Waiting".
-        If startnow == True, start rendering immediately. Otherwise,
-        job will be placed in queue to start in the normal order.
-        """
-        self.server.resume_render(job_id, startnow)
+    def enqueue(self, job_id: str) -> None:
+        """Places a stopped job back in the render queue."""
+        try:
+            self.server.resume_render(job_id, startnow=False)
+        except KeyError:
+            logger.exception("Failed to resume '%s': KeyError" % job_id)
+            raise JobNotFoundError("Job '%s' not found" % job_id)
 
     def delete(self, job_id: str) -> None:
         """Deletes a render job.  Job must not be rendering."""
-        self.server.clear_job(job_id)
+        # FIXME: Doesn't check status of job before removing
+        try:
+            self.server.clear_job(job_id)
+        except KeyError:
+            logger.exception("Failed to delete '%s': KeyError" % job_id)
+            raise JobNotFoundError("Job '%s' not found" % job_id)
 
-    def toggle_autostart(self) -> None:
-        """
-        Toggles state of autostart param.  Autostart determines whether
-        the next job in queue will start rendering automatically when the
-        preceding one finishes.
-        """
-        self.server.toggle_autostart()
+
 
     def enable_node(self, job_id: str, node: str) -> None:
         """

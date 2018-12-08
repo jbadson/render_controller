@@ -195,6 +195,7 @@ class RenderController(object):
                     "file_path": job["path"],
                     "status": job["status"],
                     "progress": job["progress"],
+                    "time_elapsed": job["times"][0],
                     "time_remaining": job["times"][2],
                 }
             )

@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
-import axios from "axios";
 import './JobInput.css';
+import axios from "axios";
 import FileBrowser from './FileBrowser';
 import CheckBox from './CheckBox';
 
@@ -119,10 +119,10 @@ class JobInput extends Component {
     super(props);
     this.state = {
       path: props.path,
-      startFrame: props.startFrame ? undefined: '',
-      endFrame: props.endFrame ? undefined: '',
+      startFrame: props.startFrame || '',
+      endFrame: props.endFrame || '',
       renderEngine: props.renderEngine,
-      renderNodes: props.renderNodes,
+      renderNodes: props.renderNodes || {},
       showBrowser: false,
     }
     this.toggleBrowser = this.toggleBrowser.bind(this);
@@ -132,6 +132,27 @@ class JobInput extends Component {
     this.setNodeState = this.setNodeState.bind(this);
     this.handleChange = this.handleChange.bind(this);
     this.submit = this.submit.bind(this);
+  }
+
+  componentDidMount() {
+    if (Object.keys(this.state.renderNodes).length === 0) {
+      this.getRenderNodes();
+    }
+  }
+
+  getRenderNodes() {
+    axios.get(this.props.url + "/node/list")
+      .then(
+        (result) => {
+          let renderNodes = {}
+          for (var i = 0; i < result.data.length; i++) {
+            renderNodes[result.data[i]] = false;
+          }
+          return this.setState({renderNodes: renderNodes})
+        },
+        (error) => {console.log(error)
+      }
+    )
   }
 
   toggleBrowser() {
@@ -223,6 +244,9 @@ class JobInput extends Component {
   }
 
   render() {
+    if (!this.state.renderNodes) {
+      return <p>Loading...</p>
+    }
     return (
       <div className="input-container">
         {this.state.showBrowser &&
@@ -247,7 +271,7 @@ class JobInput extends Component {
           </li>
           <li className="layout-row">
             <NodePicker
-              renderNodes={this.props.renderNodes}
+              renderNodes={this.state.renderNodes}
               onCheckNode={this.setNodeState}
               onSelectAll={this.selectAllNodes}
               onSelectNone={this.deselectAllNodes}
@@ -262,31 +286,6 @@ class JobInput extends Component {
         </ul>
       </div>
     )
-  }
-}
-
-
-
-class Wrapper extends Component {
-  constructor(props) {
-    super(props);
-    this.state = {
-      isOpen: true,
-    }
-  }
-
-  closeWin() {
-    this.setState({isOpen: false})
-  }
-
-  render() {
-    //const testNodes = [{name: "node1", enabled:true}, {name: "node2", enabled: false}]
-    //const testNodes = {node1: {enabled: true, rendering: false}, node2: {enabled: false, rendering: false}}
-    const testNodes = {grob4: false, borg5: false, borg3: false, grob2: false, grob6: false, eldiente: false, borg2: false, hex2: false, paradox: false, hex1: false}
-    if (this.state.isOpen) {
-      return <JobInput path="/" url={"http://localhost:2020"} renderNodes={testNodes} onClose={() => this.closeWin()}/>
-    }
-    return <p>Closed</p>
   }
 }
 

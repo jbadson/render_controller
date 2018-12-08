@@ -1,0 +1,82 @@
+.jsb-container {
+  font-size: 16px;
+  margin: 5px;
+}
+
+.node-status-box {
+  background: #f0f0f0;
+  font-size: 12px;
+  float: left;
+  width: 230px;
+  margin: 5px;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid #555;
+}
+
+.node-progress-bar {
+  background: #D3D3D3;
+  height: 8px;
+  border-radius: 3px;
+  border: 1px solid #555;
+}
+
+
+.jsp-container {
+  padding: 0px;
+  border: 1px solid #252525;
+  border-radius: 10px;
+}
+
+.jsp-inner {
+  background: #C9C9C9;
+  padding: 5px;
+  border-radius: 0px 0px 10px 10px;
+}
+
+.jsp-header {
+  background: #808080;
+  color: #FFDD11;
+  padding: 6px;
+  text-align: center;
+  font-weight: 500;
+  margin: 0px;
+  border-radius: 9px 9px 0px 0px;
+}
+
+.jsp-row {
+  display: table;
+  clear: both;
+  width: 100%;
+  margin: 0px
+}
+
+.left-3pane {
+  width: 33.3%;
+  float: left;
+  text-align: left;
+}
+
+.center-3pane {
+  width: 33.3%;
+  float: left;
+  text-align: center;
+}
+
+.right-3pane {
+  width: 33.3%;
+  float: right;
+  text-align: right;
+}
+
+.jsp-button {
+  background: #EEEEEE;
+  margin-left: 5px;
+  border-radius: 5px;
+  border: 1px solid #555;
+  padding: 3px 5px 3px 5px;
+}
+
+.jsp-button:hover {
+  background-color: #BBBBBB;
+}

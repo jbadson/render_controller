@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
-import axios from 'axios';
 import './FileBrowser.css';
+import axios from 'axios';
 
 /**
  * A file browser widget for navigating the server-side filesystem.

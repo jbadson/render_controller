@@ -1,0 +1,46 @@
+.progress-container {
+  position: relative;
+}
+
+.progress-bar {
+  background: #D3D3D3;
+  height: 15px;
+  border-radius: 5px;
+  border: 1px solid #555;
+}
+
+.progress-number {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 15px;
+  transform: translate(-50%, -50%);
+}
+
+.progress-fill {
+  background: #32CD32;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}
+
+.progress-fill-rendering {
+  background: #00bb44;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}
+
+.progress-fill-finished {
+  background: #6F6F6F;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}
+
+.progress-fill-stopped {
+  background: #E60000;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}

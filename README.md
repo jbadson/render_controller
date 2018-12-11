@@ -31,8 +31,9 @@ If you run into a cryptic error message like "error: can't copy 'conf/server.con
 
 
 # REST API reference
-/job/summary -> summary of all jobs on server
 /job/new -> Start a new job
+/job/summary -> Summary info about all jobs on server
+/job/status -> Detailed status for all jobs on server
 /job/status/{id} -> Detailed status for a given job
 /job/start/{id} -> Start a given job
 /job/stop/{id} -> Stop a given job

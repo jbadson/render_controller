@@ -26,3 +26,29 @@
   width: 100%;
   margin: 0px
 }
+
+.qp-button-left {
+  float: left;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #444;
+  padding: 4px;
+}
+
+.qp-button-left:hover {
+  color: blue;
+}
+
+.qp-button-right {
+  float: right;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #444;
+  padding: 4px
+}
+
+.qp-button-right:hover {
+  color: #333;
+}

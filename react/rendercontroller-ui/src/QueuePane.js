@@ -70,9 +70,13 @@ class QueuePane extends Component {
             <div className="qp-header">Render Queue</div>
           </li>
           <li className="qp-row">
+            <div className="qp-button-left">New</div>
+            <div className="qp-button-right">Delete</div>
+          </li>
+          <li className="qp-row">
             <div className="qp-inner">
               <ul>
-                {data.jobs.map(job => this.renderQueueBox(job))}
+                {data.map(job => this.renderQueueBox(job))}
               </ul>
             </div>
           </li>

@@ -278,15 +278,15 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         self.exec_handler(self.job_handlers)
 
     def job_summary(self) -> None:
-        """Sends summary info about all render jobs on server."""
-        self.send_json(self.controller.get_status())
+        """Sends summary info about jobs in server."""
+        self.send_json(self.controller.get_summary())
 
     def job_status(self) -> None:
         """Sends info about a render job."""
-        if not self.parsed_path.target:
-            logger.warning("Job ID not specified in '%s'" % self.parsed_path)
-            return self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
-        data = self.controller.get_job_status(self.parsed_path.target)
+        if self.parsed_path.target:
+            data = self.controller.get_job_status(self.parsed_path.target)
+        else:
+            data = self.controller.get_status()
         if not data:
             return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         self.send_json(data)

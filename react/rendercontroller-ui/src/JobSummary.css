@@ -1,13 +1,18 @@
 .summary-container {
   background-color: #f3f3f3;
-  font-size: 16px;
-  padding: 8px;
+  font-size: 11px;
+  padding: 5px;
   border-radius: 10px;
-  margin: 5px;
-  border: 1px solid #555;
-  box-shadow: 2px 2px 3px 0px #686868;
+  border: 0px solid #555;
 }
 
 .summary-container:hover {
   background-color: #A0A0A0;
+}
+
+.summary-progress-bar {
+  height: 10px;
+  background: #D3D3D3;
+  border-radius: 4px;
+  border: 1px solid #555;
 }

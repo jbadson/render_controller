@@ -99,7 +99,6 @@ function JobStatusBox(props) {
  * @param {string} jobId - ID of render job
  * @param {string} url - REST API URL
  * @param {int} pollInterval - How often to poll API for updates (milliseconds)
- * @param {function} onClose - Callback to invoke when widget is closed.
  */
 class JobStatusPane extends Component {
   constructor(props) {
@@ -147,7 +146,6 @@ class JobStatusPane extends Component {
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
     );
-    this.props.onCose();
   }
 
   getUpdate() {

@@ -27,3 +27,13 @@ ul, ol {
   padding-left: 10px;
   margin: 0px;
 }
+
+.sidebar {
+  position: absolute;
+  width: 290px;
+  overflow-y: auto;
+}
+
+.content-pane {
+  margin-left: 300px;
+}

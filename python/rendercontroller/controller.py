@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import logging
-from typing import Sequence, Dict, Any, Type
+from typing import Sequence, Dict, Any, Type, List
 from uuid import uuid4
 from . import job
 from .exceptions import JobNotFoundError, NodeNotFoundError
@@ -173,34 +173,31 @@ class RenderController(object):
         except KeyError:
             raise JobNotFoundError("Job '%s' not found" % job_id)
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_summary(self) -> List[Dict[str, Any]]:
         """
-        Returns a list of dicts with server state and summary
-        of each job in queue.
+        Returns summary info about all jobs on server.
         """
-        data = self.server.get_attrs()
-        # Rearrange data to format for new API
-        data.pop("__MESSAGE__")
-        statevars = data.pop("__STATEVARS__")
-        ret = {"state": statevars}
-        # In RenderServer, filename is the index but not the ID
-        # ID is only used internally and might not be reliable. For now,
-        # continue to use filename as the primary key, but will change
-        # in the future.
         jobs = []
-        for filename, job in data.items():
+        for id, job in self.server.renderjobs.items():
+            data = job.get_attrs()
             jobs.append(
                 {
-                    "id": filename,
-                    "file_path": job["path"],
-                    "status": job["status"],
-                    "progress": job["progress"],
-                    "time_elapsed": job["times"][0],
-                    "time_remaining": job["times"][2],
+                    "id": id,
+                    "file_path": data["path"],
+                    "status": data["status"],
+                    "progress": data["progress"],
+                    "time_elapsed": data["times"][0],
+                    "time_remaining": data["times"][2],
                 }
             )
-        ret["jobs"] = jobs
-        return ret
+        return jobs
+
+    def get_status(self) -> List[Dict[str, Any]]:
+        """Returns complete status info about all jobs on server."""
+        data = []
+        for id in self.server.renderjobs:
+            data.append(self.get_job_status(id))
+        return data
 
     def _reformat_node_list(self, complist, compstatus):
         node_status = {}

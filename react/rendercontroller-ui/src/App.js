@@ -33,7 +33,6 @@ class App extends Component {
       showInputPane: false,
     }
     this.selectJob = this.selectJob.bind(this);
-    this.deselectJob = this.deselectJob.bind(this);
     this.toggleInputPane = this.toggleInputPane.bind(this);
   }
 
@@ -41,15 +40,11 @@ class App extends Component {
     this.setState({selectedJob: jobId})
   }
 
-  deselectJob() {
-    this.setState({selectedJob: null})
-  }
-
   toggleInputPane() {
     this.setState(state => ({showInputPane: !state.showInputPane}))
   }
 
-  renderMainBox() {
+  renderContentPane() {
     if (this.state.showInputPane) {
       return (
         <JobInput
@@ -60,25 +55,16 @@ class App extends Component {
         />
       )
     } else if (this.state.selectedJob) {
+      // FIXME: Select correct default and don't break if queue is empty
       return (
-        <div>
-          <p onClick={this.deselectJob}>Back</p>
-          <JobStatusPane
-            jobId={this.state.selectedJob}
-            url={API_CONNECT}
-            pollInterval={POLL_INTERVAL}
-            onClose={this.deselectJob}
-          />
-        </div>
+        <JobStatusPane
+          jobId={this.state.selectedJob}
+          url={API_CONNECT}
+          pollInterval={POLL_INTERVAL}
+        />
       )
     }
-    return (
-      <QueuePane
-        url={API_CONNECT}
-        pollInterval={POLL_INTERVAL}
-        onJobClick={this.selectJob}
-      />
-    )
+    return <p>No data</p>
   }
 
   render() {
@@ -89,7 +75,16 @@ class App extends Component {
           <p className="right">Settings</p>
         </li>
         <li className="layout-row">
-          {this.renderMainBox()}
+          <div className="sidebar">
+            <QueuePane
+              url={API_CONNECT}
+              pollInterval={POLL_INTERVAL}
+              onJobClick={this.selectJob}
+            />
+          </div>
+          <div className="content-pane">
+            {this.renderContentPane()}
+          </div>
         </li>
       </ul>
     )

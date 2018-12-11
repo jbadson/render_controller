@@ -30,7 +30,12 @@ function JobSummary(props) {
             <p className="right">{props.status}</p>
           </li>
           <li className="layout-row">
-            <ProgressBar fillClass={fillClass} percent={props.progress} />
+            <ProgressBar
+              barClass="summary-progress-bar"
+              fillClass={fillClass}
+              percent={props.progress}
+              noText={true} 
+            />
           </li>
           <li className="layout-row">
             <p className="left">Time elapsed: {fmtTime(props.timeElapsed)}</p>

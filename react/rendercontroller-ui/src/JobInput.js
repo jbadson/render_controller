@@ -2,7 +2,6 @@ import React, { Component } from 'react';
 import './JobInput.css';
 import axios from "axios";
 import FileBrowser from './FileBrowser';
-import CheckBox from './CheckBox';
 
 const RENDER_ENGINES = ["blend", "tgd"]
 
@@ -33,15 +32,16 @@ function BrowserPopup(props) {
 
 /**
  * Number input field that changes CSS className if value contains a non-digit.
- * @param {str} name: Name attribute of HTML input
+ * @param {string} name: Name attribute of HTML input
+ * @param {string} label: Label text
  * @param {int} value: Contents of input field.
  * @param {function} onChange - Callback on input change.
  */
 class NumberInput extends Component {
   constructor(props) {
     super(props);
-    this.classNameOk = "number-input";
-    this.classNameBad = "number-input-bad";
+    this.classNameOk = "number-input-field";
+    this.classNameBad = "number-input-field-bad";
     this.state = {
       className: this.classNameOk
     }
@@ -61,8 +61,8 @@ class NumberInput extends Component {
 
   render() {
     return (
-      <label>
-        Input:
+      <label className="input-block">
+        {this.props.label || ""}
         <input type="text"
           name={this.props.name}
           className={this.state.className}
@@ -75,32 +75,50 @@ class NumberInput extends Component {
 }
 
 
+function NodeBox(props) {
+  let className = "input-nodebox";
+  if (props.checked) {
+    className += "-checked";
+  }
+  return (
+    <div className={className} onClick={() => props.onClick(props.name)}>
+      {props.name}
+    </div>
+  )
+}
+
+
 /**
  * Widget for selecting render nodes.
  * @param {Array} renderNodes - Array of objects describing render nodes.
  */
 function NodePicker(props) {
   return (
+    <div className="np-container">
     <ul>
-      <li className="layout-row">Render nodes</li>
-      <li className="layout-row">
-        <div className="left"><p className="text-link" onClick={props.onSelectAll}>Select All</p></div>
-        <div className="left"><p className="text-link" onClick={props.onSelectNone}>Select None</p></div>
+      <li className="input-row">
+        <p className="input-header2">Render nodes</p>
       </li>
-      <li className="layout-row">
+      <li className="input-row">
+        <div className="center">
+          <button className="sm-button" onClick={props.onSelectAll}>Select All</button>
+          <button className="sm-button" onClick={props.onSelectNone}>Select None</button>
+        </div>
+      </li>
+      <li className="input-row">
         {Object.keys(props.renderNodes).map(name => {
           return (
-              <CheckBox
+              <NodeBox
                 key={name}
-                label={name}
+                name={name}
                 checked={props.renderNodes[name]}
-                className="left"
-                onChange={props.onCheckNode}
+                onClick={props.onCheckNode}
               />
           )
         })}
       </li>
     </ul>
+    </div>
   )
 }
 
@@ -186,8 +204,7 @@ class JobInput extends Component {
     });
   }
 
-  setNodeState(event) {
-    const name = event.target.name;
+  setNodeState(name) {
     this.setState(state => {
       let newNodes = state.renderNodes;
       newNodes[name] = !state.renderNodes[name];
@@ -243,6 +260,46 @@ class JobInput extends Component {
     this.props.onClose();
   }
 
+  renderInputPane() {
+    return (
+      <ul>
+        <li className="layout-row">
+          <label className="input-block">
+            Project file:
+            <input type="text" name="path" className="txt-path" value={this.state.path} onChange={this.handleChange} />
+            <input type="button" className="sm-button" value="Browse" onClick={this.toggleBrowser} />
+          </label>
+        </li>
+        <li className="layout-row">
+          <NumberInput
+            name="startFrame"
+            label="Start frame: "
+            value={this.state.startFrame}
+            onChange={this.handleChange}
+          />
+          <NumberInput
+            name="endFrame"
+            label="End frame: "
+            value={this.state.endFrame}
+            onChange={this.handleChange}
+          />
+        </li>
+        <li className="layout-row">
+          <NodePicker
+            renderNodes={this.state.renderNodes}
+            onCheckNode={this.setNodeState}
+            onSelectAll={this.selectAllNodes}
+            onSelectNone={this.deselectAllNodes}
+          />
+        </li>
+        <li className="layout-row">
+          <div className="left"><button className="sm-button" onClick={this.submit} >OK</button></div>
+          <div className="left"><button className="sm-button" onClick={this.props.onClose} >Cancel</button></div>
+        </li>
+      </ul>
+    )
+  }
+
   render() {
     if (!this.state.renderNodes) {
       return <p>Loading...</p>
@@ -258,31 +315,14 @@ class JobInput extends Component {
           />
         }
         <ul>
-          <li className="layout-row">
-            <label>
-              Path:
-              <input type="text" name="path" value={this.state.path} onChange={this.handleChange} />
-              <input type="button" value="Browse" onClick={this.toggleBrowser} />
-            </label>
+          <li className="input-row">
+            <div className="input-header">New Render Job</div>
           </li>
-          <li className="layout-row">
-            <NumberInput name="startFrame" value={this.state.startFrame} onChange={this.handleChange} />
-            <NumberInput name="endFrame" value={this.state.endFrame} onChange={this.handleChange} />
+          <li className="input-row">
+            <div className="input-inner">
+              {this.renderInputPane()}
+            </div>
           </li>
-          <li className="layout-row">
-            <NodePicker
-              renderNodes={this.state.renderNodes}
-              onCheckNode={this.setNodeState}
-              onSelectAll={this.selectAllNodes}
-              onSelectNone={this.deselectAllNodes}
-            />
-          </li>
-          <li className="layout-row">
-            <div className="left"><button onClick={this.submit} >OK</button></div>
-            <div className="left"><button onClick={this.props.onClose} >Cancel</button></div>
-          </li>
-          <li className="layout-row"><br />Check:<br />Path: "{this.state.path}"<br />Start: {this.state.startFrame} End: {this.state.endFrame}<br />
-          Nodes: {Object.keys(this.state.renderNodes).map(node => " " + node + ": " + this.state.renderNodes[node].toString())}</li>
         </ul>
       </div>
     )

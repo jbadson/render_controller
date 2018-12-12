@@ -1,6 +1,38 @@
 .input-container {
-  padding: 10px;
-  margin: 10px;
+  padding: 0px;
+  border-radius: 10px;
+}
+
+.input-inner {
+  padding: 15px;
+  padding-bottom: 5px;
+  border-radius: 0px 0px 10px 10px;
+}
+
+.input-header {
+  background: #808080;
+  color: #FFDD11;
+  padding: 6px;
+  text-align: center;
+  font-weight: 500;
+  margin: 0px;
+  border-radius: 9px 9px 0px 0px;
+}
+
+.input-header2 {
+  background: #D0D0D0;
+  padding: 6px;
+  text-align: center;
+  font-weight: 500;
+  margin: 0px;
+  border-radius: 9px 9px 0px 0px;
+}
+
+.input-row {
+  display: table;
+  clear: both;
+  width: 100%;
+  margin: 0px
 }
 
 .browser-overlay {
@@ -22,17 +54,70 @@
   box-shadow: 3px 3px 10px 1px #444444;
 }
 
-.number-input {
+.input-block {
+  padding: 5px;
 }
 
-.number-input-bad {
+.number-input-field {
+  width: 72px;
+  padding: 5px;
+}
+
+.number-input-field-bad {
+  width: 72px;
+  padding: 5px;
   box-shadow: 0px 0px 6px 2px #ff0000;
 }
 
+.center {
+  text-align: center;
+}
+
 .text-link {
+  float: left;
   color: blue;
 }
 
 .text-link:hover {
   color: yellow;
+}
+
+.txt-path {
+  width: 60%;
+  margin: 5px;
+  padding: 5px;
+}
+
+.np-container {
+  margin: 10px 0px 5px 0px;
+  padding-bottom: 5px;
+  border-radius: 10px;
+  border: 1px solid #444;
+}
+
+.input-nodebox {
+  float: left;
+  text-align: center;
+  vertical-align: center;
+  width: 70px;
+  margin: 5px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid #444;
+}
+
+.input-nodebox:hover {
+  background: #BBBBBB;
+}
+
+.input-nodebox-checked {
+  float: left;
+  text-align: center;
+  vertical-align: center;
+  width: 70px;
+  margin: 5px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid #444;
+  background: #66b3ff;
 }

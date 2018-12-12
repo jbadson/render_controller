@@ -66,15 +66,3 @@
   float: right;
   text-align: right;
 }
-
-.jsp-button {
-  background: #EEEEEE;
-  margin-left: 5px;
-  border-radius: 5px;
-  border: 1px solid #555;
-  padding: 3px 5px 3px 5px;
-}
-
-.jsp-button:hover {
-  background-color: #BBBBBB;
-}

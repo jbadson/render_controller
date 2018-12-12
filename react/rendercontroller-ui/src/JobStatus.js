@@ -211,10 +211,10 @@ class JobStatusPane extends Component {
                   />
                 </li>
                 <li className="layout-row">
-                    <button className="jsp-button" onClick={this.startJob}>Start</button>
-                    <button className="jsp-button" onClick={this.stopJob}>Stop</button>
-                    <button className="jsp-button" onClick={this.enqueueJob}>Enqueue</button>
-                    <button className="jsp-button" onClick={this.deleteJob}>Delete</button>
+                    <button className="sm-button" onClick={this.startJob}>Start</button>
+                    <button className="sm-button" onClick={this.stopJob}>Stop</button>
+                    <button className="sm-button" onClick={this.enqueueJob}>Enqueue</button>
+                    <button className="sm-button" onClick={this.deleteJob}>Delete</button>
                 </li>
                 <li className="layout-row">
                   {Object.keys(data.node_status).map(node => this.renderNodeBox(node, data.node_status[node]))}

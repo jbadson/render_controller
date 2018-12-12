@@ -58,6 +58,10 @@ ul, ol {
   border: 0px;
 }
 
+.button-left:hover {
+  background: #444;
+}
+
 .button-right {
   float: right;
   padding: 5px;
@@ -67,4 +71,20 @@ ul, ol {
   border-radius: 10px;
   color: #f3f3f3;
   border: 0px;
+}
+
+.button-right:hover {
+  background: #444;
+}
+
+.sm-button {
+  background: #EEEEEE;
+  margin: 5px;
+  border-radius: 5px;
+  border: 1px solid #555;
+  padding: 3px 10px 3px 10px;
+}
+
+.sm-button:hover {
+  background-color: #BBBBBB;
 }

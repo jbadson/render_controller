@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
 import './App.css';
+import axios from 'axios';
 import JobInput from './JobInput';
 import QueuePane from './QueuePane';
 import JobStatusPane from './JobStatus';
@@ -26,6 +27,8 @@ class App extends Component {
     super(props);
     this.state = {
       selectedJob: null,
+      serverJobs: [],
+      error: null,
       showInputPane: false,
     }
     this.selectJob = this.selectJob.bind(this);
@@ -40,18 +43,42 @@ class App extends Component {
     this.setState(state => ({showInputPane: !state.showInputPane}))
   }
 
+  getUpdate() {
+    // Fetch data from server and update UI
+    axios.get(API_CONNECT + "/job/summary")
+      .then(
+        result => {this.setState({serverJobs: result.data})},
+        error => {this.setState({error: error})}
+      )
+      .then(() => {
+        // Select first job if none are selected
+        const { selectedJob, serverJobs } = this.state;
+        if (!selectedJob && serverJobs.length > 0) {
+          this.selectJob(serverJobs[0].id);
+        }
+      }
+      )
+  }
+
+  componentDidMount() {
+    this.getUpdate()
+    this.interval = setInterval(() => this.getUpdate(), POLL_INTERVAL);
+  }
+
+  componentWillUnmount() {
+    clearInterval(this.interval);
+  }
+
   renderContentPane() {
     if (this.state.showInputPane) {
       return (
         <JobInput
           path="/"
           url={API_CONNECT}
-          renderNodes={this.state.renderNodes}
           onClose={this.toggleInputPane}
         />
       )
     } else if (this.state.selectedJob) {
-      // FIXME: Select correct default and don't break if queue is empty
       return (
         <JobStatusPane
           jobId={this.state.selectedJob}
@@ -64,6 +91,10 @@ class App extends Component {
   }
 
   render() {
+    const { serverJobs, selectedJob, error } = this.state;
+    if (error) {
+      return <p>Error: {error.message}</p>
+    }
     return (
       <ul>
         <li className="layout-row">
@@ -73,10 +104,9 @@ class App extends Component {
         <li className="layout-row">
           <div className="sidebar">
             <QueuePane
-              url={API_CONNECT}
-              pollInterval={POLL_INTERVAL}
+              serverJobs={serverJobs}
               onJobClick={this.selectJob}
-              selectedJob={this.state.selectedJob}
+              selectedJob={selectedJob}
             />
           </div>
           <div className="content-pane">

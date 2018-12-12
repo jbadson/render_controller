@@ -49,6 +49,7 @@ class QueuePane extends Component {
           timeRemaining={job.time_remaining}
           timeElapsed={job.time_elapsed}
           progress={job.progress}
+          isSelected={(job.id === this.props.selectedJob) ? true : false}
           onClick={() => this.props.onJobClick(job.id)}
         />
     </li>
@@ -68,10 +69,6 @@ class QueuePane extends Component {
         <ul>
           <li className="qp-row">
             <div className="qp-header">Render Queue</div>
-          </li>
-          <li className="qp-row">
-            <div className="qp-button-left">New</div>
-            <div className="qp-button-right">Delete</div>
           </li>
           <li className="qp-row">
             <div className="qp-inner">

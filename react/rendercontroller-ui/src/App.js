@@ -5,13 +5,9 @@ import QueuePane from './QueuePane';
 import JobStatusPane from './JobStatus';
 
 /* TODO:
-- Consider composing JobStatusBox into queue when open
-  - Can click title bar to close
-  - Query all data all the time and pass as props
-  - Otherwise make back button work or some other good way to switch back to queue view.
-  ^-This might actually look nice to go back to two-pane but with this styling.
 - Settings popup/menu
   - Should show autostart status and modify, poll interval?
+- Order queue boxes by queue position (or queue time)
 - Disable (preferably gray out or hide) buttons in irrelevant contexts:
   Enqueue when state != stopped
   Start when state == running
@@ -64,15 +60,15 @@ class App extends Component {
         />
       )
     }
-    return <p>No data</p>
+    return <p>No job selected</p>
   }
 
   render() {
     return (
       <ul>
         <li className="layout-row">
-          <button className="left" onClick={this.toggleInputPane}>New</button>
-          <p className="right">Settings</p>
+          <button className="button-left" onClick={this.toggleInputPane}>New</button>
+          <button className="button-right">Settings</button>
         </li>
         <li className="layout-row">
           <div className="sidebar">
@@ -80,6 +76,7 @@ class App extends Component {
               url={API_CONNECT}
               pollInterval={POLL_INTERVAL}
               onJobClick={this.selectJob}
+              selectedJob={this.state.selectedJob}
             />
           </div>
           <div className="content-pane">

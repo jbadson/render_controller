@@ -13,6 +13,11 @@ import { fmtTime, getBasename } from './util';
  * @param {float} timeElapsed - Rendering time (sec)
  */
 function JobSummary(props) {
+    let style = "summary-container";
+    if (props.isSelected) {
+      style += "-selected";
+    }
+
     let fillClass = "progress-fill";
     if (props.status === "Rendering") {
       fillClass += "-rendering";
@@ -23,7 +28,7 @@ function JobSummary(props) {
     }
 
     return (
-      <div className="summary-container" onClick={props.onClick} >
+      <div className={style} onClick={props.onClick} >
         <ul>
           <li className="layout-row">
             <p className="left">{getBasename(props.filePath)}</p>
@@ -34,7 +39,7 @@ function JobSummary(props) {
               barClass="summary-progress-bar"
               fillClass={fillClass}
               percent={props.progress}
-              noText={true} 
+              noText={true}
             />
           </li>
           <li className="layout-row">

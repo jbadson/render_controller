@@ -2,9 +2,14 @@
   background-color: #f3f3f3;
   font-size: 11px;
   padding: 5px;
-  border-radius: 10px;
-  border: 0px solid #555;
 }
+
+.summary-container-selected {
+  background-color: #66b3ff;
+  font-size: 11px;
+  padding: 5px;
+}
+
 
 .summary-container:hover {
   background-color: #A0A0A0;

@@ -1,7 +1,7 @@
 body {
   font: 14px Helvetica, Arial, sans-serif;
   margin: 10px;
-  background: #d8d8d8;
+  background: #dfdfdf;
 }
 
 ul, ol {
@@ -31,9 +31,40 @@ ul, ol {
 .sidebar {
   position: absolute;
   width: 290px;
+  height: 95%;
   overflow-y: auto;
+  background: #f3f3f3;
+  border-radius: 10px;
 }
 
 .content-pane {
+  position: absolute;
   margin-left: 300px;
+  margin-right: 10px;
+  height: 95%;
+  background: #f3f3f3;
+  border-radius: 10px;
+  overflow-y: auto;
+}
+
+.button-left {
+  float: left;
+  padding: 5px;
+  margin-bottom: 5px;
+  background: #888888;
+  font-size: 14px;
+  border-radius: 10px;
+  color: #f3f3f3;
+  border: 0px;
+}
+
+.button-right {
+  float: right;
+  padding: 5px;
+  margin-bottom: 5px;
+  background: #888888;
+  font-size: 14px;
+  border-radius: 10px;
+  color: #f3f3f3;
+  border: 0px;
 }

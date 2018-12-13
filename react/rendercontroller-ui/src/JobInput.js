@@ -1,33 +1,10 @@
 import React, { Component } from 'react';
 import './JobInput.css';
 import axios from "axios";
-import FileBrowser from './FileBrowser';
+import { FileBrowserPopup } from './FileBrowser';
+import CheckBox from './CheckBox';
 
 const RENDER_ENGINES = ["blend", "tgd"]
-
-/**
- * Displays FileBrowser in a popup overlay.
- */
-function BrowserPopup(props) {
-  return (
-    <div className="browser-overlay" >
-      <div className="browser-inner">
-        <ul>
-          <li className="layout-row">
-            <p className="right" onClick={props.onClose}>X</p>
-          </li>
-          <li className="layout-row">
-            <FileBrowser
-              url={props.url}
-              path={props.path}
-              onFileClick={props.onFileClick}
-            />
-          </li>
-        </ul>
-      </div>
-    </div>
-  )
-}
 
 
 /**
@@ -87,6 +64,19 @@ function NodeBox(props) {
   )
 }
 
+function LeftCheckBox(props) {
+  return (
+    <label className={props.className}>
+      <input
+        type="checkbox"
+        className={props.className}
+        checked={props.checked}
+        onChange={props.onChange}
+      />
+      {props.label}
+    </label>
+  )
+}
 
 /**
  * Widget for selecting render nodes.
@@ -101,10 +91,15 @@ function NodePicker(props) {
       </li>
       <li className="input-row">
         <div className="center">
-          <button className="sm-button" onClick={props.onSelectAll}>Select All</button>
-          <button className="sm-button" onClick={props.onSelectNone}>Select None</button>
+          <LeftCheckBox
+            className="ip-checkbox"
+            label="Use all"
+            checked={props.useAll}
+            onChange={props.useAll ? props.onSelectNone : props.onSelectAll}
+          />
         </div>
       </li>
+      { props.useAll ||
       <li className="input-row">
         {Object.keys(props.renderNodes).map(name => {
           return (
@@ -117,6 +112,7 @@ function NodePicker(props) {
           )
         })}
       </li>
+    }
     </ul>
     </div>
   )
@@ -142,6 +138,7 @@ class JobInput extends Component {
       renderEngine: props.renderEngine,
       renderNodes: props.renderNodes || {},
       showBrowser: false,
+      useAllNodes: props.useAllNodes || true,
     }
     this.toggleBrowser = this.toggleBrowser.bind(this);
     this.setPath = this.setPath.bind(this);
@@ -190,7 +187,10 @@ class JobInput extends Component {
       for (var name in newNodes) {
         newNodes[name] = true;
       }
-      return {renderNodes: newNodes}
+      return {
+        renderNodes: newNodes,
+        useAllNodes: true,
+      }
     });
   }
 
@@ -200,7 +200,10 @@ class JobInput extends Component {
       for (var name in newNodes) {
         newNodes[name] = false;
       }
-      return {renderNodes: newNodes}
+      return {
+        renderNodes: newNodes,
+        useAllNodes: false,
+      }
     });
   }
 
@@ -217,10 +220,7 @@ class JobInput extends Component {
   }
 
   submit() {
-    const path = this.state.path;
-    const startFrame = this.state.startFrame;
-    const endFrame = this.state.endFrame;
-    const renderNodes = this.state.renderNodes;
+    const { path, startFrame, endFrame, renderNodes, useAllNodes } = this.state;
 
     // Validate inputs
     if (!startFrame || isNaN(startFrame)) {
@@ -235,8 +235,9 @@ class JobInput extends Component {
     // Get list of selected nodes.
     let selectedNodes = [];
     for (var node in renderNodes) {
-      if (renderNodes[node])
+      if (useAllNodes || renderNodes[node]) {
         selectedNodes.push(node)
+      }
     };
 
     // Determine render engine based on file extension.
@@ -258,6 +259,28 @@ class JobInput extends Component {
     axios.post(this.props.url + "/job/new", ret)
       .then((result) => {console.log(result)}, (error) => console.error(error))
     this.props.onClose();
+  }
+
+  renderNodePicker() {
+    /*
+    if (this.state.useAllNodes) {
+      return (
+        <label>
+          <input type="checkbox" checked={true} onChange={this.deselectAllNodes} />
+          Use all render nodes
+        </label>
+      )
+    }
+    */
+    return (
+      <NodePicker
+        renderNodes={this.state.renderNodes}
+        useAll={this.state.useAllNodes}
+        onCheckNode={this.setNodeState}
+        onSelectAll={this.selectAllNodes}
+        onSelectNone={this.deselectAllNodes}
+      />
+    )
   }
 
   renderInputPane() {
@@ -285,16 +308,13 @@ class JobInput extends Component {
           />
         </li>
         <li className="layout-row">
-          <NodePicker
-            renderNodes={this.state.renderNodes}
-            onCheckNode={this.setNodeState}
-            onSelectAll={this.selectAllNodes}
-            onSelectNone={this.deselectAllNodes}
-          />
+          {this.renderNodePicker()}
         </li>
         <li className="layout-row">
-          <div className="left"><button className="sm-button" onClick={this.submit} >OK</button></div>
-          <div className="left"><button className="sm-button" onClick={this.props.onClose} >Cancel</button></div>
+          <div className="center">
+            <button className="sm-button" onClick={this.submit} >OK</button>
+            <button className="sm-button" onClick={this.props.onClose} >Cancel</button>
+          </div>
         </li>
       </ul>
     )
@@ -307,7 +327,7 @@ class JobInput extends Component {
     return (
       <div className="input-container">
         {this.state.showBrowser &&
-          <BrowserPopup
+          <FileBrowserPopup
             url={this.props.url + "/storage/ls"}
             path={this.props.path}
             onClose={this.toggleBrowser}

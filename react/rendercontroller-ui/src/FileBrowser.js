@@ -1,6 +1,8 @@
 import React, { Component } from 'react';
 import './FileBrowser.css';
 import axios from 'axios';
+import { fmtUnixTimestamp } from './util';
+
 
 /**
  * A file browser widget for navigating the server-side filesystem.
@@ -74,11 +76,15 @@ class FileBrowser extends Component {
     if (line.name.startsWith(".")) {
       return;
     }
+    // Convert mtime
+    const mtime = fmtUnixTimestamp(line.mtime);
     // Format based on file type
-    let className = "browser";
+    let icon = "file_sm.png";
+    let className = "fb";
     let handler;
     if (line.type === "d") {
       className += "-dir";
+      icon = "folder_sm.png";
       handler = this.handleDirClick;
     } else {
       // Treat symlinks as files because we can't tell what they point to.
@@ -87,23 +93,27 @@ class FileBrowser extends Component {
     }
     return(
       <li
-          className={className}
+          className="fb-row"
           onClick={() => handler(line.path)}
           key={line.path}
       >
-        {line.name}
+        <div className={className}>
+          <img src={icon} className="fb-icon" />{line.name}
+          <span className="right">{mtime.toString()}</span>
+        </div>
       </li>
     );
   }
 
   renderBackButton() {
+    let className = "fb-back-button";
     if (!this.state.pathHistory[this.state.pathHistory.length - 1]) {
-      return  null;
+      className += "-disabled";
     }
     return (
-      <li className="browser" onClick={this.handleBackClick}>
-        &#8656; Back
-      </li>
+      <span className={className} onClick={this.handleBackClick}>
+        &#8629;
+      </span>
     )
   }
 
@@ -113,14 +123,60 @@ class FileBrowser extends Component {
       return <p>FileBrowser load failed: {error.message}</p>
     }
     return (
-        <ul>
-          {this.renderBackButton()}
-          <li className="browser-current">[{this.state.path}]</li>
-          {fileList.map(line => this.renderLine(line))}
-        </ul>
+      <ul>
+        <li className="fb-row">
+          <div className="fb-current">
+            {this.renderBackButton()} {this.state.path}
+          </div>
+        </li>
+        <li className="fb-row">
+          <div className="fb-labels">
+            Name <span className="right">Date Modified</span>
+          </div>
+        </li>
+        <li className="fb-row">
+          <div className="fb-inner" >
+          <ul>
+            {fileList.map(line => this.renderLine(line))}
+          </ul>
+          </div>
+        </li>
+      </ul>
     );
   }
 }
 
 
-export default FileBrowser;
+/**
+ * Displays FileBrowser in a popup overlay.
+ * @param {string} path - Initial directory to list on server.
+ * @param {string} url - URL to API endpoint
+ * @param {function} onFileClick - Action to take when a file is clicked.
+ * @param {function} onClose - Action to take when window is closed.
+ */
+function FileBrowserPopup(props) {
+  return (
+    <div className="fb-overlay" >
+      <div className="fb-container">
+        <ul>
+          <li className="fb-row">
+            <div className="fb-header">
+              File Browser
+              <div className="fb-closebutton" onClick={props.onClose}>X</div>
+            </div>
+          </li>
+          <li className="layout-row">
+            <FileBrowser
+              url={props.url}
+              path={props.path}
+              onFileClick={props.onFileClick}
+            />
+          </li>
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+
+export { FileBrowser, FileBrowserPopup };

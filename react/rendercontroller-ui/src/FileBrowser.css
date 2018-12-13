@@ -1,27 +1,101 @@
-.browser {
-  display: table;
-  clear: both;
+.fb-overlay {
+  position: absolute;
+  width: 100%;
+  height: 100%;
 }
 
-.browser-dir {
-  display: table;
-  clear: both;
-  font-weight: bold;
-  color: blue;
+.fb-header {
+  background: #808080;
+  text-align: center;
+  color: #f3f3f3;
+  padding: 5px;
 }
 
-.browser-dir:hover {
-  color: yellow;
+.fb-closebutton {
+  float: right;
+  cursor: pointer;
 }
 
-.browser-file {
-  display: table;
-  clear: both;
-  color: red;
+.fb-closebutton:hover {
+  font-weight: bolder;
 }
 
-.browser-current {
-  display: table;
+.fb-container {
+  position: absolute;
+  left: 5%;
+  top: 5%;
+  background-color: #E0E0E0;
+  border-style: solid;
+  border-width: 1px;
+  box-shadow: 3px 3px 10px 3px #444444;
+  overflow: hidden;
+}
+
+.fb-row {
   clear: both;
-  color: green;
+  display: table;
+  width: 100%;
+}
+
+.fb-inner {
+  height: 330px;
+  width: 580px;
+  padding: 5px;
+  margin: 0px 5px 5px 5px;
+  overflow: auto;
+  border: 1px solid #777;
+}
+
+.fb-labels {
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.fb-dir {
+  cursor: pointer;
+  border-bottom: 1px solid #AAA;
+  padding: 2px;
+  width: 100%;
+}
+
+.fb-dir:hover {
+  color: #0066cc;
+}
+
+.fb-file {
+  cursor: pointer;
+  border-bottom: 1px solid #AAA;
+  padding: 2px;
+  width: 100%;
+}
+
+.fb-file:hover {
+  color: #0066cc;
+}
+
+.fb-current {
+  padding: 5px;
+  line-height: 18px;
+  vertical-align: middle;
+}
+
+.fb-icon {
+  height: 14px;
+  padding-right: 5px;
+}
+
+.fb-back-button {
+  font-size: 24px;
+  font-weight: bolder;
+  cursor: pointer;
+}
+
+.fb-back-button:hover {
+  color: #222;
+}
+
+.fb-back-button-disabled {
+  font-size: 18px;
+  font-weight: bolder;
+  color: #999;
 }

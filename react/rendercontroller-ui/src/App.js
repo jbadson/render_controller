@@ -4,6 +4,7 @@ import axios from 'axios';
 import JobInput from './JobInput';
 import QueuePane from './QueuePane';
 import JobStatusPane from './JobStatus';
+import {FileBrowserPopup} from './FileBrowser';
 
 /* TODO:
 - Settings popup/menu
@@ -120,3 +121,11 @@ class App extends Component {
 
 
 export default App;
+
+function Browsertest(props) {
+  return (
+    <FileBrowserPopup url={API_CONNECT + "/storage/ls"} path="/" onFileClick={() => {console.log('clicked')}} onClose={() => {console.log('closed')}} />
+  )
+}
+
+//export default Browsertest;

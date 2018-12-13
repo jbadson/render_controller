@@ -1,3 +1,14 @@
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+]
+
+function fmtUnixTimestamp(ts) {
+  const date = new Date(ts * 1000);
+  // getMonth thinks January is 0
+  return  MONTHS[date.getMonth()] + " " +  date.getDate() + ", " + date.getFullYear();
+}
+
 // Formats time like {days}d {hrs}h {min}m {sec}s
 function fmtTime(time) {
   let m, s, h, d;
@@ -25,4 +36,4 @@ function getBasename(path) {
   return parts[parts.length - 1]
 }
 
-export { fmtTime, getBasename };
+export { fmtTime, fmtUnixTimestamp, getBasename };

@@ -98,7 +98,7 @@ class FileBrowser extends Component {
           key={line.path}
       >
         <div className={className}>
-          <img src={icon} className="fb-icon" />{line.name}
+          <img src={icon} alt="" className="fb-icon" />{line.name}
           <span className="right">{mtime.toString()}</span>
         </div>
       </li>
@@ -154,28 +154,50 @@ class FileBrowser extends Component {
  * @param {function} onFileClick - Action to take when a file is clicked.
  * @param {function} onClose - Action to take when window is closed.
  */
-function FileBrowserPopup(props) {
+class FileBrowserPopup extends Component {
+  constructor(props) {
+    super(props);
+    this.node = React.createRef();
+    this.handleClick = this.handleClick.bind(this);
+  }
+
+  componentWillMount() {
+    document.addEventListener('mousedown', this.handleClick, false);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('mousedown', this.handleClick, false);
+  }
+
+  handleClick(event) {
+    if (this.node.current.contains(event.target)){
+      // Ingore clicks inside this component
+      return;
+    }
+    this.props.onClose();
+  }
+
+  render() {
   return (
-    <div className="fb-overlay" >
-      <div className="fb-container">
+      <div className="fb-container" ref={this.node}>
         <ul>
           <li className="fb-row">
             <div className="fb-header">
-              File Browser
-              <div className="fb-closebutton" onClick={props.onClose}>X</div>
+              Select project file on render server
+              <div className="fb-closebutton" onClick={this.props.onClose}>X</div>
             </div>
           </li>
           <li className="layout-row">
             <FileBrowser
-              url={props.url}
-              path={props.path}
-              onFileClick={props.onFileClick}
+              url={this.props.url}
+              path={this.props.path}
+              onFileClick={this.props.onFileClick}
             />
           </li>
         </ul>
       </div>
-    </div>
-  )
+    )
+  }
 }
 
 

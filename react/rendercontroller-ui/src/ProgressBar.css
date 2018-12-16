@@ -44,3 +44,10 @@
   border-radius: inherit;
   transition: width .2s ease-in;
 }
+
+.progress-fill-waiting {
+  background: #FFDD11;
+  height: 100%;
+  border-radius: inherit;
+  transition: width .2s ease-in;
+}

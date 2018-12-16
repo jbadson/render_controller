@@ -67,6 +67,8 @@ function JobStatusBox(props) {
       fillClass += "-stopped";
     } else if (props.status === "Finished") {
       fillClass += "-finished"
+    } else if (props.status == "Waiting") {
+      fillClass += "-waiting"
     }
 
     return (
@@ -143,7 +145,6 @@ class JobStatusPane extends Component {
   deleteJob() {
     axios.post(this.props.url + "/job/delete/" + this.props.jobId)
     .then(
-      //FIXME: Add confirmation and warning if job is not stopped
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
     ).then(this.props.onDelete());
@@ -212,10 +213,30 @@ class JobStatusPane extends Component {
                   />
                 </li>
                 <li className="layout-row">
-                    <button className="sm-button" onClick={this.startJob}>Start</button>
-                    <button className="sm-button" onClick={this.stopJob}>Stop</button>
-                    <button className="sm-button" onClick={this.enqueueJob}>Enqueue</button>
-                    <button className="sm-button" onClick={this.deleteJob}>Delete</button>
+                    <button
+                      className="sm-button"
+                      disabled={data.status === 'Waiting' ? false : true}
+                      onClick={this.startJob}>
+                        Start
+                    </button>
+                    <button
+                      className="sm-button"
+                      disabled={data.status === 'Rendering' ? false : true}
+                      onClick={this.stopJob}>
+                        Stop
+                    </button>
+                    <button
+                      className="sm-button"
+                      disabled={data.status === 'Stopped' ? false : true}
+                      onClick={this.enqueueJob}>
+                        Enqueue
+                    </button>
+                    <button
+                      className="sm-button"
+                      disabled={data.status !== 'Rendering' ? false : true}
+                      onClick={this.deleteJob}>
+                        Delete
+                    </button>
                 </li>
                 <li className="layout-row">
                   {Object.keys(data.node_status).map(node => this.renderNodeBox(node, data.node_status[node]))}

@@ -118,18 +118,16 @@ class Job(object):
 
     def get_job_progress(self):
         '''Returns the percent complete for the job.'''
-        calcstatuses = ['Rendering', 'Stopped', 'Paused']
-        if self.status in calcstatuses:
-            n = 0
-            for i in self.totalframes:
-                if i != 0:
-                    n += 1
-            self.progress = float(n) / len(self.totalframes) * 100
-        elif self.status == 'Finished':
+        if self.status == 'Finished':
             self.progress = 100.0
-        else:
-            self.progress = 0.0
+            return self.progress
+        rendered = 0
+        for f in self.totalframes:
+            if f != 0:
+                rendered += 1
+        self.progress = float(rendered) / len(self.totalframes) * 100
         return self.progress
+
 
     def get_comp_status(self, computer):
         '''Returns the contents of self.compstatus for a given computer.'''

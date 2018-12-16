@@ -2,7 +2,6 @@ import React, { Component } from 'react';
 import './JobInput.css';
 import axios from "axios";
 import { FileBrowserPopup } from './FileBrowser';
-import CheckBox from './CheckBox';
 
 const RENDER_ENGINES = ["blend", "tgd"]
 
@@ -132,7 +131,7 @@ class JobInput extends Component {
   constructor(props) {
     super(props);
     this.state = {
-      path: props.path,
+      path: props.path || '',
       startFrame: props.startFrame || '',
       endFrame: props.endFrame || '',
       renderEngine: props.renderEngine,
@@ -282,8 +281,19 @@ class JobInput extends Component {
         <li className="layout-row">
           <label className="input-block">
             Project file:
-            <input type="text" name="path" className="txt-path" value={this.state.path} onChange={this.handleChange} />
-            <input type="button" className="sm-button" value="Browse" onClick={this.toggleBrowser} />
+            <input
+              type="text"
+              name="path"
+              className="txt-path"
+              value={this.state.path}
+              onChange={this.handleChange}
+            />
+            <input
+              type="button"
+              className="sm-button"
+              value="Browse"
+              onClick={this.toggleBrowser}
+            />
           </label>
         </li>
         <li className="layout-row">

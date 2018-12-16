@@ -3,7 +3,7 @@ import logging
 from typing import Sequence, Dict, Any, Type, List
 from uuid import uuid4
 from . import job
-from .exceptions import JobNotFoundError, NodeNotFoundError
+from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
 
 
 logger = logging.getLogger("controller")
@@ -134,8 +134,10 @@ class RenderController(object):
 
     def delete(self, job_id: str) -> None:
         """Deletes a render job.  Job must not be rendering."""
-        # FIXME: Doesn't check status of job before removing
         try:
+            status = self.server.get_status(job_id)
+            if status == 'Rendering':
+                raise JobStatusError('Cannot delete job while it is rendering')
             self.server.clear_job(job_id)
         except KeyError:
             logger.exception("Failed to delete '%s': KeyError" % job_id)

@@ -25,6 +25,8 @@ function JobSummary(props) {
       fillClass += "-stopped";
     } else if (props.status === "Finished") {
       fillClass += "-finished"
+    } else if (props.status === "Waiting") {
+      fillClass += "-waiting"
     }
 
     return (

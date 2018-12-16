@@ -1,0 +1,22 @@
+.settings-container {
+  position: absolute;
+  right: 0;
+  top: 25px;
+  margin: 10px;
+  background-color: #E0E0E0;
+  border-style: solid;
+  border-width: 1px;
+  box-shadow: 3px 3px 10px 3px #444444;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.settings-inner {
+  padding: 25px;
+  margin: 15px;
+  overflow: auto;
+}
+
+.settings-field:hover {
+  color: #0066cc;
+}

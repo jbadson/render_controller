@@ -29,7 +29,6 @@ class QueuePane extends Component {
 
   render() {
     if (!this.props.serverJobs) {
-      //FIXME will be empty if nothing in queue
       return <div>Error: No data to render</div>
     }
     return (

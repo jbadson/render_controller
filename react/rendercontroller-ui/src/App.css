@@ -30,7 +30,7 @@ ul, ol {
 
 .sidebar {
   position: absolute;
-  width: 290px;
+  width: 260px;
   height: 95%;
   overflow-y: auto;
   background: #f3f3f3;
@@ -39,7 +39,7 @@ ul, ol {
 
 .content-pane {
   position: absolute;
-  margin-left: 300px;
+  margin-left: 270px;
   margin-right: 10px;
   height: 95%;
   background: #f3f3f3;
@@ -62,21 +62,6 @@ ul, ol {
   background: #444;
 }
 
-.button-right {
-  float: right;
-  padding: 5px;
-  margin-bottom: 5px;
-  background: #888888;
-  font-size: 14px;
-  border-radius: 10px;
-  color: #f3f3f3;
-  border: 0px;
-}
-
-.button-right:hover {
-  background: #444;
-}
-
 .sm-button {
   background: #EEEEEE;
   margin: 5px;
@@ -87,52 +72,4 @@ ul, ol {
 
 .sm-button:hover {
   background-color: #BBBBBB;
-}
-
-.settings-overlay {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  z-index: 1000;
-}
-
-.settings-header {
-  background: #808080;
-  text-align: center;
-  color: #f3f3f3;
-  padding: 5px;
-}
-
-.settings-closebutton {
-  float: right;
-  cursor: pointer;
-}
-
-.settings-closebutton:hover {
-  font-weight: bolder;
-}
-
-.settings-container {
-  position: absolute;
-  right: 3%;
-  top: 1%;
-  background-color: #E0E0E0;
-  border-style: solid;
-  border-width: 1px;
-  box-shadow: 3px 3px 10px 3px #444444;
-  overflow: hidden;
-}
-
-.settings-row {
-  clear: both;
-  display: table;
-  width: 100%;
-}
-
-.settings-inner {
-  height: 200px;
-  width: 250px;
-  padding: 5px;
-  margin: 5px;
-  overflow: auto;
 }

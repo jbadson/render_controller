@@ -362,8 +362,8 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             # TODO: Be more specific
             return self.send_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                f"Failed to create job",
-                "Server caught {error}",
+                "Failed to create job",
+                f"Server caught {error}",
             )
         self.send_json({"job_id": job_id})
 

@@ -257,21 +257,14 @@ class JobInput extends Component {
       nodes: selectedNodes
     }
     axios.post(this.props.url + "/job/new", ret)
-      .then((result) => {console.log(result)}, (error) => console.error(error))
+      .then(
+        result => {console.log(result.data)},
+        error => {console.error(error)}
+      )
     this.props.onClose();
   }
 
   renderNodePicker() {
-    /*
-    if (this.state.useAllNodes) {
-      return (
-        <label>
-          <input type="checkbox" checked={true} onChange={this.deselectAllNodes} />
-          Use all render nodes
-        </label>
-      )
-    }
-    */
     return (
       <NodePicker
         renderNodes={this.state.renderNodes}

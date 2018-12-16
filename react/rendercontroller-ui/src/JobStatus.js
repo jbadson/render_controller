@@ -99,6 +99,7 @@ function JobStatusBox(props) {
  * @param {string} jobId - ID of render job
  * @param {string} url - REST API URL
  * @param {int} pollInterval - How often to poll API for updates (milliseconds)
+ * @param {function} onDelete - Action to take after job is deleted.
  */
 class JobStatusPane extends Component {
   constructor(props) {
@@ -145,7 +146,7 @@ class JobStatusPane extends Component {
       //FIXME: Add confirmation and warning if job is not stopped
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
-    );
+    ).then(this.props.onDelete());
   }
 
   getUpdate() {

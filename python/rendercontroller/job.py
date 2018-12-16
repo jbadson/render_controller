@@ -930,18 +930,19 @@ class RenderServer(object):
         path = kwargs['path']
         for char in illegal_characters:
             if char in path:
-                return 'Enqueue failed, illegal characters in path'
+                raise ValueError("Illegal character in path")
         #NOTE: path is also escaped by shlex.quote() in Job.enqueue
         startframe = kwargs['startframe']
         endframe = kwargs['endframe']
+        if startframe > endframe:
+            raise ValueError("End frame must be greater than start frame")
         extras = kwargs['extraframes']
         render_engine = kwargs['render_engine']
         complist = kwargs['complist']
         #create the job
         if index in self.renderjobs:
             if self.renderjobs[index].getstatus() == 'Rendering':
-                return ('Enqueue failed, job with same index is currently '
-                       'rendering.')
+                raise ValueError("Job id in use")
         #place it in queue
         self.renderjobs[index] = Job()
         #put it in ordered list of waiting jobs
@@ -954,7 +955,7 @@ class RenderServer(object):
             return index
         else:
             del self.renderjobs[index]
-            return 'Enqueue failed, job deleted'
+            raise RuntimeError("Failed to create job")
     
     def start_render(self, index):
         '''Start a render at the request of client.'''

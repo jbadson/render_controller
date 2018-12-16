@@ -73,29 +73,28 @@
   color: #0066cc;
 }
 
-.fb-current {
+.fb-pathbar {
   padding: 5px;
-  line-height: 18px;
   vertical-align: middle;
 }
 
-.fb-icon {
-  height: 14px;
-  padding-right: 5px;
-}
-
 .fb-back-button {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: bolder;
   cursor: pointer;
 }
 
 .fb-back-button:hover {
-  color: #222;
+  color: #0066cc;
 }
 
 .fb-back-button-disabled {
   font-size: 18px;
   font-weight: bolder;
   color: #999;
+}
+
+.fb-icon {
+  height: 14px;
+  padding-right: 5px;
 }

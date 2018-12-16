@@ -112,7 +112,7 @@ class FileBrowser extends Component {
     }
     return (
       <span className={className} onClick={this.handleBackClick}>
-        &#8629;
+        &#8617;
       </span>
     )
   }
@@ -125,7 +125,7 @@ class FileBrowser extends Component {
     return (
       <ul>
         <li className="fb-row">
-          <div className="fb-current">
+          <div className="fb-pathbar">
             {this.renderBackButton()} {this.state.path}
           </div>
         </li>

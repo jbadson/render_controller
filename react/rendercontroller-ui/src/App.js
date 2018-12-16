@@ -4,11 +4,11 @@ import axios from 'axios';
 import JobInput from './JobInput';
 import QueuePane from './QueuePane';
 import JobStatusPane from './JobStatus';
+import CheckBox from './CheckBox'
 import {FileBrowserPopup} from './FileBrowser';
 
 /* TODO:
-- Settings popup/menu
-  - Should show autostart status and modify, poll interval?
+- Make settings menu checkbox update after click
 - Order queue boxes by queue position (or queue time)
 - Disable (preferably gray out or hide) buttons in irrelevant contexts:
   Enqueue when state != stopped
@@ -23,6 +23,40 @@ const POLL_INTERVAL = 1000; // Milliseconds
 const API_CONNECT = "http://localhost:2020";
 
 
+/**
+ * Displays settings in a popup overlay.
+ * @param {boolean} autostart - State of autostart setting
+ * @param {function} onClose - Action to take when window is closed.
+ * @param {function} toggleAutostart - Callback to flip state of autostart
+ */
+function SettingsPopup(props) {
+  return (
+    <div className="settings-overlay">
+      <div className="settings-container">
+        <ul>
+          <li className="settings-row">
+            <div className="settings-header">
+              Settings
+              <div className="settings-closebutton" onClick={props.onClose}>X</div>
+            </div>
+          </li>
+          <li className="layout-row">
+            <div className="settings-inner">
+              <CheckBox
+                label="Automatically start renders"
+                checked={props.autostart}
+                onChange={props.toggleAutostart}
+              />
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+
+
 class App extends Component {
   constructor(props) {
     super(props);
@@ -31,17 +65,51 @@ class App extends Component {
       serverJobs: [],
       error: null,
       showInputPane: false,
+      showSettings: false,
+      autostart: true,
     }
     this.selectJob = this.selectJob.bind(this);
     this.toggleInputPane = this.toggleInputPane.bind(this);
+    this.toggleSettings = this.toggleSettings.bind(this);
+    this.toggleAutostart = this.toggleAutostart.bind(this);
+    this.deselectJob = this.deselectJob.bind(this);
   }
 
   selectJob(jobId) {
     this.setState({selectedJob: jobId})
   }
 
+  deselectJob() {
+    this.setState({selectedJob: null});
+    this.selectFirstJob();
+  }
+
   toggleInputPane() {
     this.setState(state => ({showInputPane: !state.showInputPane}))
+  }
+
+  toggleSettings() {
+    if (!this.state.showSettings) {
+      this.getAutostart();
+    }
+    this.setState(state => ({showSettings: !state.showSettings}))
+  }
+
+  toggleAutostart() {
+    let action = "enable";
+    if (this.state.autostart) {
+      action = "disable";
+    }
+    axios.post(API_CONNECT + "/config/autostart/" + action)
+      .then(this.getAutostart())
+  }
+
+  getAutostart() {
+    axios.get(API_CONNECT + "/config/autostart")
+      .then(
+        result => {this.setState({autostart: result.data.autostart})},
+        error => {console.error(error.message)}
+      )
   }
 
   getUpdate() {
@@ -53,12 +121,16 @@ class App extends Component {
       )
       .then(() => {
         // Select first job if none are selected
-        const { selectedJob, serverJobs } = this.state;
-        if (!selectedJob && serverJobs.length > 0) {
-          this.selectJob(serverJobs[0].id);
-        }
+        this.selectFirstJob();
       }
       )
+  }
+
+  selectFirstJob() {
+    const { selectedJob, serverJobs } = this.state;
+    if (!selectedJob && serverJobs.length > 0) {
+      this.selectJob(serverJobs[0].id);
+    }
   }
 
   componentDidMount() {
@@ -85,10 +157,24 @@ class App extends Component {
           jobId={this.state.selectedJob}
           url={API_CONNECT}
           pollInterval={POLL_INTERVAL}
+          onDelete={this.deselectJob}
         />
       )
     }
-    return <p>No job selected</p>
+    return;
+  }
+
+  renderSettingsPopup() {
+    if (!this.state.showSettings) {
+      return;
+    }
+    return (
+      <SettingsPopup
+        autostart={this.state.autostart}
+        onClose={this.toggleSettings}
+        toggleAutostart={this.toggleAutostart}
+      />
+    )
   }
 
   render() {
@@ -97,35 +183,30 @@ class App extends Component {
       return <p>Error: {error.message}</p>
     }
     return (
-      <ul>
-        <li className="layout-row">
-          <button className="button-left" onClick={this.toggleInputPane}>New</button>
-          <button className="button-right">Settings</button>
-        </li>
-        <li className="layout-row">
-          <div className="sidebar">
-            <QueuePane
-              serverJobs={serverJobs}
-              onJobClick={this.selectJob}
-              selectedJob={selectedJob}
-            />
-          </div>
-          <div className="content-pane">
-            {this.renderContentPane()}
-          </div>
-        </li>
-      </ul>
+      <div>
+        {this.renderSettingsPopup()}
+        <ul>
+          <li className="layout-row">
+            <button className="button-left" onClick={this.toggleInputPane}>New</button>
+            <button className="button-right" onClick={this.toggleSettings}>Settings</button>
+          </li>
+          <li className="layout-row">
+            <div className="sidebar">
+              <QueuePane
+                serverJobs={serverJobs}
+                onJobClick={this.selectJob}
+                selectedJob={selectedJob}
+              />
+            </div>
+            <div className="content-pane">
+              {this.renderContentPane()}
+            </div>
+          </li>
+        </ul>
+      </div>
     )
   }
 }
 
 
 export default App;
-
-function Browsertest(props) {
-  return (
-    <FileBrowserPopup url={API_CONNECT + "/storage/ls"} path="/" onFileClick={() => {console.log('clicked')}} onClose={() => {console.log('closed')}} />
-  )
-}
-
-//export default Browsertest;

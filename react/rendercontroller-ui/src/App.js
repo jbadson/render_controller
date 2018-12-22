@@ -138,7 +138,7 @@ class App extends Component {
   }
 
   render() {
-    const { serverJobs, selectedJob, error } = this.state;
+    const { serverJobs, selectedJob, showSettings, error } = this.state;
     if (error) {
       return <p>Error: {error.message}</p>
     }
@@ -147,7 +147,7 @@ class App extends Component {
         <li className="layout-row">
           <button className="button-left" onClick={this.toggleInputPane}>New</button>
           <div className="right">
-            <button className="button-left" onClick={this.toggleSettings}>Settings</button>
+            <button className="button-left" disabled={showSettings} onClick={this.toggleSettings}>Settings</button>
             {this.renderSettingsWidget()}
           </div>
         </li>

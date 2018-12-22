@@ -67,7 +67,7 @@ function JobStatusBox(props) {
       fillClass += "-stopped";
     } else if (props.status === "Finished") {
       fillClass += "-finished"
-    } else if (props.status == "Waiting") {
+    } else if (props.status === "Waiting") {
       fillClass += "-waiting"
     }
 

@@ -183,7 +183,7 @@ class FileBrowserPopup extends Component {
         <ul>
           <li className="fb-row">
             <div className="fb-header">
-              Select project file on render server
+              Select project file on file server
               <div className="fb-closebutton" onClick={this.props.onClose}>X</div>
             </div>
           </li>

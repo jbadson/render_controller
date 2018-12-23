@@ -121,7 +121,6 @@ function NodePicker(props) {
 /**
  * Job input widget.
  * @param {function} onSubmit - Called when input is submitted.
- * @param {str} url - URL of API
  * @param {str} path - Initial path to set in browser.
  * @param {int} startFrame - Optional: Value to set in start frame field.
  * @param {int} endFrame - Optional: Value to set in end frame field.
@@ -155,7 +154,7 @@ class JobInput extends Component {
   }
 
   getRenderNodes() {
-    axios.get(this.props.url + "/node/list")
+    axios.get(process.env.REACT_APP_BACKEND_API + "/node/list")
       .then(
         (result) => {
           let renderNodes = {}
@@ -255,7 +254,7 @@ class JobInput extends Component {
       render_engine: ext,
       nodes: selectedNodes
     }
-    axios.post(this.props.url + "/job/new", ret)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/job/new", ret)
       .then(
         result => {console.log(result.data)},
         error => {console.error(error)}
@@ -331,7 +330,6 @@ class JobInput extends Component {
       <div className="input-container">
         {this.state.showBrowser &&
           <FileBrowserPopup
-            url={this.props.url + "/storage/ls"}
             path={this.props.path}
             onClose={this.toggleBrowser}
             onFileClick={this.setPath}

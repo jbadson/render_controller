@@ -7,7 +7,6 @@ import { fmtUnixTimestamp } from './util';
 /**
  * A file browser widget for navigating the server-side filesystem.
  * @param {string} path - Initial directory to list on server.
- * @param {string} url - URL of API
  * @param {function} onFileClick - Action to take when a file is clicked.
  */
 class FileBrowser extends Component {
@@ -25,7 +24,7 @@ class FileBrowser extends Component {
   }
 
   getDirContents(path) {
-    return axios.post(this.props.url, {"path": path});
+    return axios.post(process.env.REACT_APP_BACKEND_API + "/storage/ls", {"path": path});
   }
 
   componentDidMount() {
@@ -150,7 +149,6 @@ class FileBrowser extends Component {
 /**
  * Displays FileBrowser in a popup overlay.
  * @param {string} path - Initial directory to list on server.
- * @param {string} url - URL to API endpoint
  * @param {function} onFileClick - Action to take when a file is clicked.
  * @param {function} onClose - Action to take when window is closed.
  */
@@ -189,7 +187,6 @@ class FileBrowserPopup extends Component {
           </li>
           <li className="layout-row">
             <FileBrowser
-              url={this.props.url}
               path={this.props.path}
               onFileClick={this.props.onFileClick}
             />

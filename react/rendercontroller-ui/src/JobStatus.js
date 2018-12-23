@@ -7,7 +7,6 @@ import { fmtTime, getBasename } from './util';
 
 /**
  * Render node status widget.
- * @param {string} url - REST API URL
  * @param {string} name - Node Name
  * @param {string} jobId - ID of job this node is rendering
  * @param {boolean} isEnabled - Is node enabled for rendering?
@@ -20,7 +19,7 @@ class NodeStatusBox extends Component {
     if (this.props.isEnabled) {
       action = "disable";
     }
-    axios.get(this.props.url + "/node/" + action + "/" + this.props.name + "/" + this.props.jobId)
+    axios.get(process.env.REACT_APP_BACKEND_API + "/node/" + action + "/" + this.props.name + "/" + this.props.jobId)
   }
 
   render() {
@@ -99,8 +98,6 @@ function JobStatusBox(props) {
 /**
  * Widget to display comprehensive job info with render nodes.
  * @param {string} jobId - ID of render job
- * @param {string} url - REST API URL
- * @param {int} pollInterval - How often to poll API for updates (milliseconds)
  * @param {function} onDelete - Action to take after job is deleted.
  */
 class JobStatusPane extends Component {
@@ -117,7 +114,7 @@ class JobStatusPane extends Component {
   }
 
   startJob() {
-    axios.post(this.props.url + "/job/start/" + this.props.jobId)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/job/start/" + this.props.jobId)
       .then(
         (result) => {console.log(result)},
         (error) => {console.error(error.message)}
@@ -125,7 +122,7 @@ class JobStatusPane extends Component {
   }
 
   stopJob() {
-    axios.post(this.props.url + "/job/stop/" + this.props.jobId)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/job/stop/" + this.props.jobId)
     .then(
       //FIXME: Add confirmation of some kind
       (result) => {console.log(result)},
@@ -134,7 +131,7 @@ class JobStatusPane extends Component {
   }
 
   enqueueJob() {
-    axios.post(this.props.url + "/job/enqueue/" + this.props.jobId)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/job/enqueue/" + this.props.jobId)
     .then(
       //FIXME: Add note about starting job manually
       (result) => {console.log(result)},
@@ -143,7 +140,7 @@ class JobStatusPane extends Component {
   }
 
   deleteJob() {
-    axios.post(this.props.url + "/job/delete/" + this.props.jobId)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + this.props.jobId)
     .then(
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
@@ -151,7 +148,7 @@ class JobStatusPane extends Component {
   }
 
   getUpdate() {
-    axios.get(this.props.url + "/job/status/" + this.props.jobId)
+    axios.get(process.env.REACT_APP_BACKEND_API + "/job/status/" + this.props.jobId)
       .then(result => {
         this.setState({data: result.data});
         },
@@ -162,7 +159,7 @@ class JobStatusPane extends Component {
 
   componentDidMount() {
     this.getUpdate()
-    this.interval = setInterval(() => this.getUpdate(), this.props.pollInterval);
+    this.interval = setInterval(() => this.getUpdate(), process.env.REACT_APP_POLL_INTERVAL);
   }
 
   componentWillUnmount() {
@@ -175,7 +172,6 @@ class JobStatusPane extends Component {
         key={name}
         name={name}
         jobId={this.props.jobId}
-        url={this.props.url}
         isRendering={nodeStatus.rendering}
         isEnabled={nodeStatus.enabled}
         frame={nodeStatus.frame}

@@ -6,16 +6,6 @@ import QueuePane from './QueuePane';
 import JobStatusPane from './JobStatus';
 import SettingsWidget from './SettingsWidget';
 
-/* TODO:
-- Order queue boxes by queue position (or queue time)
-- Tooltips for buttons, especially start, stop, enqueue
-- Review all FIXMEs and TODOs
-- Figure out how to package this for distribution
-*/
-
-const POLL_INTERVAL = 1000; // Milliseconds
-const API_CONNECT = "http://localhost:2020";
-
 
 class App extends Component {
   constructor(props) {
@@ -60,12 +50,12 @@ class App extends Component {
     if (this.state.autostart) {
       action = "disable";
     }
-    axios.post(API_CONNECT + "/config/autostart/" + action)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/config/autostart/" + action)
       .then(result => {this.getAutostart()}); // Updates checkbox state
   }
 
   getAutostart() {
-    axios.get(API_CONNECT + "/config/autostart")
+    axios.get(process.env.REACT_APP_BACKEND_API + "/config/autostart")
       .then(
         result => {this.setState({autostart: result.data.autostart})},
         error => {console.error(error.message)}
@@ -74,7 +64,7 @@ class App extends Component {
 
   getUpdate() {
     // Fetch data from server and update UI
-    axios.get(API_CONNECT + "/job/summary")
+    axios.get(process.env.REACT_APP_BACKEND_API + "/job/summary")
       .then(
         result => {this.setState({serverJobs: result.data})},
         error => {this.setState({error: error})}
@@ -95,7 +85,7 @@ class App extends Component {
 
   componentDidMount() {
     this.getUpdate()
-    this.interval = setInterval(() => this.getUpdate(), POLL_INTERVAL);
+    this.interval = setInterval(() => this.getUpdate(), process.env.REACT_APP_POLL_INTERVAL);
   }
 
   componentWillUnmount() {
@@ -107,7 +97,6 @@ class App extends Component {
       return (
         <JobInput
           path=""
-          url={API_CONNECT}
           onClose={this.toggleInputPane}
         />
       )
@@ -115,8 +104,6 @@ class App extends Component {
       return (
         <JobStatusPane
           jobId={this.state.selectedJob}
-          url={API_CONNECT}
-          pollInterval={POLL_INTERVAL}
           onDelete={this.deselectJob}
         />
       )

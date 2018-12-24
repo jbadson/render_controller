@@ -8,6 +8,7 @@ RenderController is a simple network render manager that works with Blender's Cy
 * Queue as many renders as you want and they'll automaticall start one at a time.
 * If a render node fails, its frames will automatically be assigned to other nodes.
 * Can manage nodes in multiple networks as long as they're reachable with SSH.
+* Includes a `framechecker` script to check directories for missing frames.
 
 
 ## Backend Service Setup

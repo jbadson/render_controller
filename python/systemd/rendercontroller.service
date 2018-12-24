@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/rcontroller -c /etc/rendercontroller.conf
+ExecStart=/usr/local/bin/rcontroller-server -c /etc/rendercontroller.conf
 WorkingDirectory=/var/rendercontroller
 Restart=on-failure
 

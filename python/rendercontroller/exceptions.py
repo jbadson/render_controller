@@ -12,6 +12,8 @@ class NodeNotFoundError(LookupError):
 
     pass
 
+
 class JobStatusError(RuntimeError):
     """Raised when a job is not in the correct state for the requested action."""
+
     pass

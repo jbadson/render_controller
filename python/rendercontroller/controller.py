@@ -58,7 +58,7 @@ class RenderController(object):
 
     def enable_autostart(self) -> None:
         """Enable automatic rendering jobs in the render queue."""
-        #FIXME This is a bad way to do this, but need to rewrite job module
+        # FIXME This is a bad way to do this, but need to rewrite job module
         job.CONFIG.autostart = True
         logger.info("Enabled autostart")
 
@@ -136,14 +136,12 @@ class RenderController(object):
         """Deletes a render job.  Job must not be rendering."""
         try:
             status = self.server.get_status(job_id)
-            if status == 'Rendering':
-                raise JobStatusError('Cannot delete job while it is rendering')
+            if status == "Rendering":
+                raise JobStatusError("Cannot delete job while it is rendering")
             self.server.clear_job(job_id)
         except KeyError:
             logger.exception("Failed to delete '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
-
-
 
     def enable_node(self, job_id: str, node: str) -> None:
         """

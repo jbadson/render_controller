@@ -43,7 +43,7 @@ CONFIG = None
 # This is not the best way to do things, but it is how it is.
 
 
-logger = logging.getLogger('rcontroller.server')
+logger = logging.getLogger("job")
 
 illegal_characters = [';', '&'] #not allowed in paths
 threadlock = threading.RLock()

@@ -7,6 +7,7 @@ import json
 from json import JSONDecodeError
 import os
 import yaml
+import signal
 import socketserver
 import urllib.parse
 from typing import Sequence, Optional, Dict, List, Any, Callable, Type
@@ -64,12 +65,31 @@ class ParsedPath(object):
 class TCPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
 
+    def __init__(self, controller: RenderController, *args, **kwargs):
+        self.controller = controller
+        signal.signal(signal.SIGTERM, self._signal_handler())
+        super().__init__(*args, **kwargs)
+
     def handle_error(self, request, client_address):
         """Overrides parent method to customize logging."""
         logger.exception(
             "TCP server caught exception while handling "
             + "request %s from %s" % (request, client_address[0])
         )
+
+    def _signal_handler(self):
+        """Closure to give handler function instance context."""
+
+        def handler(signum, frame):
+            logger.debug(f"Caught signal {signum}")
+            self.shutdown()
+
+        return handler
+
+    def shutdown(self):
+        logger.info("Shutting down server")
+        self.controller.shutdown()
+        super().shutdown()
 
 
 class HttpHandler(http.server.SimpleHTTPRequestHandler):
@@ -484,14 +504,17 @@ def main(config_path: str) -> int:
 
     controller = RenderController(Config)
     HttpHandler.configure(controller, Config.cors_origin, Config.fileserver_base_dir)
-    server = TCPServer((Config.listen_addr, Config.listen_port), HttpHandler)
+    server = TCPServer(
+        controller=controller,
+        server_address=(Config.listen_addr, Config.listen_port),
+        RequestHandlerClass=HttpHandler,
+    )
     logger.info(f"Listening on {Config.listen_addr}:{Config.listen_port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        # TODO also need to catch sigterm and shut down cleanly
-        controller.shutdown()
+        server.shutdown()
     except:
-        logging.exception("Uncaught exception. Server shutting down.")
+        logging.exception("Unhandled exception. Server shutting down.")
         return 1
     return 0

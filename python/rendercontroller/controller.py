@@ -235,4 +235,5 @@ class RenderController(object):
 
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""
+        logger.debug("Shutting down controller")
         self.server.shutdown_server()

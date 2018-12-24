@@ -1,0 +1,12 @@
+[Unit]
+Description=RenderController - A multi-engine network render manager.
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/rcontroller -c /etc/rendercontroller.conf
+WorkingDirectory=/var/rendercontroller
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

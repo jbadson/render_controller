@@ -10,6 +10,8 @@ RenderController is a simple network render manager that works with Blender's Cy
 * Can manage nodes in multiple networks as long as they're reachable with SSH.
 * Includes a `framechecker` script to check directories for missing frames.
 
+<img align="center" src="images/rc_top.jpg" border="1px">
+
 
 ## Backend Service Setup
 ### Requirements
@@ -51,7 +53,7 @@ RenderController is a simple network render manager that works with Blender's Cy
 1. Edit `.env.production` with the correct host and port for your backend API.
 1. Build the production package
     * `cd render_controller/react && npm run build`
-1. Copy contens of the `build` directory to a suitable place and start your web server. For details, see the official docs on [deploying a React app](https://facebook.github.io/create-react-app/docs/deployment).
+1. Copy contents of the `build` directory to a suitable place and start your web server. For details, see the official docs on [deploying a React app](https://facebook.github.io/create-react-app/docs/deployment).
 
 ## REST API Reference
 

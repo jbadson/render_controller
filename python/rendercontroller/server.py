@@ -481,7 +481,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
 def main(config_path: str) -> int:
     try:
-        with open(CONFIG_FILE_PATH) as f:
+        with open(config_path) as f:
             conf = yaml.load(f.read())
     except:
         logging.exception(f"Unable to read config file at {config_path}")

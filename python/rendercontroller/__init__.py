@@ -13,6 +13,7 @@ def main() -> int:
         "-c",
         "--config-file",
         help=f"Path to config file. Default: {server.CONFIG_FILE_PATH}",
+        default=server.CONFIG_FILE_PATH,
     )
     parser.add_argument(
         "-v", "--version", help="Print server version and exit.", action="store_true"

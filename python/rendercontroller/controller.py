@@ -12,6 +12,9 @@ logger = logging.getLogger("controller")
 class Config(object):
     """Singleton configuration object."""
 
+    def __init__(self):
+        raise RuntimeError("Config class cannot be instantiated")
+
     @classmethod
     def set_all(cls, attrs: Dict[str, Any]) -> None:
         """Sets attributes from a dictionary."""
@@ -86,7 +89,7 @@ class RenderController(object):
         :return str: ID of newly created job.
         """
         job_id = uuid4().hex
-        result = self.server.enqueue(
+        self.server.enqueue(
             {
                 "index": job_id,
                 "path": path,
@@ -97,8 +100,6 @@ class RenderController(object):
                 "complist": nodes,
             }
         )
-        if result != job_id:
-            raise RuntimeError(result)
         return job_id
 
     def start(self, job_id: str) -> None:

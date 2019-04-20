@@ -602,7 +602,7 @@ def test_controller_autostart(conf, job):
 
 
 @mock.patch("rendercontroller.controller.uuid4")
-def test_controller_new_job(uuid, controller_fix):
+def test_controller_new_job_no_params(uuid, controller_fix):
     path = "/tmp/testfile.blend"
     start = 1
     end = 10
@@ -624,6 +624,42 @@ def test_controller_new_job(uuid, controller_fix):
             "extraframes": None,
             "render_engine": engine,
             "complist": nodes,
+            "render_params": None,
+        }
+    )
+    assert res == job_id
+
+
+@mock.patch("rendercontroller.controller.uuid4")
+def test_controller_new_job_with_params(uuid, controller_fix):
+    path = "/tmp/testfile.blend"
+    start = 1
+    end = 10
+    engine = "blend"
+    nodes = test_nodes[0:2]
+    render_params = {"scene": "NewScene"}
+    # Override uuid4 so we can verify calls all the way through
+    job_id = "2973f9954570424d943afdedee3525b7"
+    uuid.return_value.hex = job_id
+    controller_fix.server.enqueue.return_value = job_id
+    res = controller_fix.new_job(
+        path=path,
+        start_frame=start,
+        end_frame=end,
+        render_engine=engine,
+        nodes=nodes,
+        render_params=render_params,
+    )
+    controller_fix.server.enqueue.assert_called_with(
+        {
+            "index": job_id,
+            "path": path,
+            "startframe": start,
+            "endframe": end,
+            "extraframes": None,
+            "render_engine": engine,
+            "complist": nodes,
+            "render_params": {"scene": "NewScene"},
         }
     )
     assert res == job_id

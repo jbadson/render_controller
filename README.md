@@ -43,6 +43,7 @@ RenderController is a simple network render manager that works with Blender's Cy
 * nodejs 10.14.2+
 * npm 6.4.1+
 * A web server.  If you're only hosting this app and don't need any special features, [serve](https://github.com/zeit/serve) is a simple option.
+** NOTE: Do not install this on a public-facing web server. There is no provision for access control or authentication and the security model assumes it is accessible only from trusted networks.
 
 ### Installation
 1. Install Dependencies

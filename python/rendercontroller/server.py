@@ -137,6 +137,8 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs) -> None:
         self._parsed_path: Optional[ParsedPath] = None
+        if self.controller is None:
+            raise AttributeError("Class attribute controller not configured")
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -371,11 +373,12 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             end = int(data["end_frame"])
             engine = data["render_engine"]
             nodes = data["nodes"]
+            render_params = data["render_params"]
         except KeyError:
             logger.exception("New job request missing required data")
             return self.send_error(HTTPStatus.BAD_REQUEST, "Missing required data")
         try:
-            job_id = self.controller.new_job(path, start, end, engine, nodes)
+            job_id = self.controller.new_job(path, start, end, engine, nodes, render_params)
         except Exception as e:
             logger.exception("Error while creating job")
             error = str(e)

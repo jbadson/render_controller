@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import logging
-from typing import Sequence, Dict, Any, Type, List
+from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
 from . import job
 from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
@@ -77,6 +77,7 @@ class RenderController(object):
         end_frame: int,
         render_engine: str,
         nodes: Sequence[str],
+        render_params: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Creates a new render job and places it in queue.
@@ -86,6 +87,8 @@ class RenderController(object):
         :param int end_frame: End frame number.
         :param str render_engine: Render engine.
         :param list nodes: List of render nodes to enable for this job.
+        :param dict render_params: Optional dict of render-engine-specific
+            parameters. Implementation is up to the render engine handler.
         :return str: ID of newly created job.
         """
         job_id = uuid4().hex
@@ -98,6 +101,7 @@ class RenderController(object):
                 "extraframes": None,  # Deprecated
                 "render_engine": render_engine,
                 "complist": nodes,
+                "render_params": render_params,
             }
         )
         return job_id

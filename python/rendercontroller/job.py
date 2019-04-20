@@ -94,8 +94,9 @@ class Job(object):
         self.starttime = None #time render() called
         self.stoptime = None #time masterthread stopped
         self.complist = []
+        self.render_params = None
         #generate dict of computer statuses
-        self.compstatus = dict()
+        self.compstatus = {}
         for computer in CONFIG.render_nodes:
             self._reset_compstatus(computer)
         self.skiplist = []
@@ -134,7 +135,7 @@ class Job(object):
         return self.compstatus[computer]
 
     def enqueue(self, path, startframe, endframe, render_engine, complist, 
-                extraframes=None):
+                extraframes=None, render_params=None):
         '''Create a new job and place it in queue.'''
         #make sure path is properly shell-escaped
         self.path = shlex.quote(path)
@@ -144,6 +145,7 @@ class Job(object):
         self.startframe = startframe
         self.endframe = endframe
         self.extraframes = extraframes or []
+        self.render_params = render_params
 
         self.render_engine = render_engine
         self.complist = complist
@@ -171,9 +173,9 @@ class Job(object):
         self.renderlog = logger.getChild(os.path.basename(self.path))
         self.renderlog.info(
             'placed in queue with startframe: {} endframe: {} extra frames: '\
-            '{} on nodes: {} with job ID {}'.format(
+            '{} on nodes: {} with render params: {} with job ID {}'.format(
             self.startframe, self.endframe, ', '.join(self.extraframes), 
-            ', '.join(self.complist), self._id))
+            ', '.join(self.complist), str(self.render_params), self._id))
         self.status = 'Waiting'
         return True
 
@@ -282,10 +284,16 @@ class Job(object):
             renderpath = shlex.quote(CONFIG.blenderpath_mac)
         else:
             renderpath = shlex.quote(CONFIG.blenderpath_linux)
+        # Build list of command line args to pass to Blender
+        # NOTE: Blender is extremely sensitive to the order in which args are passed.
+        blender_cmd = [renderpath, "-b", "-noaudio", self.path]
+        if self.render_params and "scene" in self.render_params:
+            # If specified, scene must come after file path and before frame.
+            blender_cmd.extend(["--scene", self.render_params["scene"]])
+        blender_cmd.extend(["-f", str(frame), "& pgrep -n blender"])
         command = subprocess.Popen(
-            'ssh {user}@{host} "{prog} -b -noaudio {path} -f {frame} & pgrep -n blender"'.format(
-            user=CONFIG.ssh_user, host=computer, prog=renderpath, path=self.path, frame=frame), 
-            stdout=subprocess.PIPE, shell=True )
+            f"ssh {CONFIG.ssh_user}@{computer} \"{' '.join(blender_cmd)}\"",
+            stdout=subprocess.PIPE, shell=True)
         for line in iter(command.stdout.readline, ''):
             try:
                 line = line.decode('UTF-8')
@@ -947,7 +955,7 @@ class RenderServer(object):
         self.waitlist.append(self.renderjobs[index])
         success = self.renderjobs[index].enqueue(
             path, startframe, endframe, render_engine, complist, 
-            extraframes=extras, 
+            extraframes=extras, render_params=kwargs['render_params'],
             )
         if success:
             return index

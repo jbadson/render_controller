@@ -227,6 +227,7 @@ class RenderController(object):
             "start_frame": data["startframe"],
             "end_frame": data["endframe"],
             "render_engine": data["render_engine"],
+            "render_params": data["render_params"],
             "status": data["status"],
             "progress": data["progress"],
             "time_avg": data["times"][1],

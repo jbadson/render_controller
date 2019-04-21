@@ -565,6 +565,7 @@ class Job(object):
             'endframe':self.endframe,
             'extraframes':self.extraframes,
             'render_engine':self.render_engine,
+            'render_params': self.render_params,
             'totalframes':self.totalframes,
             'progress':self.get_job_progress(),
             'times':self.get_times(),
@@ -676,6 +677,7 @@ class Job(object):
         self.startframe = attrdict['startframe']
         self.endframe = attrdict['endframe']
         self.render_engine = attrdict['render_engine']
+        self.render_params = attrdict['render_params']
         self.totalframes = attrdict['totalframes']
         times = attrdict['times']
         #create new entries if list of available computers has changed

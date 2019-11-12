@@ -48,6 +48,7 @@ def list_dir(directory: str) -> List[Dict[str, Any]]:
                 "atime": i.stat().st_atime,
                 "mtime": i.stat().st_mtime,
                 "ctime": i.stat().st_ctime,
+                "ext": os.path.splitext(i.name)[1],
             }
         )
     return contents
@@ -373,10 +374,13 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             end = int(data["end_frame"])
             engine = data["render_engine"]
             nodes = data["nodes"]
-            render_params = data["render_params"]
         except KeyError:
             logger.exception("New job request missing required data")
             return self.send_error(HTTPStatus.BAD_REQUEST, "Missing required data")
+        if "render_params" in data:
+            render_params = data["render_params"]
+        else:
+            render_params = None
         try:
             job_id = self.controller.new_job(
                 path, start, end, engine, nodes, render_params
@@ -487,7 +491,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 def main(config_path: str) -> int:
     try:
         with open(config_path) as f:
-            conf = yaml.load(f.read())
+            conf = yaml.safe_load(f.read())
     except:
         logging.exception(f"Unable to read config file at {config_path}")
         return 1

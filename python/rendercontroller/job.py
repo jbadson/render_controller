@@ -311,7 +311,7 @@ class Job(object):
             logger.debug(line)
             #calculate progress based on tiles
             if line.find('Fra:') >= 0 and line.find('Tile') >0:
-                match = re.search('Path Tracing Tile +?([0-9]+)\/([0-9]+)', line)
+                match = re.search('Rendered ([0-9]+)/([0-9]+) Tiles', line)
                 if not match:
                     # Don't break if regex doesn't match
                     continue

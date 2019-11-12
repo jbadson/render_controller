@@ -3,6 +3,7 @@ import './FileBrowser.css';
 import axios from 'axios';
 import { fmtUnixTimestamp } from './util';
 
+// TODO: Doesn't remember sort mode when using the back arrow in file browser
 
 /**
  * A file browser widget for navigating the server-side filesystem.
@@ -16,11 +17,13 @@ class FileBrowser extends Component {
       path: null,
       fileList: [],
       pathHistory: [],
+      sortBy: "name",
       error: null,
     };
     this.onFileClick = props.onFileClick.bind(this);
     this.handleDirClick = this.handleDirClick.bind(this);
     this.handleBackClick = this.handleBackClick.bind(this);
+    this.sortFiles = this.sortFiles.bind(this);
   }
 
   getDirContents(path) {
@@ -29,6 +32,45 @@ class FileBrowser extends Component {
 
   componentDidMount() {
     this.handleDirClick(this.props.path);
+  }
+
+  sortByKind(fileList) {
+    // Puts directories first, then sorts by file extension
+    const dirs = fileList.filter(file => file.type === "d");
+    const files = fileList.filter(file => file.type === "f").sort(
+      function(a, b) {return a.ext > b.ext}
+    );
+    return [...dirs, ...files];
+  }
+
+  sortFiles(sortBy = null) {
+    const newSort = sortBy || this.state.sortBy;
+    const prevSort = this.state.sortBy;
+    const fileList = this.state.fileList;
+
+    if (sortBy === prevSort) {
+      fileList.reverse();
+      this.setState({fileList: fileList});
+      return;
+    }
+
+    var sortedList;
+    if (newSort === "name") {
+      sortedList = fileList.sort(function(a, b) {return a.name > b.name})
+    } else if (newSort === "size") {
+      sortedList = fileList.sort(function(a, b) {return a.size - b.size})
+    } else if (newSort === "mtime") {
+      sortedList = fileList.sort(function(a, b) {return a.mtime - b.mtime})
+    } else if (newSort === "ctime") {
+      sortedList = fileList.sort(function(a, b) {return a.ctime - b.ctime})
+    } else if (newSort === "kind") {
+      sortedList = this.sortByKind(fileList);
+    }
+
+    this.setState({
+        sortBy: sortBy,
+        fileList: sortedList
+    })
   }
 
   handleDirClick(path) {
@@ -47,11 +89,13 @@ class FileBrowser extends Component {
         (error) => {
           this.setState({error: error});
         },
-      );
+      )
+      .then(() => {this.sortFiles()});
   }
 
   handleBackClick() {
     const history = this.state.pathHistory;
+    const sortBy = this.state.sortBy;
     const path = history[history.length - 1]
     if (!path) {
       return;
@@ -67,7 +111,8 @@ class FileBrowser extends Component {
       (error) => {
         this.setState({error: error});
       },
-    );
+    )
+    .then(() => {this.sortFiles(sortBy)});
   }
 
   renderLine(line) {
@@ -77,18 +122,22 @@ class FileBrowser extends Component {
     }
     // Convert mtime
     const mtime = fmtUnixTimestamp(line.mtime);
+    const ctime = fmtUnixTimestamp(line.ctime);
     // Format based on file type
     let icon = "file_sm.png";
     let className = "fb";
     let handler;
+    let kind;
     if (line.type === "d") {
       className += "-dir";
       icon = "folder_sm.png";
       handler = this.handleDirClick;
+      kind = "directory";
     } else {
       // Treat symlinks as files because we can't tell what they point to.
       className += "-file";
       handler = this.onFileClick;
+      kind = line.ext;
     }
     return(
       <li
@@ -98,6 +147,8 @@ class FileBrowser extends Component {
       >
         <div className={className}>
           <img src={icon} alt="" className="fb-icon" />{line.name}
+          <span className="right">{kind}</span>
+          <span className="right">{ctime.toString()}</span>
           <span className="right">{mtime.toString()}</span>
         </div>
       </li>
@@ -130,7 +181,10 @@ class FileBrowser extends Component {
         </li>
         <li className="fb-row">
           <div className="fb-labels">
-            Name <span className="right">Date Modified</span>
+            <span className="fb-colname" onClick={() => this.sortFiles("name")}>Name</span>
+            <span className="fb-colnamer" onClick={() => this.sortFiles("kind")}>Kind</span>
+            <span className="fb-colnamer" onClick={() => this.sortFiles("ctime")}>Date Created</span>
+            <span className="fb-colnamer" onClick={() => this.sortFiles("mtime")}>Date Modified</span>
           </div>
         </li>
         <li className="fb-row">

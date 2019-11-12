@@ -67,6 +67,25 @@
   color: #0066cc;
 }
 
+.fb-colname {
+  cursor: pointer;
+}
+
+.fb-colname:hover {
+  color: #0066cc;
+}
+
+.fb-colnamer {
+  cursor: pointer;
+  float: right;
+  padding-left: 10px;
+  margin: 0px 10px 0px 0px;
+}
+
+.fb-colnamer:hover {
+  color: #0066cc;
+}
+
 .fb-pathbar {
   padding: 5px;
   vertical-align: middle;

@@ -256,10 +256,9 @@ class JobInput extends Component {
     }
     axios.post(process.env.REACT_APP_BACKEND_API + "/job/new", ret)
       .then(
-        result => {console.log(result.data)},
+        result => {this.props.onClose(result.data)},
         error => {console.error(error)}
       )
-    this.props.onClose();
   }
 
   renderNodePicker() {

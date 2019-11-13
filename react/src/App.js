@@ -34,7 +34,11 @@ class App extends Component {
     this.selectFirstJob();
   }
 
-  toggleInputPane() {
+  toggleInputPane(callback = null) {
+    if (callback.job_id) {
+      // Job was successfully created, so select it
+      this.selectJob(callback.job_id)
+    }
     this.setState(state => ({showInputPane: !state.showInputPane}))
   }
 
@@ -69,11 +73,32 @@ class App extends Component {
         result => {this.setState({serverJobs: result.data})},
         error => {this.setState({error: error})}
       )
+      .then(() => {this.sortJobs();})
       .then(() => {
         // Select first job if none are selected
         this.selectFirstJob();
       }
       )
+  }
+
+  /**
+   * Sorts jobs for the queue pane.  Rendering jobs go first and Finished
+   * jobs go last.  Everything else goes in between, ranked by time_created.
+   */
+  sortJobs() {
+    const jobList = this.state.serverJobs;
+    const jobsRendering = jobList.filter(job => job.status === "Rendering")
+      .sort(function(a, b) {return b.time_created - a.time_created})
+    const jobsFinished = jobList.filter(job => job.status === "Finished")
+      .sort(function(a, b) {return b.time_created - a.time_created})
+    const jobsOther = jobList.filter(job => job.status !== "Rendering")
+      .filter(job => job.status !== "Finished")
+      .sort(function(a, b) {return b.time_created - a.time_created})
+
+    const sortedJobs = [...jobsRendering, ...jobsOther, ...jobsFinished]
+    this.setState({
+      serverJobs: sortedJobs
+    })
   }
 
   selectFirstJob() {
@@ -124,6 +149,12 @@ class App extends Component {
     )
   }
 
+  checkFocus() {
+    if (this.state.showInputPane) {
+      return (<div className="grayover">&nbsp;</div>)
+    }
+  }
+
   render() {
     const { serverJobs, selectedJob, showSettings, error } = this.state;
     if (error) {
@@ -139,6 +170,7 @@ class App extends Component {
           </div>
         </li>
         <li className="layout-row">
+            {this.checkFocus()}
           <div className="sidebar">
             <QueuePane
               serverJobs={serverJobs}

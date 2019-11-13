@@ -186,7 +186,9 @@ class FileBrowser extends Component {
         <li className="fb-row">
           <div className="fb-inner" >
           <table className="fb-table">
-            {fileList.map(line => this.renderLine(line))}
+            <tbody>
+              {fileList.map(line => this.renderLine(line))}
+            </tbody>
           </table>
           </div>
         </li>

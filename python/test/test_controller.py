@@ -402,6 +402,7 @@ summary = [
         "status": "Stopped",
         "time_elapsed": 32.200013160705566,
         "time_remaining": 0,
+        "time_created": 1544985625.618685,
     },
     {
         "file_path": "/Users/jim/Downloads/test_render/test_render.blend",
@@ -410,6 +411,7 @@ summary = [
         "status": "Stopped",
         "time_elapsed": 1.699430227279663,
         "time_remaining": 0,
+        "time_created": 1544986156.003638,
     },
 ]
 
@@ -472,6 +474,7 @@ status_33bd = {
     "time_avg": 10.73333772023519,
     "time_elapsed": 32.200013160705566,
     "time_remaining": 0,
+    "time_created": 1544985625.618685,
 }
 
 status_eeb1 = {
@@ -532,6 +535,7 @@ status_eeb1 = {
     "time_avg": 0.42485755681991577,
     "time_elapsed": 1.699430227279663,
     "time_remaining": 0,
+    "time_created": 1544986156.003638,
 }
 
 

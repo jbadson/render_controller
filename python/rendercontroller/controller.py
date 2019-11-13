@@ -193,6 +193,7 @@ class RenderController(object):
                     "progress": data["progress"],
                     "time_elapsed": data["times"][0],
                     "time_remaining": data["times"][2],
+                    "time_created": data["queuetime"],
                 }
             )
         return jobs
@@ -233,6 +234,7 @@ class RenderController(object):
             "time_avg": data["times"][1],
             "time_elapsed": data["times"][0],
             "time_remaining": data["times"][2],
+            "time_created": data["queuetime"],
             "node_status": self._reformat_node_list(
                 data["complist"], data["compstatus"]
             ),

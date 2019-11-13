@@ -1,6 +1,6 @@
 .fb-container {
   position: absolute;
-  left: 5%;
+  left: 3%;
   top: 10%;
   background-color: #E0E0E0;
   border-style: solid;
@@ -33,7 +33,7 @@
 
 .fb-inner {
   height: 330px;
-  width: 580px;
+  width: 630px;
   padding: 5px;
   margin: 0px 5px 5px 5px;
   overflow: auto;
@@ -42,47 +42,40 @@
 
 .fb-labels {
   padding-left: 5px;
-  padding-right: 5px;
+  padding-right: 25px;
+  cursor: pointer;
 }
 
-.fb-dir {
-  cursor: pointer;
-  border-bottom: 1px solid #AAA;
-  padding: 2px;
+.fb-table {
+  border: 0px;
+  padding: 0px;
   width: 100%;
 }
 
-.fb-dir:hover {
-  color: #0066cc;
-}
-
-.fb-file {
+td.fb-left {
   cursor: pointer;
   border-bottom: 1px solid #AAA;
   padding: 2px;
-  width: 100%;
+  text-align: left;
 }
 
-.fb-file:hover {
+.fb-left:hover {
   color: #0066cc;
 }
 
-.fb-colname {
+td.fb-right {
   cursor: pointer;
+  border-bottom: 1px solid #AAA;
+  padding: 2px;
+  text-align: right;
 }
 
-.fb-colname:hover {
-  color: #0066cc;
-}
-
-.fb-colnamer {
-  cursor: pointer;
+span.fb-right {
   float: right;
-  padding-left: 10px;
-  margin: 0px 10px 0px 0px;
+  margin-left: 50px;
 }
 
-.fb-colnamer:hover {
+.fb-right:hover {
   color: #0066cc;
 }
 

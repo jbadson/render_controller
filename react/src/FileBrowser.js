@@ -37,7 +37,7 @@ class FileBrowser extends Component {
   sortByKind(fileList) {
     // Puts directories first, then sorts by file extension
     const dirs = fileList.filter(file => file.type === "d");
-    const files = fileList.filter(file => file.type === "f").sort(
+    const files = fileList.filter(file => file.type !== "d").sort(
       function(a, b) {return a.ext > b.ext}
     );
     return [...dirs, ...files];
@@ -125,33 +125,29 @@ class FileBrowser extends Component {
     const ctime = fmtUnixTimestamp(line.ctime);
     // Format based on file type
     let icon = "file_sm.png";
-    let className = "fb";
     let handler;
     let kind;
     if (line.type === "d") {
-      className += "-dir";
       icon = "folder_sm.png";
       handler = this.handleDirClick;
       kind = "directory";
     } else {
       // Treat symlinks as files because we can't tell what they point to.
-      className += "-file";
       handler = this.onFileClick;
-      kind = line.ext;
+      kind = line.ext || "other";
     }
     return(
-      <li
-          className="fb-row"
+      <tr
           onClick={() => handler(line.path)}
           key={line.path}
       >
-        <div className={className}>
+        <td className="fb-left">
           <img src={icon} alt="" className="fb-icon" />{line.name}
-          <span className="right">{kind}</span>
-          <span className="right">{ctime.toString()}</span>
-          <span className="right">{mtime.toString()}</span>
-        </div>
-      </li>
+        </td>
+        <td className="fb-right">{mtime.toString()}</td>
+        <td className="fb-right">{ctime.toString()}</td>
+        <td className="fb-right">{kind}</td>
+      </tr>
     );
   }
 
@@ -181,17 +177,17 @@ class FileBrowser extends Component {
         </li>
         <li className="fb-row">
           <div className="fb-labels">
-            <span className="fb-colname" onClick={() => this.sortFiles("name")}>Name</span>
-            <span className="fb-colnamer" onClick={() => this.sortFiles("kind")}>Kind</span>
-            <span className="fb-colnamer" onClick={() => this.sortFiles("ctime")}>Date Created</span>
-            <span className="fb-colnamer" onClick={() => this.sortFiles("mtime")}>Date Modified</span>
+            <span className="fb-left" onClick={() => this.sortFiles("name")}>Name</span>
+            <span className="fb-right" onClick={() => this.sortFiles("kind")}>Kind</span>
+            <span className="fb-right" onClick={() => this.sortFiles("ctime")}>Date Created</span>
+            <span className="fb-right" onClick={() => this.sortFiles("mtime")}>Date Modified</span>
           </div>
         </li>
         <li className="fb-row">
           <div className="fb-inner" >
-          <ul>
+          <table className="fb-table">
             {fileList.map(line => this.renderLine(line))}
-          </ul>
+          </table>
           </div>
         </li>
       </ul>

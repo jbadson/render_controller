@@ -5,7 +5,7 @@ RenderController is a simple network render manager that works with Blender's Cy
 * Supports Linux and MacOS render nodes.
 * Simple browser-based user interface.
 * Support for Blender Cycles and Terragen 3. Can be extended to work with any render engine that can be started from the command line.
-* Queue as many renders as you want and they'll automaticall start one at a time.
+* Queue as many renders as you want and they'll automatically start one at a time.
 * If a render node fails, its frames will automatically be assigned to other nodes.
 * Can manage nodes in multiple networks as long as they're reachable with SSH.
 * Includes a `framechecker` script to check directories for missing frames.

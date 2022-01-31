@@ -292,7 +292,7 @@ class Job(object):
             blender_cmd.extend(["--scene", self.render_params["scene"]])
         blender_cmd.extend(["-f", str(frame), "& pgrep -n blender"])
         command = subprocess.Popen(
-            f"ssh {CONFIG.ssh_user}@{computer} \"{' '.join(blender_cmd)}\"",
+            f"ssh {computer} \"{' '.join(blender_cmd)}\"",
             stdout=subprocess.PIPE, shell=True)
         for line in iter(command.stdout.readline, ''):
             try:
@@ -327,8 +327,8 @@ class Job(object):
                 with threadlock:
                     self.compstatus[computer]['pid'] = pid
                 if computer in CONFIG.renice_list:
-                    subprocess.call('ssh {}@{} "renice 20 -p {}"'.format(
-                        CONFIG.ssh_user, computer, pid), shell=True)
+                    subprocess.call('ssh {} "renice 20 -p {}"'.format(
+                        computer, pid), shell=True)
                 #remove oldest item from skiplist if render starts successfully
                 with threadlock:
                     if len(self.skiplist) > 0:
@@ -359,17 +359,17 @@ class Job(object):
         #pgrep string is different btw OSX and Linux so using whole cmd strings
         if computer in CONFIG.macs:
             cmd_string = (
-                'ssh {user}@{host} "{prog} -p {path} -hide -exit -r '
+                'ssh {host} "{prog} -p {path} -hide -exit -r '
                 '-f {frame} & pgrep -n Terragen&wait"'.format(
-                    user=CONFIG.ssh_user, host=computer, prog=CONFIG.terragenpath_mac, 
+                    host=computer, prog=CONFIG.terragenpath_mac, 
                     path=self.path, frame=frame
                 )
             )
         else:
             cmd_string = (
-                'ssh {user}@{host} "{prog} -p {path} -hide -exit -r '
+                'ssh {host} "{prog} -p {path} -hide -exit -r '
                 '-f {frame} & pgrep -n terragen&wait"'.format(
-                    user=CONFIG.ssh_user, host=computer, prog=CONFIG.terragenpath_linux, 
+                    host=computer, prog=CONFIG.terragenpath_linux, 
                     path=self.path, frame=frame
                 )
             )
@@ -402,8 +402,8 @@ class Job(object):
                         self.compstatus[computer]['pid'] = pid
                     #renice process to lowest priority on specified comps 
                     if computer in CONFIG.renice_list: 
-                        subprocess.call('ssh {}@{} "renice 20 -p {}"'.format(
-                            CONFIG.ssh_user, pid), shell=True)
+                        subprocess.call('ssh {} "renice 20 -p {}"'.format(
+                            computer, pid), shell=True)
                         logger.info('Reniced PID {} to pri 20 on {}'.format(pid, computer))
                     #remove oldest item from skiplist if render starts 
                     with threadlock:
@@ -487,7 +487,7 @@ class Job(object):
     def _threadkiller(self, computer, pid):
         '''Target thread to manage kill commands, created by _kill_thread'''
         logger.debug('entered _threadkiller(), pid: {} on {}'.format(pid, computer))
-        subprocess.call('ssh {}@{} "kill {}"'.format(CONFIG.ssh_user, computer, pid), shell=True)
+        subprocess.call('ssh {} "kill {}"'.format(computer, pid), shell=True)
         logger.debug('finished _threadkiller() on {}'.format(computer))
 
     def kill_thread(self, computer):
@@ -1143,7 +1143,7 @@ class SSHKillThread(object):
         if comp in CONFIG.macs and procname == 'terragen':
             procname = "'Terragen 3'"
         logger.debug('procname is {}'.format(procname))
-        cmd = 'ssh {}@{} "pgrep %s | xargs kill"'.format(CONFIG.ssh_user, comp, procname)
+        cmd = 'ssh {} "pgrep %s | xargs kill"'.format(comp, procname)
         #NOTE: By piping pgrep directly to xargs, no exception will be raised
         # if there are no procname processes running on the computer.
         try:

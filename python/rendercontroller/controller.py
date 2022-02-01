@@ -1,12 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python -> Type[Job -> Type[Job]
 import logging
+import time
 from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
+from collections import OrderedDict
 from . import job
 from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
 
-
 logger = logging.getLogger("controller")
+
+QUEUE_CHECK_INTERVAL = 10  # How often to execute queue check loop in seconds.
 
 
 class Config(object):
@@ -48,6 +51,8 @@ class RenderController(object):
         # rewrite all the terrible stuff in RenderServer.
         job.CONFIG = config
         self.server = job.RenderServer()
+        # New Stuff Here
+        self.queue = RenderQueue()
 
     @property
     def render_nodes(self) -> Sequence[str]:
@@ -71,13 +76,13 @@ class RenderController(object):
         logger.info("Disabled autostart")
 
     def new_job(
-        self,
-        path: str,
-        start_frame: int,
-        end_frame: int,
-        render_engine: str,
-        nodes: Sequence[str],
-        render_params: Optional[Dict[str, str]] = None,
+            self,
+            path: str,
+            start_frame: int,
+            end_frame: int,
+            render_engine: str,
+            nodes: Sequence[str],
+            render_params: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Creates a new render job and places it in queue.
@@ -245,3 +250,116 @@ class RenderController(object):
         """Prepares controller for clean shutdown."""
         logger.debug("Shutting down controller")
         self.server.shutdown_server()
+
+
+class RenderQueue(object):
+    """
+    Ordered iterable that represents a queue of render jobs.
+
+    Extends behavior of OrderedDict to allow accessing elements by both index and key, plus some
+    higher level methods specific to render jobs.
+    """
+    def __init__(self):
+        self.jobs = OrderedDict()
+        self.index = 0
+
+    def __iter__(self):
+        self.index = 0
+        return self
+
+    def __next__(self) -> Type[job.Job]:
+        if self.index >= len(self.jobs):
+            raise StopIteration
+        i = self.index
+        self.index += 1
+        return tuple(self.jobs.values())[i]
+
+    def __len__(self):
+        return len(self.jobs)
+
+    def __repr__(self) -> str:
+        return str(tuple(self.jobs.values()))
+
+    def __getitem__(self, item):
+        """Returns job by position.  This is the same as get_by_index()."""
+        return tuple(self.jobs.values())[item]
+
+    def append(self, job: Type[job.Job]) -> None:
+        self.jobs[job.id] = job
+
+    def pop(self, id: str) -> Type[job.Job]:
+        """Remove and return a job by id."""
+        return self.jobs.pop(id)
+
+    def get_by_id(self, id: str ) -> Type[job.Job]:
+        """Returns job identified by id, else raises KeyError."""
+        return self.jobs.get(id)
+
+    def get_by_index(self, index: int) -> Type[job.Job]:
+        """Returns job located at given position, else raises IndexError."""
+        return self.__getitem__(index)
+
+    def insert(self, job: Type[job.Job], index: int) -> None:
+        """Inserts a job at a specific position."""
+        items = list(self.jobs.items())
+        items.insert(index, (job.id, job))
+        self.jobs = OrderedDict(items)
+
+    def keys(self) -> List[str]:
+        return [job.id for job in self.jobs.values()]
+
+    def values(self) -> List[Type[job.Job]]:
+        return list(self.jobs.values())
+
+    def move(self, id: str, index: int) -> None:
+        """Moves job specified by `id` to a new position."""
+        job = self.jobs.pop(id)
+        self.insert(job, index)
+
+    def sort_by_status(self) -> None:
+        """Sorts the queue by status. Finished jobs go to end, all others keep their ordering"""
+        unfinished = []
+        finished = []
+        for j in self.jobs.values():
+            if j.status == "Finished":
+                finished.append((j.id, j))
+            else:
+                unfinished.append((j.id, j))
+        self.jobs = OrderedDict(unfinished + finished)
+
+    def get_next_waiting(self) -> Optional[Type[job.Job]]:
+        """Returns first item in queue with status Waiting. If none found, returns None."""
+        for j in self.jobs.values():
+            if j.status == "Waiting":
+                return j
+        return None
+
+    def count_status(self, status: str) -> int:
+        """Returns the number of jobs with matching status."""
+        n = 0
+        for j in self.jobs:
+            if j.status == status:
+                n += 1
+        return n
+
+
+class QueueManagerThread(object):
+    def __init__(self, controller: Type[RenderController], config: Type[Config]):
+        self.controller = controller
+        self.config = config
+        self.shutdown = False
+        self.mainloop()
+
+    def mainloop(self) -> None:
+        while not self.shutdown:
+            # Subdivide the loop to prevent shutdown delays
+            for i in range(int(QUEUE_CHECK_INTERVAL / 0.5)):
+                time.sleep(0.5)
+                if self.shutdown:
+                    break
+            if self.config.autostart:
+                self.check_pending_jobs()
+
+    def check_pending_jobs(self) -> None:
+        """Checks for any pending jobs that need to be started and starts them."""
+        raise NotImplementedError

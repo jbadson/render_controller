@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import pytest
+from uuid import uuid4
 from unittest import mock
 from importlib import reload
 
 import rendercontroller.controller
+import rendercontroller.job
 from rendercontroller.exceptions import (
     JobNotFoundError,
     JobStatusError,
@@ -18,7 +20,6 @@ config_test_dict = {
     "bool_val": True,
 }
 test_nodes = ["node1", "node2", "node3", "node4"]
-
 
 # Simulates RenderServer.renderjobs
 renderdata = {
@@ -415,7 +416,6 @@ summary = [
     },
 ]
 
-
 status_33bd = {
     "end_frame": 3,
     "file_path": "/Users/jim/Downloads/test_render/test_render_slow.blend",
@@ -785,3 +785,124 @@ def test_controller_shutdown(controller_fix):
     controller_fix.server.shutdown_server.assert_not_called()
     controller_fix.shutdown()
     controller_fix.server.shutdown_server.assert_called_once()
+
+
+
+
+
+### RenderQueue
+class DummyJob(object):
+    def __init__(self, id, status):
+        self.id = id
+        self.status = status
+
+
+jobs = [
+    DummyJob("job1", "Waiting"),
+    DummyJob("job2", "Finished"),
+    DummyJob("job3", "Rendering"),
+    DummyJob("job4", "Stopped"),
+    DummyJob("job5", "Finished"),
+    DummyJob("job6", "Waiting"),
+]
+orig_keys = ["job1", "job2", "job3", "job4", "job5", "job6"]
+
+q = rendercontroller.controller.RenderQueue()
+for i in jobs:
+    q.append(i)
+
+
+def test_render_queue_len():
+    assert len(q) == len(jobs)
+
+
+def test_render_queue_keys():
+    assert q.keys() == [job.id for job in jobs]
+
+
+def test_render_queue_values():
+    assert q.values() == jobs
+
+
+def test_render_queue_order():
+    assert q.keys() == orig_keys
+
+
+def test_render_queue_slice():
+    assert jobs[2] == q[2]
+    assert jobs[1:3] == [j for j in q[1:3]]
+    assert jobs[-1] == q[-1]
+    assert jobs[2:-3] == [j for j in q[2:-3]]
+
+
+def test_render_queue_get_by_index():
+    for i in range(len(jobs)):
+        assert jobs[i].id == q.get_by_index(i).id
+
+
+def test_render_queue_get_by_id():
+    for i in range(len(jobs)):
+        job = jobs[i]
+        assert job == q.get_by_id(job.id)
+
+def test_render_queue_append():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    assert q.keys() == orig_keys
+    q.append(DummyJob("job7", "Rendering"))
+    assert q.keys() == orig_keys + ["job7", ]
+
+
+def test_render_queue_insert():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    assert q.keys() == orig_keys
+    q.insert(DummyJob("job7", "Rendering"), 3)
+    assert q.keys() == ["job1", "job2", "job3", "job7", "job4", "job5", "job6"]
+
+
+def test_render_queue_move():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    assert q.keys() == orig_keys
+    q.move("job2", 4)
+    assert q.keys() == ["job1", "job3", "job4", "job5", "job2", "job6"]
+
+
+def test_render_queue_pop():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    assert q.keys() == orig_keys
+    job = q.pop("job4")
+    assert job == jobs[3]
+    assert job not in q
+
+
+def test_render_queue_sort_by_status():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    assert q.keys() == orig_keys
+    q.sort_by_status()
+    assert q.keys() == ["job1", "job3", "job4", "job6", "job2", "job5"]
+
+
+def test_render_queue_get_next_waiting():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    assert q.keys() == orig_keys
+    next = q.get_next_waiting()
+    assert next == jobs[0]
+    # Simulate starting render
+    q[0].status = "Rendering"
+    again = q.get_next_waiting()
+    assert again == jobs[5]
+    # Simulate starting again
+    q[5].status = "Rendering"
+    # Should be none left
+    assert q.get_next_waiting() is None

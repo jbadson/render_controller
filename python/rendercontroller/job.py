@@ -108,6 +108,11 @@ class Job(object):
         self.totalframes = []
         self.progress = None
 
+    @property
+    def id(self):
+        """Temp workaround while I'm rewriting this class."""
+        return self._id
+
     def _reset_compstatus(self, computer):
         '''Creates compstatus dict or resets an existing one to 
         default values'''
@@ -572,6 +577,8 @@ class Job(object):
             '_id':self._id
             }
         return attrdict
+
+
 
     def add_computer(self, computer):
         if computer in self.complist:

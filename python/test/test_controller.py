@@ -723,10 +723,8 @@ def test_controller_delete(controller_fix):
     with pytest.raises(JobNotFoundError):
         controller_fix.delete("testjob2")
 
-
-@mock.patch("rendercontroller.job.CONFIG")
-def test_controller_enable_node(conf, controller_fix):
-    conf.render_nodes = test_nodes
+def test_controller_enable_node(controller_fix):
+    controller_fix.config.render_nodes = test_nodes
     controller_fix.server.renderjobs = {"testjob": mock.MagicMock()}
     controller_fix.server.renderjobs["testjob"].add_computer.assert_not_called()
     controller_fix.enable_node("testjob", "node1")
@@ -740,9 +738,8 @@ def test_controller_enable_node(conf, controller_fix):
         controller_fix.delete("testjob2")
 
 
-@mock.patch("rendercontroller.job.CONFIG")
-def test_controller_disable_node(conf, controller_fix):
-    conf.render_nodes = test_nodes
+def test_controller_disable_node(controller_fix):
+    controller_fix.config.render_nodes = test_nodes
     controller_fix.server.renderjobs = {"testjob": mock.MagicMock()}
     controller_fix.server.renderjobs["testjob"].remove_computer.assert_not_called()
     controller_fix.disable_node("testjob", "node1")

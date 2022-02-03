@@ -1,5 +1,6 @@
 #!/usr/bin/env python -> Type[Job -> Type[Job]
 import logging
+import threading
 import time
 from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
@@ -138,20 +139,24 @@ class RenderController(object):
     def __init__(self, config: Type[Config]) -> None:
         # This is bad but will get things moving until I have time to
         # rewrite all the terrible stuff in RenderServer.
+        self.config = config
+        # Inject dependency until job module is rewritten or replaced
         job.CONFIG = config
         self.server = job.RenderServer()
         # New Stuff Here
         self.queue = RenderQueue()
+        self.task_thread = TaskThread(self)
+        self.task_thread.start()
 
     @property
     def render_nodes(self) -> Sequence[str]:
         """List of render nodes."""
-        return job.CONFIG.render_nodes
+        return self.config.render_nodes
 
     @property
     def autostart(self) -> bool:
         """State of autostart mode."""
-        return job.CONFIG.autostart
+        return self.config.autostart
 
     @property
     def idle(self) -> bool:
@@ -163,12 +168,12 @@ class RenderController(object):
     def enable_autostart(self) -> None:
         """Enable automatic rendering jobs in the render queue."""
         # FIXME This is a bad way to do this, but need to rewrite job module
-        job.CONFIG.autostart = True
+        self.config.autostart = True
         logger.info("Enabled autostart")
 
     def disable_autostart(self) -> None:
         """Disable automatic rendering of jobs in the render queue."""
-        job.CONFIG.autostart = False
+        self.config.autostart = False
         logger.info("Disabled autostart")
 
     def new_job(
@@ -353,27 +358,39 @@ class RenderController(object):
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""
         logger.debug("Shutting down controller")
+        self.task_thread.shutdown()
         self.server.shutdown_server()
 
+    def save_state(self) -> None:
+        raise NotImplementedError
 
-class QueueManagerThread(object):
+
+class TaskThread(object):
+    """Thread to perform periodic background tasks."""
     def __init__(self, controller: Type[RenderController]):
         self.controller = controller
-        self.run = False
-        self.mainloop()
+        self.stop = False
+        self._thread = threading.Thread(target=self.mainloop, daemon=True)
 
-    def stop(self) -> None:
-        """Terminates the mainloop so thread can shut down cleanly."""
-        self.run = False
+    def start(self) -> None:
+        self._thread.start()
+
+    def shutdown(self) -> None:
+        """Terminates the mainloop and performs cleanup tasks.  Blocks until cleanup is complete."""
+        logger.debug("Attempting to terminate task thread.")
+        self.stop = True
+        self._thread.join()  # Wait for cleanup tasks to finish
+        logger.debug("Terminated task thread.")
 
     def mainloop(self) -> None:
-        while self.run:
+        logger.debug("Starting task thread.")
+        while not self.stop:
             # Check for pending actions every 10 sec, but subdivide the loop to prevent shutdown delays
             for i in range(20):
                 time.sleep(0.5)
-                if not self.run:
+                if self.stop:
                     break
             if self.controller.autostart:
                 if self.controller.idle:
                     self.controller.start_next()
-        raise NotImplementedError #Must save state here
+        self.controller.save_state()

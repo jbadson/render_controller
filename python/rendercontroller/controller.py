@@ -9,8 +9,6 @@ from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
 
 logger = logging.getLogger("controller")
 
-QUEUE_CHECK_INTERVAL = 10  # How often to execute queue check loop in seconds.
-
 
 class Config(object):
     """Singleton configuration object."""
@@ -138,7 +136,6 @@ class RenderController(object):
     """
 
     def __init__(self, config: Type[Config]) -> None:
-        # self.jobs = OrderedDict()
         # This is bad but will get things moving until I have time to
         # rewrite all the terrible stuff in RenderServer.
         job.CONFIG = config
@@ -155,6 +152,13 @@ class RenderController(object):
     def autostart(self) -> bool:
         """State of autostart mode."""
         return job.CONFIG.autostart
+
+    @property
+    def idle(self) -> bool:
+        """Returns True if no jobs are currently rendering."""
+        if self.queue.count_status("Rendering") == 0:
+            return True
+        return False
 
     def enable_autostart(self) -> None:
         """Enable automatic rendering jobs in the render queue."""
@@ -211,6 +215,14 @@ class RenderController(object):
         except KeyError:
             logger.exception("Failed to start '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
+
+    def start_next(self) -> Optional[str]:
+        """Starts next job in queue and return job ID.  If no jobs in queue, returns None."""
+        job = self.queue.get_next_waiting()
+        if job:
+            self.start(job.id)
+            return job.id
+        return None
 
     def stop(self, job_id: str, kill: bool = True) -> None:
         """
@@ -345,22 +357,23 @@ class RenderController(object):
 
 
 class QueueManagerThread(object):
-    def __init__(self, controller: Type[RenderController], config: Type[Config]):
+    def __init__(self, controller: Type[RenderController]):
         self.controller = controller
-        self.config = config
-        self.shutdown = False
+        self.run = False
         self.mainloop()
 
-    def mainloop(self) -> None:
-        while not self.shutdown:
-            # Subdivide the loop to prevent shutdown delays
-            for i in range(int(QUEUE_CHECK_INTERVAL / 0.5)):
-                time.sleep(0.5)
-                if self.shutdown:
-                    break
-            if self.config.autostart:
-                self.check_pending_jobs()
+    def stop(self) -> None:
+        """Terminates the mainloop so thread can shut down cleanly."""
+        self.run = False
 
-    def check_pending_jobs(self) -> None:
-        """Checks for any pending jobs that need to be started and starts them."""
-        raise NotImplementedError
+    def mainloop(self) -> None:
+        while self.run:
+            # Check for pending actions every 10 sec, but subdivide the loop to prevent shutdown delays
+            for i in range(20):
+                time.sleep(0.5)
+                if not self.run:
+                    break
+            if self.controller.autostart:
+                if self.controller.idle:
+                    self.controller.start_next()
+        raise NotImplementedError #Must save state here

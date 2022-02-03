@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import pytest
-from uuid import uuid4
 from unittest import mock
 from importlib import reload
 

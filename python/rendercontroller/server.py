@@ -17,7 +17,12 @@ from .exceptions import JobNotFoundError, NodeNotFoundError
 CONFIG_FILE_PATH = "/etc/rendercontroller.conf"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING}
+LOG_LEVELS = {
+    "everything": 0,
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+}
 
 logger = logging.getLogger("server")
 
@@ -152,7 +157,11 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:
         """Override parent method to allow logging to file."""
-        logger.debug("%s:%s" % (self.address_string(), format % args))
+        if not args[0].startswith("GET /job/summary") and not args[0].startswith(
+            "GET /job/status"
+        ):
+            # Avoid spamming console with thousands of WebUI update requests
+            logger.debug("%s:%s" % (self.address_string(), format % args))
 
     def log_error(self, format: str, *args) -> None:
         """Override parent method to allow logging to file."""
@@ -201,10 +210,14 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Handles HTTP GET requests."""
-        logger.debug(
-            "path parts: %s, query: '%s'"
-            % (self.parsed_path.parts, self.parsed_path.query)
-        )
+        if not self.path.startswith("/job/summary") and not self.path.startswith(
+            "/job/status"
+        ):
+            # Avoid spamming console with thousands of WebUI update requests
+            logger.debug(
+                "path parts: %s, query: '%s'"
+                % (self.parsed_path.parts, self.parsed_path.query)
+            )
         if self.parsed_path.endpoint in self.get_endpoints:
             getattr(self, self.parsed_path.endpoint)()
         else:

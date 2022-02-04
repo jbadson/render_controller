@@ -1,5 +1,6 @@
 #!/usr/bin/env python -> Type[Job -> Type[Job]
 import logging
+import sqlite3
 import threading
 import time
 from typing import Sequence, Dict, Any, Type, List, Optional
@@ -57,13 +58,13 @@ class RenderQueue(object):
         self.index += 1
         return tuple(self.jobs.values())[i]
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.jobs)
 
     def __repr__(self) -> str:
         return str(tuple(self.jobs.values()))
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> Type[job.Job]:
         """Returns job by position.  This is the same as get_by_index()."""
         return tuple(self.jobs.values())[item]
 
@@ -126,6 +127,119 @@ class RenderQueue(object):
         return n
 
 
+class StateDatabase(object):
+    """Interface for SQLite Database to store server state."""
+
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        # FIXME Might be better to have conn as instance variable. Would that lock the db file?
+
+    def initialize_db(self) -> None:
+        tables = {
+            "jobs": [
+                "id TEXT UNIQUE",
+                "status TEXT",
+                "path TEXT",
+                "frame_start INTEGER",
+                "frame_end INTEGER",
+                "time_start REAL",
+                "time_stop REAL",
+                "frames_completed BLOB",
+            ],
+            "nodes": ["job_id TEXT", "name TEXT", "enabled INTEGER"],
+        }
+        for table in tables:
+            self.execute(
+                f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(tables[table])})"
+            )
+
+    def insert_job(
+        self,
+        id: str,
+        status: str,
+        path: str,
+        frame_start: int,
+        frame_end: int,
+        render_nodes: Dict,
+        time_start: float,
+        time_stop: float,
+        frames_completed: Sequence[int],
+    ) -> None:
+        frames_completed = ",".join([str(i) for i in frames_completed])
+        self.execute(
+            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {frame_start}, {frame_end}, {time_start}, {time_stop}, '{frames_completed}')"
+        )
+        for node in render_nodes:
+            # FIXME change 'active' to 'enabled' for job rewrite
+            enabled = 1 if render_nodes[node]["active"] else 0
+            self.execute(f"INSERT INTO nodes VALUES ('{id}', '{node}', {enabled})")
+
+    def update_job_status(self, id: str, status: str) -> None:
+        self.execute(f"UPDATE jobs SET status='{status}' WHERE id='{id}'")
+
+    def update_job_time_stop(self, id: str, time_stop: float) -> None:
+        self.execute(f"UPDATE jobs SET time_stop={time_stop} WHERE id='{id}'")
+
+    def update_job_frames_completed(self, id: str, frames_completed: List[int]) -> None:
+        frames_completed = ",".join([str(i) for i in frames_completed])
+        self.execute(
+            f"UPDATE jobs SET frames_completed='{frames_completed}' WHERE id='{id}'"
+        )
+
+    def update_node(self, job_id: str, node: str, enabled: bool) -> None:
+        enabled = 1 if enabled else 0  # SQLite expects int, not bool
+        self.execute(
+            f"UPDATE nodes SET name='{node}', enabled={enabled} WHERE job_id='{job_id}'"
+        )
+
+    def _parse_job_row(self, row: Sequence) -> Dict:
+        return {
+            "id": row[0],
+            "status": row[1],
+            "path": row[2],
+            "frame_start": row[3],
+            "frame_end": row[4],
+            "time_start": row[5],
+            "time_stop": row[6],
+            "frames_completed": [int(i) for i in row[7].split(",")],
+        }
+
+    def _parse_nodes_rows(self, nodes: Sequence) -> Dict:
+        render_nodes = {}
+        for row in nodes:
+            render_nodes[row[1]] = {"active": True if row[2] == 1 else False}
+        return render_nodes
+
+    def get_job(self, id) -> Dict:
+        job = self.execute(f"SELECT * FROM jobs WHERE id='{id}' LIMIT 1")
+        nodes = self.execute(f"SELECT * FROM nodes WHERE job_id='{id}'")
+        ret = self._parse_job_row(job[0])
+        ret["render_nodes"] = self._parse_nodes_rows(nodes)
+        return ret
+
+    def get_all_jobs(self) -> List:
+        # FIXME Ordering is based on insertion order, NOT queue position. Prob need a queue position column.
+        ids = self.execute("SELECT id FROM jobs")
+        ret = []
+        for i in ids:
+            ret.append(self.get_job(i[0]))
+        return ret
+
+    def remove_job(self, id) -> None:
+        self.execute(f"DELETE FROM jobs WHERE id='{id}'")
+        self.execute(f"DELETE FROM nodes WHERE job_id='{id}'")
+
+    def execute(self, query: str) -> List:
+        # FIXME make this sane. Just want to get something working for now.
+        con = sqlite3.connect(self.filepath)
+        cursor = con.cursor()
+        cursor.execute(query)
+        ret = cursor.fetchall()
+        con.commit()
+        con.close()
+        return ret
+
+
 class RenderController(object):
     """
     Manages render jobs.
@@ -167,7 +281,6 @@ class RenderController(object):
 
     def enable_autostart(self) -> None:
         """Enable automatic rendering jobs in the render queue."""
-        # FIXME This is a bad way to do this, but need to rewrite job module
         self.config.autostart = True
         logger.info("Enabled autostart")
 
@@ -359,6 +472,7 @@ class RenderController(object):
         """Prepares controller for clean shutdown."""
         logger.debug("Shutting down controller")
         self.task_thread.shutdown()
+        self.save_state()
         self.server.shutdown_server()
 
     def save_state(self) -> None:
@@ -367,6 +481,7 @@ class RenderController(object):
 
 class TaskThread(object):
     """Thread to perform periodic background tasks."""
+
     def __init__(self, controller: Type[RenderController]):
         self.controller = controller
         self.stop = False
@@ -376,10 +491,9 @@ class TaskThread(object):
         self._thread.start()
 
     def shutdown(self) -> None:
-        """Terminates the mainloop and performs cleanup tasks.  Blocks until cleanup is complete."""
         logger.debug("Attempting to terminate task thread.")
         self.stop = True
-        self._thread.join()  # Wait for cleanup tasks to finish
+        self._thread.join()  # Wait for any cleanup tasks to finish
         logger.debug("Terminated task thread.")
 
     def mainloop(self) -> None:
@@ -393,4 +507,3 @@ class TaskThread(object):
             if self.controller.autostart:
                 if self.controller.idle:
                     self.controller.start_next()
-        self.controller.save_state()

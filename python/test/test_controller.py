@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
 import pytest
+import tempfile
+import os.path
+import sqlite3
 from unittest import mock
 from importlib import reload
 
@@ -723,6 +726,7 @@ def test_controller_delete(controller_fix):
     with pytest.raises(JobNotFoundError):
         controller_fix.delete("testjob2")
 
+
 def test_controller_enable_node(controller_fix):
     controller_fix.config.render_nodes = test_nodes
     controller_fix.server.renderjobs = {"testjob": mock.MagicMock()}
@@ -783,9 +787,6 @@ def test_controller_shutdown(controller_fix):
     controller_fix.server.shutdown_server.assert_called_once()
 
 
-
-
-
 ### RenderQueue
 class DummyJob(object):
     def __init__(self, id, status):
@@ -803,102 +804,230 @@ jobs = [
 ]
 orig_keys = ["job1", "job2", "job3", "job4", "job5", "job6"]
 
-q = rendercontroller.controller.RenderQueue()
-for i in jobs:
-    q.append(i)
+
+@pytest.fixture(scope="function")
+def queue_fix():
+    q = rendercontroller.controller.RenderQueue()
+    for i in jobs:
+        q.append(i)
+    return q
 
 
-def test_render_queue_len():
-    assert len(q) == len(jobs)
+def test_render_queue_len(queue_fix):
+    assert len(queue_fix) == len(jobs)
 
 
-def test_render_queue_keys():
-    assert q.keys() == [job.id for job in jobs]
+def test_render_queue_keys(queue_fix):
+    assert queue_fix.keys() == [job.id for job in jobs]
 
 
-def test_render_queue_values():
-    assert q.values() == jobs
+def test_render_queue_values(queue_fix):
+    assert queue_fix.values() == jobs
 
 
-def test_render_queue_order():
-    assert q.keys() == orig_keys
+def test_render_queue_order(queue_fix):
+    assert queue_fix.keys() == orig_keys
 
 
-def test_render_queue_slice():
-    assert jobs[2] == q[2]
-    assert jobs[1:3] == [j for j in q[1:3]]
-    assert jobs[-1] == q[-1]
-    assert jobs[2:-3] == [j for j in q[2:-3]]
+def test_render_queue_slice(queue_fix):
+    assert jobs[2] == queue_fix[2]
+    assert jobs[1:3] == [j for j in queue_fix[1:3]]
+    assert jobs[-1] == queue_fix[-1]
+    assert jobs[2:-3] == [j for j in queue_fix[2:-3]]
 
 
-def test_render_queue_get_by_index():
+def test_render_queue_get_by_index(queue_fix):
     for i in range(len(jobs)):
-        assert jobs[i].id == q.get_by_index(i).id
+        assert jobs[i].id == queue_fix.get_by_index(i).id
 
 
-def test_render_queue_get_by_id():
+def test_render_queue_get_by_id(queue_fix):
     for i in range(len(jobs)):
         job = jobs[i]
-        assert job == q.get_by_id(job.id)
+        assert job == queue_fix.get_by_id(job.id)
 
-def test_render_queue_append():
-    q = rendercontroller.controller.RenderQueue()
+
+def test_render_queue_append(queue_fix):
     for i in jobs:
-        q.append(i)
-    assert q.keys() == orig_keys
-    q.append(DummyJob("job7", "Rendering"))
-    assert q.keys() == orig_keys + ["job7", ]
+        queue_fix.append(i)
+    assert queue_fix.keys() == orig_keys
+    queue_fix.append(DummyJob("job7", "Rendering"))
+    assert queue_fix.keys() == orig_keys + [
+        "job7",
+    ]
 
 
-def test_render_queue_insert():
-    q = rendercontroller.controller.RenderQueue()
+def test_render_queue_insert(queue_fix):
     for i in jobs:
-        q.append(i)
-    assert q.keys() == orig_keys
-    q.insert(DummyJob("job7", "Rendering"), 3)
-    assert q.keys() == ["job1", "job2", "job3", "job7", "job4", "job5", "job6"]
+        queue_fix.append(i)
+    assert queue_fix.keys() == orig_keys
+    queue_fix.insert(DummyJob("job7", "Rendering"), 3)
+    assert queue_fix.keys() == ["job1", "job2", "job3", "job7", "job4", "job5", "job6"]
 
 
-def test_render_queue_move():
-    q = rendercontroller.controller.RenderQueue()
+def test_render_queue_move(queue_fix):
     for i in jobs:
-        q.append(i)
-    assert q.keys() == orig_keys
-    q.move("job2", 4)
-    assert q.keys() == ["job1", "job3", "job4", "job5", "job2", "job6"]
+        queue_fix.append(i)
+    assert queue_fix.keys() == orig_keys
+    queue_fix.move("job2", 4)
+    assert queue_fix.keys() == ["job1", "job3", "job4", "job5", "job2", "job6"]
 
 
-def test_render_queue_pop():
-    q = rendercontroller.controller.RenderQueue()
+def test_render_queue_pop(queue_fix):
     for i in jobs:
-        q.append(i)
-    assert q.keys() == orig_keys
-    job = q.pop("job4")
+        queue_fix.append(i)
+    assert queue_fix.keys() == orig_keys
+    job = queue_fix.pop("job4")
     assert job == jobs[3]
-    assert job not in q
+    assert job not in queue_fix
 
 
-def test_render_queue_sort_by_status():
-    q = rendercontroller.controller.RenderQueue()
+def test_render_queue_sort_by_status(queue_fix):
     for i in jobs:
-        q.append(i)
-    assert q.keys() == orig_keys
-    q.sort_by_status()
-    assert q.keys() == ["job1", "job3", "job4", "job6", "job2", "job5"]
+        queue_fix.append(i)
+    assert queue_fix.keys() == orig_keys
+    queue_fix.sort_by_status()
+    assert queue_fix.keys() == ["job1", "job3", "job4", "job6", "job2", "job5"]
 
 
-def test_render_queue_get_next_waiting():
-    q = rendercontroller.controller.RenderQueue()
+def test_render_queue_get_next_waiting(queue_fix):
     for i in jobs:
-        q.append(i)
-    assert q.keys() == orig_keys
-    next = q.get_next_waiting()
+        queue_fix.append(i)
+    assert queue_fix.keys() == orig_keys
+    next = queue_fix.get_next_waiting()
     assert next == jobs[0]
     # Simulate starting render
-    q[0].status = "Rendering"
-    again = q.get_next_waiting()
+    queue_fix[0].status = "Rendering"
+    again = queue_fix.get_next_waiting()
     assert again == jobs[5]
     # Simulate starting again
-    q[5].status = "Rendering"
+    queue_fix[5].status = "Rendering"
     # Should be none left
-    assert q.get_next_waiting() is None
+    assert queue_fix.get_next_waiting() is None
+
+
+### StateDatabase
+db_testjob1 = {
+    "id": "job01",
+    "status": "Rendering",
+    "path": "/tmp/job1",
+    "frame_start": 0,
+    "frame_end": 100,
+    "render_nodes": {"node1": {"active": True}, "node2": {"active": False}},
+    "time_start": 1643945597.08555,
+    "time_stop": 1643945737.287661,
+    "frames_completed": [0, 1, 2, 3, 4, 5],
+}
+
+db_testjob2 = {
+    "id": "job02",
+    "status": "Waiting",
+    "path": "/tmp/job2",
+    "frame_start": 0,
+    "frame_end": 25,
+    "render_nodes": {
+        "node1": {"active": False},
+        "node2": {"active": True},
+        "node3": {"active": True},
+    },
+    "time_start": 1643945770.027214,
+    "time_stop": 1643945813.785717,
+    "frames_completed": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+}
+
+
+@pytest.fixture(scope="module")
+def test_db_path():
+    temp_dir = tempfile.TemporaryDirectory()
+    yield os.path.join(temp_dir.name, "rcontroller-test.sqlite")
+    temp_dir.cleanup()
+
+
+@pytest.fixture(scope="module")
+def db(test_db_path):
+    yield rendercontroller.controller.StateDatabase(test_db_path)
+
+
+@pytest.fixture(scope="module")
+def cursor(test_db_path):
+    con = sqlite3.connect(test_db_path)
+    cur = con.cursor()
+    yield cur
+    con.close()
+
+
+def test_database_initialize(db, cursor):
+    db.initialize_db()
+    cursor.execute("SELECT tbl_name, sql FROM sqlite_schema WHERE type='table'")
+    assert cursor.fetchall() == [
+        (
+            "jobs",
+            "CREATE TABLE jobs (id TEXT UNIQUE, status TEXT, path TEXT, frame_start INTEGER, frame_end INTEGER, time_start REAL, time_stop REAL, frames_completed BLOB)",
+        ),
+        ("nodes", "CREATE TABLE nodes (job_id TEXT, name TEXT, enabled INTEGER)"),
+    ]
+
+
+def test_database_insert_job_get_job(db, cursor):
+    db.insert_job(**db_testjob1)
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    assert cursor.fetchone()[0] == 1  # Make sure right number of jobs are in table
+    assert db.get_job(db_testjob1["id"]) == db_testjob1
+
+
+def test_database_get_all_jobs(db, cursor):
+    db.insert_job(**db_testjob2)
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    assert cursor.fetchone()[0] == 2  # Make sure right number of jobs in table
+    assert db.get_all_jobs() == [db_testjob1, db_testjob2]
+
+
+def test_database_update_job_status(db):
+    assert db.get_job("job01")["status"] == db_testjob1["status"]
+    assert db.get_job("job02")["status"] == db_testjob2["status"]
+    db.update_job_status("job01", "Stopped")
+    assert db.get_job("job01")["status"] == "Stopped"
+    # Make sure no changes were made to other job
+    assert db.get_job("job02")["status"] == "Waiting"
+
+
+def test_database_update_time_stop(db):
+    assert db.get_job("job01")["time_stop"] == db_testjob1["time_stop"]
+    assert db.get_job("job02")["time_stop"] == db_testjob2["time_stop"]
+    db.update_job_time_stop("job02", 1234.5678)
+    assert db.get_job("job02")["time_stop"] == 1234.5678
+    # Make sure no changes were made to other job
+    assert db.get_job("job01")["time_stop"] == db_testjob1["time_stop"]
+
+
+def test_database_update_job_frames_completed(db):
+    assert db.get_job("job01")["frames_completed"] == db_testjob1["frames_completed"]
+    assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
+    db.update_job_frames_completed("job01", [7, 8, 9, 10])
+    assert db.get_job("job01")["frames_completed"] == [7, 8, 9, 10]
+    # Make sure no changes were made to other job
+    assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
+
+
+def test_database_update_node(db, cursor):
+    cursor.execute("SELECT * FROM jobs")
+    before = cursor.fetchall()
+    assert db.get_job("job02")["render_nodes"]["node2"]["active"] is True
+    db.update_node("job02", "node2", False)
+    assert db.get_job("job02")["render_nodes"]["node2"]["active"] is False
+    # Make sure the jobs table was not modified
+    cursor.execute("SELECT * FROM jobs")
+    assert cursor.fetchall() == before
+
+
+def test_database_remove_job(db, cursor):
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    assert cursor.fetchone()[0] == 2
+    db.remove_job("job02")
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    assert cursor.fetchone()[0] == 1
+    cursor.execute("SELECT id FROM jobs")
+    assert cursor.fetchone()[0] == "job01"
+    db.remove_job("job01")
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    assert cursor.fetchone()[0] == 0

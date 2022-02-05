@@ -308,7 +308,7 @@ class RenderController(object):
         start_frame: int,
         end_frame: int,
         render_engine: str,
-        nodes: Sequence[str],
+        render_nodes: Sequence[str],
         render_params: Optional[Dict[str, str]] = None,
     ) -> str:
         """

@@ -623,7 +623,11 @@ def test_controller_new_job_no_params(uuid, controller_fix):
     uuid.return_value.hex = job_id
     controller_fix.server.enqueue.return_value = job_id
     res = controller_fix.new_job(
-        path=path, start_frame=start, end_frame=end, render_engine=engine, nodes=nodes
+        path=path,
+        start_frame=start,
+        end_frame=end,
+        render_engine=engine,
+        render_nodes=nodes,
     )
     controller_fix.server.enqueue.assert_called_with(
         {

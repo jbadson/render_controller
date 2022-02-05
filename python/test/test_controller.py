@@ -586,8 +586,8 @@ def test_config_bad_key():
 @mock.patch("rendercontroller.controller.Config")
 def test_controller_init(conf, job):
     job.RenderServer.assert_not_called()
-    rendercontroller.controller.RenderController(None)
-    assert job.CONFIG is None
+    rc = rendercontroller.controller.RenderController(conf)
+    assert rc.config is conf
     job.RenderServer.assert_called_once()
 
 
@@ -836,9 +836,9 @@ def test_render_queue_slice(queue_fix):
     assert jobs[2:-3] == [j for j in queue_fix[2:-3]]
 
 
-def test_render_queue_get_by_index(queue_fix):
+def test_render_queue_get_by_position(queue_fix):
     for i in range(len(jobs)):
-        assert jobs[i].id == queue_fix.get_by_index(i).id
+        assert jobs[i].id == queue_fix.get_by_position(i).id
 
 
 def test_render_queue_get_by_id(queue_fix):
@@ -906,33 +906,38 @@ def test_render_queue_get_next_waiting(queue_fix):
     assert queue_fix.get_next_waiting() is None
 
 
+def test_render_queue_get_position(queue_fix):
+    for i in jobs:
+        queue_fix.append(i)
+    assert queue_fix.get_position("job1") == 0
+    assert queue_fix.get_position("job4") == 3
+
+
 ### StateDatabase
 db_testjob1 = {
     "id": "job01",
     "status": "Rendering",
     "path": "/tmp/job1",
-    "frame_start": 0,
-    "frame_end": 100,
-    "render_nodes": {"node1": {"active": True}, "node2": {"active": False}},
+    "start_frame": 0,
+    "end_frame": 100,
+    "render_nodes": ["node1", "node2"],
     "time_start": 1643945597.08555,
     "time_stop": 1643945737.287661,
     "frames_completed": [0, 1, 2, 3, 4, 5],
+    "queue_position": 0,
 }
 
 db_testjob2 = {
     "id": "job02",
     "status": "Waiting",
     "path": "/tmp/job2",
-    "frame_start": 0,
-    "frame_end": 25,
-    "render_nodes": {
-        "node1": {"active": False},
-        "node2": {"active": True},
-        "node3": {"active": True},
-    },
+    "start_frame": 0,
+    "end_frame": 25,
+    "render_nodes": ["node1", "node2", "node3"],
     "time_start": 1643945770.027214,
     "time_stop": 1643945813.785717,
     "frames_completed": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    "queue_position": 1,
 }
 
 
@@ -957,14 +962,15 @@ def cursor(test_db_path):
 
 
 def test_database_initialize(db, cursor):
-    db.initialize_db()
+    db.initialize()
     cursor.execute("SELECT tbl_name, sql FROM sqlite_schema WHERE type='table'")
     assert cursor.fetchall() == [
         (
             "jobs",
-            "CREATE TABLE jobs (id TEXT UNIQUE, status TEXT, path TEXT, frame_start INTEGER, frame_end INTEGER, time_start REAL, time_stop REAL, frames_completed BLOB)",
+            "CREATE TABLE jobs (id TEXT UNIQUE, status TEXT, path TEXT, start_frame INTEGER, "
+            + "end_frame INTEGER, render_nodes BLOB, time_start REAL, time_stop REAL, "
+            + "frames_completed BLOB, queue_position INTEGER)",
         ),
-        ("nodes", "CREATE TABLE nodes (job_id TEXT, name TEXT, enabled INTEGER)"),
     ]
 
 
@@ -1009,15 +1015,17 @@ def test_database_update_job_frames_completed(db):
     assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
 
 
-def test_database_update_node(db, cursor):
-    cursor.execute("SELECT * FROM jobs")
-    before = cursor.fetchall()
-    assert db.get_job("job02")["render_nodes"]["node2"]["active"] is True
-    db.update_node("job02", "node2", False)
-    assert db.get_job("job02")["render_nodes"]["node2"]["active"] is False
-    # Make sure the jobs table was not modified
-    cursor.execute("SELECT * FROM jobs")
-    assert cursor.fetchall() == before
+def test_database_update_node(db):
+    assert db.get_job("job02")["render_nodes"] == ["node1", "node2", "node3"]
+    db.update_node("job02", ["node4", "node5", "node6"])
+    assert db.get_job("job02")["render_nodes"] == ["node4", "node5", "node6"]
+
+
+def test_database_update_queue_position(db):
+    assert db.get_job("job01")["queue_position"] == 0
+    assert db.get_job("job02")["queue_position"] == 1
+    db.update_job_queue_position("job01", 5)
+    assert db.get_job("job01")["queue_position"] == 5
 
 
 def test_database_remove_job(db, cursor):

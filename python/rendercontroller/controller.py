@@ -80,7 +80,7 @@ class RenderQueue(object):
         """Returns job identified by id, else raises KeyError."""
         return self.jobs.get(id)
 
-    def get_by_index(self, index: int) -> Type[job.Job]:
+    def get_by_position(self, index: int) -> Type[job.Job]:
         """Returns job located at given position, else raises IndexError."""
         return self.__getitem__(index)
 
@@ -127,6 +127,14 @@ class RenderQueue(object):
                 n += 1
         return n
 
+    def get_position(self, id: str) -> int:
+        """Returns position of job in queue."""
+        n = 0
+        for i in self.jobs.keys():
+            if i == id:
+                return n
+            n += 1
+
 
 class StateDatabase(object):
     """Interface for SQLite Database to store server state."""
@@ -135,48 +143,41 @@ class StateDatabase(object):
         self.filepath = filepath
         # FIXME Might be better to have conn as instance variable. Would that lock the db file?
 
-    def initialize_db(self) -> None:
-        tables = {
-            "jobs": [
-                "id TEXT UNIQUE",
-                "status TEXT",
-                "path TEXT",
-                "frame_start INTEGER",
-                "frame_end INTEGER",
-                "time_start REAL",
-                "time_stop REAL",
-                "frames_completed BLOB",
-            ],
-            "nodes": ["job_id TEXT", "name TEXT", "enabled INTEGER"],
-        }
-        for table in tables:
-            self.execute(
-                f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(tables[table])})"
-            )
+    def initialize(self) -> None:
+        jobs_schema = [
+            "id TEXT UNIQUE",
+            "status TEXT",
+            "path TEXT",
+            "start_frame INTEGER",
+            "end_frame INTEGER",
+            "render_nodes BLOB",
+            "time_start REAL",
+            "time_stop REAL",
+            "frames_completed BLOB",
+            "queue_position INTEGER",
+        ]
+        self.execute(f"CREATE TABLE IF NOT EXISTS jobs ({', '.join(jobs_schema)})")
 
     def insert_job(
         self,
         id: str,
         status: str,
         path: str,
-        frame_start: int,
-        frame_end: int,
-        render_nodes: Dict,
+        start_frame: int,
+        end_frame: int,
+        render_nodes: Sequence[str],
         time_start: float,
         time_stop: float,
         frames_completed: Sequence[int],
+        queue_position: int,
     ) -> None:
         frames_completed = ",".join([str(i) for i in frames_completed])
+        render_nodes = ",".join(render_nodes)
         self.execute(
-            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {frame_start}, {frame_end}, {time_start}, {time_stop}, '{frames_completed}')",
+            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {start_frame}, {end_frame}, "
+            + f"'{render_nodes}', {time_start}, {time_stop}, '{frames_completed}', {queue_position})",
             commit=True,
         )
-        for node in render_nodes:
-            # FIXME change 'active' to 'enabled' for job rewrite
-            enabled = 1 if render_nodes[node]["active"] else 0
-            self.execute(
-                f"INSERT INTO nodes VALUES ('{id}', '{node}', {enabled})", commit=True
-            )
 
     def update_job_status(self, id: str, status: str) -> None:
         self.execute(f"UPDATE jobs SET status='{status}' WHERE id='{id}'", commit=True)
@@ -193,10 +194,16 @@ class StateDatabase(object):
             commit=True,
         )
 
-    def update_node(self, job_id: str, node: str, enabled: bool) -> None:
-        enabled = 1 if enabled else 0  # SQLite expects int, not bool
+    def update_job_queue_position(self, id: str, queue_position: int) -> None:
         self.execute(
-            f"UPDATE nodes SET name='{node}', enabled={enabled} WHERE job_id='{job_id}'",
+            f"UPDATE jobs SET queue_position={queue_position} WHERE id='{id}'",
+            commit=True,
+        )
+
+    def update_node(self, job_id: str, render_nodes: Sequence) -> None:
+        render_nodes = ",".join(render_nodes)
+        self.execute(
+            f"UPDATE jobs SET render_nodes='{render_nodes}' WHERE id='{job_id}'",
             commit=True,
         )
 
@@ -205,37 +212,31 @@ class StateDatabase(object):
             "id": row[0],
             "status": row[1],
             "path": row[2],
-            "frame_start": row[3],
-            "frame_end": row[4],
-            "time_start": row[5],
-            "time_stop": row[6],
-            "frames_completed": [int(i) for i in row[7].split(",")],
+            "start_frame": row[3],
+            "end_frame": row[4],
+            "render_nodes": row[5].split(","),
+            "time_start": row[6],
+            "time_stop": row[7],
+            "frames_completed": [int(i) for i in row[8].split(",")],
+            "queue_position": row[9],
         }
 
-    def _parse_nodes_rows(self, nodes: Sequence) -> Dict:
-        render_nodes = {}
-        for row in nodes:
-            render_nodes[row[1]] = {"active": True if row[2] == 1 else False}
-        return render_nodes
-
     def get_job(self, id) -> Dict:
-        job = self.execute(f"SELECT * FROM jobs WHERE id='{id}' LIMIT 1")
-        nodes = self.execute(f"SELECT * FROM nodes WHERE job_id='{id}'")
-        ret = self._parse_job_row(job[0])
-        ret["render_nodes"] = self._parse_nodes_rows(nodes)
-        return ret
+        job = self.execute(f"SELECT * FROM jobs WHERE id='{id}'")
+        if len(job) > 1:
+            raise KeyError("Multiple jobs found with same id.")
+        return self._parse_job_row(job[0])
 
     def get_all_jobs(self) -> List:
-        # FIXME Ordering is based on insertion order, NOT queue position. Prob need a queue position column.
-        ids = self.execute("SELECT id FROM jobs")
+        # FIXME Ordering is based on insertion order, NOT queue position.
+        jobs = self.execute("SELECT * FROM jobs")
         ret = []
-        for i in ids:
-            ret.append(self.get_job(i[0]))
+        for j in jobs:
+            ret.append(self._parse_job_row(j))
         return ret
 
     def remove_job(self, id) -> None:
         self.execute(f"DELETE FROM jobs WHERE id='{id}'", commit=True)
-        self.execute(f"DELETE FROM nodes WHERE job_id='{id}'", commit=True)
 
     def execute(self, query: str, commit: bool = False) -> List:
         # FIXME make this sane. Just want to get something working for now.
@@ -268,7 +269,9 @@ class RenderController(object):
         self.server = job.RenderServer()
         # New Stuff Here
         self.queue = RenderQueue()
-        self.db = StateDatabase(os.path.join(self.config.work_dir, "rcontroller.sqlite"))
+        self.db = StateDatabase(
+            os.path.join(self.config.work_dir, "rcontroller.sqlite")
+        )
         self.task_thread = TaskThread(self)
         self.task_thread.start()
 

@@ -2,6 +2,7 @@
 import logging
 import sqlite3
 import threading
+import os.path
 import time
 from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
@@ -167,29 +168,36 @@ class StateDatabase(object):
     ) -> None:
         frames_completed = ",".join([str(i) for i in frames_completed])
         self.execute(
-            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {frame_start}, {frame_end}, {time_start}, {time_stop}, '{frames_completed}')"
+            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {frame_start}, {frame_end}, {time_start}, {time_stop}, '{frames_completed}')",
+            commit=True,
         )
         for node in render_nodes:
             # FIXME change 'active' to 'enabled' for job rewrite
             enabled = 1 if render_nodes[node]["active"] else 0
-            self.execute(f"INSERT INTO nodes VALUES ('{id}', '{node}', {enabled})")
+            self.execute(
+                f"INSERT INTO nodes VALUES ('{id}', '{node}', {enabled})", commit=True
+            )
 
     def update_job_status(self, id: str, status: str) -> None:
-        self.execute(f"UPDATE jobs SET status='{status}' WHERE id='{id}'")
+        self.execute(f"UPDATE jobs SET status='{status}' WHERE id='{id}'", commit=True)
 
     def update_job_time_stop(self, id: str, time_stop: float) -> None:
-        self.execute(f"UPDATE jobs SET time_stop={time_stop} WHERE id='{id}'")
+        self.execute(
+            f"UPDATE jobs SET time_stop={time_stop} WHERE id='{id}'", commit=True
+        )
 
     def update_job_frames_completed(self, id: str, frames_completed: List[int]) -> None:
         frames_completed = ",".join([str(i) for i in frames_completed])
         self.execute(
-            f"UPDATE jobs SET frames_completed='{frames_completed}' WHERE id='{id}'"
+            f"UPDATE jobs SET frames_completed='{frames_completed}' WHERE id='{id}'",
+            commit=True,
         )
 
     def update_node(self, job_id: str, node: str, enabled: bool) -> None:
         enabled = 1 if enabled else 0  # SQLite expects int, not bool
         self.execute(
-            f"UPDATE nodes SET name='{node}', enabled={enabled} WHERE job_id='{job_id}'"
+            f"UPDATE nodes SET name='{node}', enabled={enabled} WHERE job_id='{job_id}'",
+            commit=True,
         )
 
     def _parse_job_row(self, row: Sequence) -> Dict:
@@ -226,16 +234,17 @@ class StateDatabase(object):
         return ret
 
     def remove_job(self, id) -> None:
-        self.execute(f"DELETE FROM jobs WHERE id='{id}'")
-        self.execute(f"DELETE FROM nodes WHERE job_id='{id}'")
+        self.execute(f"DELETE FROM jobs WHERE id='{id}'", commit=True)
+        self.execute(f"DELETE FROM nodes WHERE job_id='{id}'", commit=True)
 
-    def execute(self, query: str) -> List:
+    def execute(self, query: str, commit: bool = False) -> List:
         # FIXME make this sane. Just want to get something working for now.
         con = sqlite3.connect(self.filepath)
         cursor = con.cursor()
         cursor.execute(query)
         ret = cursor.fetchall()
-        con.commit()
+        if commit:
+            con.commit()
         con.close()
         return ret
 
@@ -259,6 +268,7 @@ class RenderController(object):
         self.server = job.RenderServer()
         # New Stuff Here
         self.queue = RenderQueue()
+        self.db = StateDatabase(os.path.join(self.config.work_dir, "rcontroller.sqlite"))
         self.task_thread = TaskThread(self)
         self.task_thread.start()
 

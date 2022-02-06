@@ -21,8 +21,7 @@ FAILED = "Failed"
 
 
 class RenderThread(object):
-    """
-    Base class for thread objects that handle rendering a single frame on a particular render engine.
+    """Base class for thread objects that handle rendering a single frame on a particular render engine.
 
     At a minimum, subclasses must implement the worker() method and some way to set values for public
     attributes listed below.
@@ -31,7 +30,7 @@ class RenderThread(object):
         status = Status of render process (one of WAITING, RENDERING, FINISHED, FAILED).
         pid = Process ID of render process on remote render node.
         progress = Float percent progress of render for this frame.
-        time_end = Epoch time when render finished.
+        time_stop = Epoch time when render finished.
     """
 
     def __init__(self, node: str, path: str, frame: int):
@@ -46,25 +45,32 @@ class RenderThread(object):
         )
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.time_start = 0
-        self.time_end = 0
+        self.time_stop = 0
 
     @property
     def render_time(self) -> float:
-        if self.time_end:
-            return self.time_start - self.time_end
+        """Returns time in seconds to render the frame."""
+        if self.time_stop:
+            return self.time_start - self.time_stop
         return self.time_start - time.time()
 
     def start(self) -> None:
+        """Spawns worker thread and starts the render."""
         self.time_start = time.time()
         self.thread.start()
 
     def worker(self) -> None:
+        """Must be implemented by subclasses.
+
+        This method will be launched in a new threading.Thread. It must execute the
+        render process and populate the status, pid, progress, and time_stop attributes,
+        or delegate those tasks to other methods.
+        """
         raise NotImplementedError
 
 
 class BlenderRenderThread(RenderThread):
-    """
-    Handles rendering a single frame in Blender.
+    """Handles rendering a single frame in Blender.
 
     Only verified to work with Cycles render engine up to version 2.93.7 on Linux and MacOS.
     """
@@ -84,7 +90,7 @@ class BlenderRenderThread(RenderThread):
         )
         for line in iter(proc.stdout.readline, ""):
             self.parse_line(line)
-        self.time_end = time.time()
+        self.time_stop = time.time()
         self.logger.debug("Worker thread exited.")
 
     def parse_line(self, line: bytes) -> None:

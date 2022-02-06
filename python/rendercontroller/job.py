@@ -273,11 +273,13 @@ class RenderJob(object):
     def _thread(self) -> None:
         """Master thread to manage multiple RenderThreads."""
         self.logger.debug("Started master thread.")
-        # TODO implement timers
         while not self._stop:
             if self.queue.empty() and not self.render_threads_active():
                 logger.debug("Render finished at detector.")
-                # TODO whatever cleanup needs to happen
+                self._stop_timer()
+                self.status = FINISHED
+                elapsed, avg, rem = self.get_times()
+                self.logger.info(f"Finished render in {elapsed}. Avg time per frame: {avg}.")
                 break
 
             # If all nodes are in skip list, release oldest one.
@@ -288,6 +290,7 @@ class RenderJob(object):
                 logger.info("All nodes are in skip list. Releasing oldest one.")
                 self._set_node_status(self.skip_list.pop(0))
 
+            # Iterate through nodes, check status, and assign frames
             for node in self.nodes_enabled:
                 if self.queue.empty():
                     # If queue empties during iteration, return to outer loop and wait for completion.

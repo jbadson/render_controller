@@ -19,16 +19,17 @@ testjob2 = {  # Complete kwargs. Mimics restoring from db.
     "render_nodes": ["node1", "node2", "node3"],
     "time_start": 1643945770.027214,
     "time_stop": 1643945813.785717,
+    "time_offset": 300,
     "frames_completed": [0, 1, 2, 3, 4, 5, 6, 7, 8],
 }
 
+conf_render_nodes = ["node1", "node2", "node3", "node4"]
+
 
 @mock.patch("rendercontroller.controller.Config")
-@mock.patch("time.time")
-def test_renderjob_init_new(time, conf):
+def test_renderjob_init_new(conf):
     """Tests creating a new job."""
-    mock_start_time = 1644030316.228603
-    time.return_value = mock_start_time
+    conf.render_nodes = conf_render_nodes
     j = job.RenderJob(conf, **testjob1)
     # Check passed params
     assert j.config is conf
@@ -39,21 +40,32 @@ def test_renderjob_init_new(time, conf):
     assert j.nodes_enabled == testjob1["render_nodes"]
     # Check generated params
     assert j.status == job.WAITING
-    assert j.time_start == mock_start_time
-    assert j.time_stop is None
+    assert j.time_start == 0.0
+    assert j.time_stop == 0.0
+    assert j.time_offset == 0.0
     assert j.frames_completed == []
     queue_expected = list(range(0, 100 + 1))
     queue_actual = []
     while not j.queue.empty():
         queue_actual.append(j.queue.get())
     assert queue_actual == queue_expected
+    assert j.skip_list == []
+    node_status_expected = {
+        "node1": {"frame": None, "thread": None, "progress": 0.0},
+        "node2": {"frame": None, "thread": None, "progress": 0.0},
+        "node3": {"frame": None, "thread": None, "progress": 0.0},
+        "node4": {"frame": None, "thread": None, "progress": 0.0},
+    }
+    assert j.node_status == node_status_expected
 
 
 @mock.patch("rendercontroller.controller.Config")
 @mock.patch("rendercontroller.job.RenderJob.render")
 def test_renderjob_init_restore(render, conf):
     """Tests restoring a job from disk."""
+    conf.render_nodes = conf_render_nodes
     j = job.RenderJob(conf, **testjob2)
+    # Check passed params
     assert j.config is conf
     assert j.id == testjob2["id"]
     assert j.path == testjob2["path"]
@@ -63,10 +75,20 @@ def test_renderjob_init_restore(render, conf):
     assert j.status == job.RENDERING
     assert j.time_start == testjob2["time_start"]
     assert j.time_stop == testjob2["time_stop"]
+    assert j.time_offset == testjob2["time_offset"]
     assert j.frames_completed == testjob2["frames_completed"]
+    # Check generated params
     queue_expected = list(range(9, 25 + 1))
     queue_actual = []
     while not j.queue.empty():
         queue_actual.append(j.queue.get())
     assert queue_actual == queue_expected
+    assert j.skip_list == []
     render.assert_called_once()
+    node_status_expected = {
+        "node1": {"frame": None, "thread": None, "progress": 0.0},
+        "node2": {"frame": None, "thread": None, "progress": 0.0},
+        "node3": {"frame": None, "thread": None, "progress": 0.0},
+        "node4": {"frame": None, "thread": None, "progress": 0.0},
+    }
+    assert j.node_status == node_status_expected

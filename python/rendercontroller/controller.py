@@ -8,32 +8,10 @@ from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
 from collections import OrderedDict
 from . import job
+from .util import Config
 from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
 
 logger = logging.getLogger("controller")
-
-
-class Config(object):
-    """Singleton configuration object."""
-
-    def __init__(self):
-        raise RuntimeError("Config class cannot be instantiated")
-
-    @classmethod
-    def set_all(cls, attrs: Dict[str, Any]) -> None:
-        """Sets attributes from a dictionary."""
-        for key, val in attrs.items():
-            logger.debug("Set config %s=%s" % (key, val))
-            setattr(cls, key, val)
-
-    @classmethod
-    def get(cls, attr: str, default: Any = None) -> Any:
-        """Getter method that allows setting a default value."""
-        if hasattr(cls, attr):
-            return getattr(cls, attr)
-        if default:
-            return default
-        raise AttributeError(attr)
 
 
 class RenderQueue(object):
@@ -52,7 +30,7 @@ class RenderQueue(object):
         self.index = 0
         return self
 
-    def __next__(self) -> Type[job.Job]:
+    def __next__(self) -> Type[job.RenderJob]:
         if self.index >= len(self.jobs):
             raise StopIteration
         i = self.index
@@ -65,26 +43,26 @@ class RenderQueue(object):
     def __repr__(self) -> str:
         return str(tuple(self.jobs.values()))
 
-    def __getitem__(self, item: int) -> Type[job.Job]:
+    def __getitem__(self, item: int) -> Type[job.RenderJob]:
         """Returns job by position.  This is the same as get_by_index()."""
         return tuple(self.jobs.values())[item]
 
-    def append(self, job: Type[job.Job]) -> None:
+    def append(self, job: Type[job.RenderJob]) -> None:
         self.jobs[job.id] = job
 
-    def pop(self, id: str) -> Type[job.Job]:
+    def pop(self, id: str) -> Type[job.RenderJob]:
         """Remove and return a job by id."""
         return self.jobs.pop(id)
 
-    def get_by_id(self, id: str) -> Type[job.Job]:
+    def get_by_id(self, id: str) -> Type[job.RenderJob]:
         """Returns job identified by id, else raises KeyError."""
         return self.jobs.get(id)
 
-    def get_by_position(self, index: int) -> Type[job.Job]:
+    def get_by_position(self, index: int) -> Type[job.RenderJob]:
         """Returns job located at given position, else raises IndexError."""
         return self.__getitem__(index)
 
-    def insert(self, job: Type[job.Job], index: int) -> None:
+    def insert(self, job: Type[job.RenderJob], index: int) -> None:
         """Inserts a job at a specific position."""
         items = list(self.jobs.items())
         items.insert(index, (job.id, job))
@@ -93,7 +71,7 @@ class RenderQueue(object):
     def keys(self) -> List[str]:
         return [job.id for job in self.jobs.values()]
 
-    def values(self) -> List[Type[job.Job]]:
+    def values(self) -> List[Type[job.RenderJob]]:
         return list(self.jobs.values())
 
     def move(self, id: str, index: int) -> None:
@@ -112,7 +90,7 @@ class RenderQueue(object):
                 unfinished.append((j.id, j))
         self.jobs = OrderedDict(unfinished + finished)
 
-    def get_next_waiting(self) -> Optional[Type[job.Job]]:
+    def get_next_waiting(self) -> Optional[Type[job.RenderJob]]:
         """Returns first item in queue with status Waiting. If none found, returns None."""
         for j in self.jobs.values():
             if j.status == "Waiting":
@@ -155,6 +133,8 @@ class StateDatabase(object):
             "time_stop REAL",
             "frames_completed BLOB",
             "queue_position INTEGER",
+            #FIXME Need to have some way to know time of last write (either elapsed from job.get_times() or
+            # just a write timestamp so we can calculate time offset when restoring a job from disk.
         ]
         self.execute(f"CREATE TABLE IF NOT EXISTS jobs ({', '.join(jobs_schema)})")
 
@@ -332,7 +312,7 @@ class RenderController(object):
                 "endframe": end_frame,
                 "extraframes": None,  # Deprecated
                 "render_engine": render_engine,
-                "complist": nodes,
+                "complist": render_nodes,
                 "render_params": render_params,
             }
         )

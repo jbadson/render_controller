@@ -11,8 +11,9 @@ import signal
 import socketserver
 import urllib.parse
 from typing import Sequence, Optional, Dict, List, Any, Callable, Type
-from .controller import RenderController, Config
+from .controller import RenderController
 from .exceptions import JobNotFoundError, NodeNotFoundError
+from .util import Config
 
 CONFIG_FILE_PATH = "/etc/rendercontroller.conf"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"

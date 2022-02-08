@@ -68,7 +68,7 @@ class App extends Component {
 
   getUpdate() {
     // Fetch data from server and update UI
-    axios.get(process.env.REACT_APP_BACKEND_API + "/job/summary")
+    axios.get(process.env.REACT_APP_BACKEND_API + "/job/info")
       .then(
         result => {this.setState({serverJobs: result.data})},
         error => {this.setState({error: error})}
@@ -83,17 +83,14 @@ class App extends Component {
 
   /**
    * Sorts jobs for the queue pane.  Rendering jobs go first and Finished
-   * jobs go last.  Everything else goes in between, ranked by time_created.
+   * jobs go last.  Everything else goes in between with server order preserved.
    */
   sortJobs() {
     const jobList = this.state.serverJobs;
     const jobsRendering = jobList.filter(job => job.status === "Rendering")
-      .sort(function(a, b) {return b.time_created - a.time_created})
     const jobsFinished = jobList.filter(job => job.status === "Finished")
-      .sort(function(a, b) {return b.time_created - a.time_created})
     const jobsOther = jobList.filter(job => job.status !== "Rendering")
       .filter(job => job.status !== "Finished")
-      .sort(function(a, b) {return b.time_created - a.time_created})
 
     const sortedJobs = [...jobsRendering, ...jobsOther, ...jobsFinished]
     this.setState({

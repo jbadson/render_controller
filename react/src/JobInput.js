@@ -238,20 +238,10 @@ class JobInput extends Component {
       }
     };
 
-    // Determine render engine based on file extension.
-    // TODO Might be better to do this on the render server.
-    const pathArray = path.split('.');
-    const ext = pathArray[pathArray.length - 1];
-    if (!RENDER_ENGINES.includes(ext)) {
-      // FIXME: handle this correctly.
-      alert('Project file name must end with ".blend" or ".tgd"')
-      return;
-    }
     const ret = {
       path: this.state.path,
       start_frame: this.state.startFrame,
       end_frame: this.state.endFrame,
-      render_engine: ext,
       nodes: selectedNodes
     }
     axios.post(process.env.REACT_APP_BACKEND_API + "/job/new", ret)

@@ -15,7 +15,7 @@ class QueuePane extends Component {
     return (
       <li className="layout-row" key={job.id}>
         <JobSummary
-          filePath={job.file_path}
+          filePath={job.path}
           status={job.status}
           timeRemaining={job.time_remaining}
           timeElapsed={job.time_elapsed}

@@ -126,8 +126,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     get_endpoints = {"job", "node", "config"}
     post_endpoints = {"job", "node", "storage", "config"}
     job_handlers = {
-        "summary": "job_summary",
-        "status": "job_status",
+        "info": "job_data",
         "start": "start_job",
         "stop": "stop_job",
         "enqueue": "enqueue_job",
@@ -158,9 +157,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:
         """Override parent method to allow logging to file."""
-        if not args[0].startswith("GET /job/summary") and not args[0].startswith(
-            "GET /job/status"
-        ):
+        if not args[0].startswith("GET /job/info"):
             # Avoid spamming console with thousands of WebUI update requests
             logger.debug("%s:%s" % (self.address_string(), format % args))
 
@@ -211,9 +208,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Handles HTTP GET requests."""
-        if not self.path.startswith("/job/summary") and not self.path.startswith(
-            "/job/status"
-        ):
+        if not self.path.startswith("/job/info"):
             # Avoid spamming console with thousands of WebUI update requests
             logger.debug(
                 "path parts: %s, query: '%s'"
@@ -314,18 +309,14 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         """Handles requests for the `job` endpoint."""
         self.exec_handler(self.job_handlers)
 
-    def job_summary(self) -> None:
-        """Sends summary info about jobs in server."""
-        self.send_json(self.controller.get_summary())
-
-    def job_status(self) -> None:
+    def job_data(self) -> None:
         """Sends info about a render job."""
         if self.parsed_path.target:
-            data = self.controller.get_job_status(self.parsed_path.target)
+            data = self.controller.get_job_data(self.parsed_path.target)
+            if not data:
+                return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         else:
-            data = self.controller.get_status()
-        if not data:
-            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
+            data = self.controller.get_all_job_data()
         self.send_json(data)
 
     def start_job(self) -> None:
@@ -386,18 +377,13 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             path = data["path"]
             start = int(data["start_frame"])
             end = int(data["end_frame"])
-            engine = data["render_engine"]
             nodes = data["nodes"]
         except KeyError:
             logger.exception("New job request missing required data")
             return self.send_error(HTTPStatus.BAD_REQUEST, "Missing required data")
-        if "render_params" in data:
-            render_params = data["render_params"]
-        else:
-            render_params = None
         try:
             job_id = self.controller.new_job(
-                path, start, end, engine, nodes, render_params
+                path, start, end, nodes
             )
         except Exception as e:
             logger.exception("Error while creating job")

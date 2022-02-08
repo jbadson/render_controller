@@ -148,7 +148,7 @@ class JobStatusPane extends Component {
   }
 
   getUpdate() {
-    axios.get(process.env.REACT_APP_BACKEND_API + "/job/status/" + this.props.jobId)
+    axios.get(process.env.REACT_APP_BACKEND_API + "/job/info/" + this.props.jobId)
       .then(result => {
         this.setState({data: result.data});
         },
@@ -191,7 +191,7 @@ class JobStatusPane extends Component {
       <div className="jsp-container">
         <ul>
           <li className="jsp-row">
-            <div className="jsp-header">{getBasename(data.file_path)}</div>
+            <div className="jsp-header">{getBasename(data.path)}</div>
           </li>
           <li className="jsp-row">
             <div className="jsp-inner">
@@ -199,11 +199,11 @@ class JobStatusPane extends Component {
                 <li className="layout-row">
                   <JobStatusBox
                     status={data.status}
-                    filePath={data.file_path}
+                    filePath={data.path}
                     startFrame={data.start_frame}
                     endFrame={data.end_frame}
                     timeElapsed={data.time_elapsed}
-                    timeAvg={data.time_avg}
+                    timeAvg={data.time_avg_per_frame}
                     timeRemaining={data.time_remaining}
                     progress={data.progress}
                   />

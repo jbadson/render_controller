@@ -49,7 +49,6 @@ class Config(object):
     def set_all(cls, attrs: Dict[str, Any]) -> None:
         """Sets attributes from a dictionary."""
         for key, val in attrs.items():
-            logger.debug("Set config %s=%s" % (key, val))
             setattr(cls, key, val)
 
     @classmethod

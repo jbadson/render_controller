@@ -1,15 +1,15 @@
-#!/usr/bin/env python -> Type[Job -> Type[Job]
 import logging
-import sqlite3
 import threading
 import os.path
 import time
 from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
 from collections import OrderedDict
-from . import job
+from .job import RenderJob
+from .database import StateDatabase
 from .util import Config
 from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
+from .job import RENDERING, WAITING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("controller")
 
@@ -30,7 +30,7 @@ class RenderQueue(object):
         self.index = 0
         return self
 
-    def __next__(self) -> Type[job.RenderJob]:
+    def __next__(self) -> Type[RenderJob]:
         if self.index >= len(self.jobs):
             raise StopIteration
         i = self.index
@@ -40,29 +40,34 @@ class RenderQueue(object):
     def __len__(self) -> int:
         return len(self.jobs)
 
-    def __repr__(self) -> str:
-        return str(tuple(self.jobs.values()))
+    def __str__(self) -> str:
+        return f"RenderQueue{tuple(f'{k}:{v}' for k, v in self.jobs.items())}"
 
-    def __getitem__(self, item: int) -> Type[job.RenderJob]:
+    def __getitem__(self, item: int) -> Type[RenderJob]:
         """Returns job by position.  This is the same as get_by_index()."""
         return tuple(self.jobs.values())[item]
 
-    def append(self, job: Type[job.RenderJob]) -> None:
+    def __contains__(self, id) -> bool:
+        if id in self.jobs:
+            return True
+        return False
+
+    def append(self, job: Type[RenderJob]) -> None:
         self.jobs[job.id] = job
 
-    def pop(self, id: str) -> Type[job.RenderJob]:
+    def pop(self, id: str) -> Type[RenderJob]:
         """Remove and return a job by id."""
         return self.jobs.pop(id)
 
-    def get_by_id(self, id: str) -> Type[job.RenderJob]:
+    def get_by_id(self, id: str) -> Type[RenderJob]:
         """Returns job identified by id, else raises KeyError."""
-        return self.jobs.get(id)
+        return self.jobs[id]
 
-    def get_by_position(self, index: int) -> Type[job.RenderJob]:
+    def get_by_position(self, index: int) -> Type[RenderJob]:
         """Returns job located at given position, else raises IndexError."""
         return self.__getitem__(index)
 
-    def insert(self, job: Type[job.RenderJob], index: int) -> None:
+    def insert(self, job: Type[RenderJob], index: int) -> None:
         """Inserts a job at a specific position."""
         items = list(self.jobs.items())
         items.insert(index, (job.id, job))
@@ -71,7 +76,7 @@ class RenderQueue(object):
     def keys(self) -> List[str]:
         return [job.id for job in self.jobs.values()]
 
-    def values(self) -> List[Type[job.RenderJob]]:
+    def values(self) -> List[Type[RenderJob]]:
         return list(self.jobs.values())
 
     def move(self, id: str, index: int) -> None:
@@ -84,23 +89,23 @@ class RenderQueue(object):
         unfinished = []
         finished = []
         for j in self.jobs.values():
-            if j.status == "Finished":
+            if j.status == FINISHED:
                 finished.append((j.id, j))
             else:
                 unfinished.append((j.id, j))
         self.jobs = OrderedDict(unfinished + finished)
 
-    def get_next_waiting(self) -> Optional[Type[job.RenderJob]]:
+    def get_next_waiting(self) -> Optional[Type[RenderJob]]:
         """Returns first item in queue with status Waiting. If none found, returns None."""
         for j in self.jobs.values():
-            if j.status == "Waiting":
+            if j.status == WAITING:
                 return j
         return None
 
     def count_status(self, status: str) -> int:
         """Returns the number of jobs with matching status."""
         n = 0
-        for j in self.jobs:
+        for j in self.jobs.values():
             if j.status == status:
                 n += 1
         return n
@@ -114,122 +119,6 @@ class RenderQueue(object):
             n += 1
 
 
-class StateDatabase(object):
-    """Interface for SQLite Database to store server state."""
-
-    def __init__(self, filepath: str):
-        self.filepath = filepath
-        # FIXME Might be better to have conn as instance variable. Would that lock the db file?
-
-    def initialize(self) -> None:
-        jobs_schema = [
-            "id TEXT UNIQUE",
-            "status TEXT",
-            "path TEXT",
-            "start_frame INTEGER",
-            "end_frame INTEGER",
-            "render_nodes BLOB",
-            "time_start REAL",
-            "time_stop REAL",
-            "frames_completed BLOB",
-            "queue_position INTEGER",
-            #FIXME Need to have some way to know time of last write (either elapsed from job.get_times() or
-            # just a write timestamp so we can calculate time offset when restoring a job from disk.
-        ]
-        self.execute(f"CREATE TABLE IF NOT EXISTS jobs ({', '.join(jobs_schema)})")
-
-    def insert_job(
-        self,
-        id: str,
-        status: str,
-        path: str,
-        start_frame: int,
-        end_frame: int,
-        render_nodes: Sequence[str],
-        time_start: float,
-        time_stop: float,
-        frames_completed: Sequence[int],
-        queue_position: int,
-    ) -> None:
-        frames_completed = ",".join([str(i) for i in frames_completed])
-        render_nodes = ",".join(render_nodes)
-        self.execute(
-            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {start_frame}, {end_frame}, "
-            + f"'{render_nodes}', {time_start}, {time_stop}, '{frames_completed}', {queue_position})",
-            commit=True,
-        )
-
-    def update_job_status(self, id: str, status: str) -> None:
-        self.execute(f"UPDATE jobs SET status='{status}' WHERE id='{id}'", commit=True)
-
-    def update_job_time_stop(self, id: str, time_stop: float) -> None:
-        self.execute(
-            f"UPDATE jobs SET time_stop={time_stop} WHERE id='{id}'", commit=True
-        )
-
-    def update_job_frames_completed(self, id: str, frames_completed: List[int]) -> None:
-        frames_completed = ",".join([str(i) for i in frames_completed])
-        self.execute(
-            f"UPDATE jobs SET frames_completed='{frames_completed}' WHERE id='{id}'",
-            commit=True,
-        )
-
-    def update_job_queue_position(self, id: str, queue_position: int) -> None:
-        self.execute(
-            f"UPDATE jobs SET queue_position={queue_position} WHERE id='{id}'",
-            commit=True,
-        )
-
-    def update_node(self, job_id: str, render_nodes: Sequence) -> None:
-        render_nodes = ",".join(render_nodes)
-        self.execute(
-            f"UPDATE jobs SET render_nodes='{render_nodes}' WHERE id='{job_id}'",
-            commit=True,
-        )
-
-    def _parse_job_row(self, row: Sequence) -> Dict:
-        return {
-            "id": row[0],
-            "status": row[1],
-            "path": row[2],
-            "start_frame": row[3],
-            "end_frame": row[4],
-            "render_nodes": row[5].split(","),
-            "time_start": row[6],
-            "time_stop": row[7],
-            "frames_completed": [int(i) for i in row[8].split(",")],
-            "queue_position": row[9],
-        }
-
-    def get_job(self, id) -> Dict:
-        job = self.execute(f"SELECT * FROM jobs WHERE id='{id}'")
-        if len(job) > 1:
-            raise KeyError("Multiple jobs found with same id.")
-        return self._parse_job_row(job[0])
-
-    def get_all_jobs(self) -> List:
-        # FIXME Ordering is based on insertion order, NOT queue position.
-        jobs = self.execute("SELECT * FROM jobs")
-        ret = []
-        for j in jobs:
-            ret.append(self._parse_job_row(j))
-        return ret
-
-    def remove_job(self, id) -> None:
-        self.execute(f"DELETE FROM jobs WHERE id='{id}'", commit=True)
-
-    def execute(self, query: str, commit: bool = False) -> List:
-        # FIXME make this sane. Just want to get something working for now.
-        con = sqlite3.connect(self.filepath)
-        cursor = con.cursor()
-        cursor.execute(query)
-        ret = cursor.fetchall()
-        if commit:
-            con.commit()
-        con.close()
-        return ret
-
-
 class RenderController(object):
     """
     Manages render jobs.
@@ -241,17 +130,19 @@ class RenderController(object):
     """
 
     def __init__(self, config: Type[Config]) -> None:
+        # TODO Update docstrings once all old job stuff is removed
         # This is bad but will get things moving until I have time to
         # rewrite all the terrible stuff in RenderServer.
         self.config = config
         # Inject dependency until job module is rewritten or replaced
-        job.CONFIG = config
-        self.server = job.RenderServer()
+        #job.CONFIG = config
+        #self.server = job.RenderServer()
         # New Stuff Here
         self.queue = RenderQueue()
         self.db = StateDatabase(
             os.path.join(self.config.work_dir, "rcontroller.sqlite")
         )
+        self.db.initialize()
         self.task_thread = TaskThread(self)
         self.task_thread.start()
 
@@ -268,7 +159,7 @@ class RenderController(object):
     @property
     def idle(self) -> bool:
         """Returns True if no jobs are currently rendering."""
-        if self.queue.count_status("Rendering") == 0:
+        if self.queue.count_status(RENDERING) == 0:
             return True
         return False
 
@@ -287,9 +178,7 @@ class RenderController(object):
         path: str,
         start_frame: int,
         end_frame: int,
-        render_engine: str,
-        render_nodes: Sequence[str],
-        render_params: Optional[Dict[str, str]] = None,
+        render_nodes: List[str],
     ) -> str:
         """
         Creates a new render job and places it in queue.
@@ -297,32 +186,29 @@ class RenderController(object):
         :param str path: Path to project file.
         :param int start_frame: Start frame number.
         :param int end_frame: End frame number.
-        :param str render_engine: Render engine.
         :param list nodes: List of render nodes to enable for this job.
-        :param dict render_params: Optional dict of render-engine-specific
-            parameters. Implementation is up to the render engine handler.
         :return str: ID of newly created job.
         """
-        job_id = uuid4().hex
-        self.server.enqueue(
-            {
-                "index": job_id,
-                "path": path,
-                "startframe": start_frame,
-                "endframe": end_frame,
-                "extraframes": None,  # Deprecated
-                "render_engine": render_engine,
-                "complist": render_nodes,
-                "render_params": render_params,
-            }
+        job = RenderJob(
+            config=self.config,
+            db=self.db,
+            id=uuid4().hex,
+            path=path,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            render_nodes=render_nodes,
         )
-        return job_id
+        self.queue.append(job)
+        # Note: Database insertion, deletion and queue changes are performed by this class.
+        # DB updates are delegated to RenderJob instances.
+        self.db.insert_job(job.id, job.status, path, start_frame, end_frame, render_nodes, 0.0, 0.0, [], self.queue.get_position(job.id))
+        return job.id
 
     def start(self, job_id: str) -> None:
         """Starts a render job."""
         # TODO raise exception if fails
         try:
-            self.server.start_render(job_id)
+            self.queue.get_by_id(job_id).render()
         except KeyError:
             logger.exception("Failed to start '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
@@ -331,7 +217,7 @@ class RenderController(object):
         """Starts next job in queue and return job ID.  If no jobs in queue, returns None."""
         job = self.queue.get_next_waiting()
         if job:
-            self.start(job.id)
+            job.render()
             return job.id
         return None
 
@@ -344,29 +230,36 @@ class RenderController(object):
             currently rendering frames will be allowed to finish.
         """
         try:
-            self.server.kill_render(job_id, kill)
+            self.queue.get_by_id(job_id).stop()
         except KeyError:
             logger.exception("Failed to stop '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
 
     def enqueue(self, job_id: str) -> None:
         """Places a stopped job back in the render queue."""
+        #FIXME is this necessary?  Re-evaluate logic of WAITING vs STOPPED
+        pass
+        """
         try:
             self.server.resume_render(job_id, startnow=False)
         except KeyError:
             logger.exception("Failed to resume '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
+            """
 
     def delete(self, job_id: str) -> None:
         """Deletes a render job.  Job must not be rendering."""
         try:
-            status = self.server.get_status(job_id)
-            if status == "Rendering":
-                raise JobStatusError("Cannot delete job while it is rendering")
-            self.server.clear_job(job_id)
+            job = self.queue.get_by_id(job_id)
         except KeyError:
             logger.exception("Failed to delete '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
+        if job.status == RENDERING:
+            raise JobStatusError("Cannot delete job while it is rendering.")
+        self.queue.pop(job_id)
+        # Note: Database insertion, deletion and queue changes are performed by this class.
+        # DB updates are delegated to RenderJob instances.
+        self.db.delete_job(job_id)
 
     def enable_node(self, job_id: str, node: str) -> None:
         """
@@ -379,7 +272,7 @@ class RenderController(object):
         if node not in self.render_nodes:
             raise NodeNotFoundError("Node '%s' not found" % node)
         try:
-            self.server.renderjobs[job_id].add_computer(node)
+            self.queue.get_by_id(job_id).enable_node(node)
         except KeyError:
             raise JobNotFoundError("Job '%s' not found" % job_id)
 
@@ -394,79 +287,32 @@ class RenderController(object):
         if node not in self.render_nodes:
             raise NodeNotFoundError("Node '%s' not found" % node)
         try:
-            self.server.renderjobs[job_id].remove_computer(node)
+            self.queue.get_by_id(job_id).disable_node(node)
         except KeyError:
             raise JobNotFoundError("Job '%s' not found" % job_id)
 
-    def get_summary(self) -> List[Dict[str, Any]]:
-        """
-        Returns summary info about all jobs on server.
-        """
-        jobs = []
-        for id, job in self.server.renderjobs.items():
-            data = job.get_attrs()
-            jobs.append(
-                {
-                    "id": id,
-                    "file_path": data["path"],
-                    "status": data["status"],
-                    "progress": data["progress"],
-                    "time_elapsed": data["times"][0],
-                    "time_remaining": data["times"][2],
-                    "time_created": data["queuetime"],
-                }
-            )
-        return jobs
-
-    def get_status(self) -> List[Dict[str, Any]]:
+    def get_all_job_data(self) -> List[Dict[str, Any]]:
         """Returns complete status info about all jobs on server."""
         data = []
-        for id in self.server.renderjobs:
-            data.append(self.get_job_status(id))
+        for job in self.queue.values():
+            data.append(self.get_job_data(job.id))
         return data
 
-    def _reformat_node_list(self, complist, compstatus):
-        node_status = {}
-        for node, info in compstatus.items():
-            node_status[node] = {
-                "rendering": info["active"],
-                "enabled": True if node in complist else False,
-                "frame": info["frame"],
-                "progress": info["progress"],
-            }
-        return node_status
-
-    def get_job_status(self, job_id: str) -> Dict:
+    def get_job_data(self, job_id: str) -> Dict:
         """Returns details for a render job."""
-        # Rearrange data to match new format
-        data = self.server.get_attrs(job_id)
-        if data == "Index not found.":
-            raise JobNotFoundError("Job '%s' not found" % job_id)
-        ret = {
-            "id": job_id,
-            "file_path": data["path"],
-            "start_frame": data["startframe"],
-            "end_frame": data["endframe"],
-            "render_engine": data["render_engine"],
-            "render_params": data["render_params"],
-            "status": data["status"],
-            "progress": data["progress"],
-            "time_avg": data["times"][1],
-            "time_elapsed": data["times"][0],
-            "time_remaining": data["times"][2],
-            "time_created": data["queuetime"],
-            "node_status": self._reformat_node_list(
-                data["complist"], data["compstatus"]
-            ),
-        }
-        return ret
+        try:
+            job = self.queue.get_by_id(job_id)
+        except KeyError:
+            raise JobNotFoundError(f"Job {job_id} not found")
+        return job.dump()
 
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""
         logger.debug("Shutting down controller")
+        for job in self.queue.values():
+            job.stop()
         self.task_thread.shutdown()
         self.save_state()
-        self.server.shutdown_server()
 
     def save_state(self) -> None:
         raise NotImplementedError
@@ -482,6 +328,9 @@ class TaskThread(object):
 
     def start(self) -> None:
         self._thread.start()
+
+    def running(self) -> bool:
+        return self._thread.is_alive()
 
     def shutdown(self) -> None:
         logger.debug("Attempting to terminate task thread.")

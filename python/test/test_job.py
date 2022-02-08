@@ -1,6 +1,6 @@
 import pytest
 from unittest import mock
-from rendercontroller import job
+from rendercontroller.job import RenderJob, WAITING, RENDERING, FINISHED, STOPPED, FAILED
 
 testjob1 = {  # Minimum set of kwargs
     "id": "job01",
@@ -12,7 +12,7 @@ testjob1 = {  # Minimum set of kwargs
 
 testjob2 = {  # Complete kwargs. Mimics restoring from db.
     "id": "job02",
-    "status": "Rendering",
+    "status": RENDERING,
     "path": "/tmp/job2",
     "start_frame": 0,
     "end_frame": 25,
@@ -30,16 +30,18 @@ conf_render_nodes = ["node1", "node2", "node3", "node4"]
 def test_renderjob_init_new(conf):
     """Tests creating a new job."""
     conf.render_nodes = conf_render_nodes
-    j = job.RenderJob(conf, **testjob1)
+    db = mock.MagicMock()
+    j = RenderJob(conf, db, **testjob1)
     # Check passed params
     assert j.config is conf
+    assert j.db is db
     assert j.id == testjob1["id"]
     assert j.path == testjob1["path"]
     assert j.start_frame == testjob1["start_frame"]
     assert j.end_frame == testjob1["end_frame"]
     assert j.nodes_enabled == testjob1["render_nodes"]
     # Check generated params
-    assert j.status == job.WAITING
+    assert j.status == WAITING
     assert j.time_start == 0.0
     assert j.time_stop == 0.0
     assert j.time_offset == 0.0
@@ -64,15 +66,18 @@ def test_renderjob_init_new(conf):
 def test_renderjob_init_restore(render, conf):
     """Tests restoring a job from disk."""
     conf.render_nodes = conf_render_nodes
-    j = job.RenderJob(conf, **testjob2)
+    db = mock.MagicMock()
+    j = RenderJob(conf, db, **testjob2)
     # Check passed params
     assert j.config is conf
+    assert j.db is db
     assert j.id == testjob2["id"]
     assert j.path == testjob2["path"]
     assert j.start_frame == testjob2["start_frame"]
     assert j.end_frame == testjob2["end_frame"]
     assert j.nodes_enabled == testjob2["render_nodes"]
-    assert j.status == job.RENDERING
+    # Status is reset to WAITING before render() is called
+    assert j.status == WAITING
     assert j.time_start == testjob2["time_start"]
     assert j.time_stop == testjob2["time_stop"]
     assert j.time_offset == testjob2["time_offset"]

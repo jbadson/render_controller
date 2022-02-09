@@ -5,11 +5,11 @@ import time
 from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
 from collections import OrderedDict
-from .job import RenderJob
-from .database import StateDatabase
-from .util import Config
-from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
-from .status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.job import RenderJob
+from rendercontroller.database import StateDatabase
+from rendercontroller.util import Config
+from rendercontroller.exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
+from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("controller")
 

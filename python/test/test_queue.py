@@ -5,21 +5,26 @@ from rendercontroller.controller import RenderQueue
 from rendercontroller.job import WAITING, FINISHED, RENDERING, STOPPED, FAILED
 
 
-class DummyJob(object):
-    def __init__(self, id, status):
-        self.id = id
-        self.status = status
+def job_factory(id, status):
+    """Creates mock RenderJobs with configured properties."""
+    m = mock.Mock(name="RenderJob")
+    m.id = id
+    m.status = status
+    return m
 
 
-queue_jobs = [
-    DummyJob("job1", WAITING),
-    DummyJob("job2", FINISHED),
-    DummyJob("job3", RENDERING),
-    DummyJob("job4", STOPPED),
-    DummyJob("job5", FINISHED),
-    DummyJob("job6", WAITING),
-]
-orig_keys = ["job1", "job2", "job3", "job4", "job5", "job6"]
+test_jobs = {
+    "job1": WAITING,
+    "job2": FINISHED,
+    "job3": RENDERING,
+    "job4": STOPPED,
+    "job5": FINISHED,
+    "job6": WAITING,
+}
+orig_keys = list(test_jobs.keys())
+queue_jobs = []
+for job_id, status in test_jobs.items():
+    queue_jobs.append(job_factory(job_id, status))
 
 
 @pytest.fixture(scope="function")
@@ -88,10 +93,8 @@ def test_queue_append(queue):
     for i in queue_jobs:
         queue.append(i)
     assert queue.keys() == orig_keys
-    queue.append(DummyJob("job7", RENDERING))
-    assert queue.keys() == orig_keys + [
-        "job7",
-    ]
+    queue.append(job_factory("job7", RENDERING))
+    assert queue.keys() == [*orig_keys, "job7"]
 
 
 def test_queue_pop(queue):
@@ -124,7 +127,7 @@ def test_queue_insert(queue):
     for i in queue_jobs:
         queue.append(i)
     assert queue.keys() == orig_keys
-    queue.insert(DummyJob("job7", RENDERING), 3)
+    queue.insert(job_factory("job7", RENDERING), 3)
     assert queue.keys() == ["job1", "job2", "job3", "job7", "job4", "job5", "job6"]
 
 

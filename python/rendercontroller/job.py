@@ -4,11 +4,11 @@ import os.path
 import queue
 import logging
 from typing import Type, List, Tuple, Sequence, Dict, Optional
-from .renderthread import RenderThread, BlenderRenderThread
-from .util import format_time, Config
-from .exceptions import JobStatusError, NodeNotFoundError
-from .database import StateDatabase
-from .status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.renderthread import RenderThread, BlenderRenderThread
+from rendercontroller.util import format_time, Config
+from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
+from rendercontroller.database import StateDatabase
+from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("job")
 
@@ -27,7 +27,7 @@ class RenderJob(object):
         time_start: float = 0.0,
         time_stop: float = 0.0,
         time_offset: float = 0.0,
-        frames_completed: Optional[List[int]] = None,
+        frames_completed: Sequence[int] = (),
     ):
         self.config = config
         self.db = db
@@ -42,11 +42,13 @@ class RenderJob(object):
         self.time_start = time_start
         self.time_stop = time_stop
         self.time_offset = time_offset
+
         # frames_completed cannot simply be a count because frames may fail and be reassigned
         # out of order, and we must know this in order to correctly restore a job from disk.
-        self.frames_completed = frames_completed if frames_completed else []
+        # Must also be mutable and ordered, so ensure it's a list.
+        self.frames_completed = list(frames_completed)
 
-        # LiFo queue because if a frame fails while rendering, we want to re-try it first.
+        # LiFo because we want to be able to put and re-render failed frames before moving on to others.
         self.queue = queue.LifoQueue()
         frames = list(range(self.start_frame, self.end_frame + 1))
         frames.reverse()
@@ -54,18 +56,21 @@ class RenderJob(object):
             if frame not in self.frames_completed:
                 self.queue.put(frame)
 
+        # Nodes are added to skip_list when they fail to render a frame. This temporarily disables
+        # the node to prevent the scheduler from continuously trying to assign frames to a node
+        # that is having some kind of problem.  Nodes are removed from skip_list in FILO order for
+        # each frame successfully rendered on another node, or if all nodes end up in skip_list.
         self.skip_list = []
         self.node_status = {}
         for node in config.render_nodes:
             self._set_node_status(node)
 
-        self.logger = logger.getChild(os.path.basename(self.path))
+        self.logger = logging.getLogger(os.path.basename(self.path))
         self.logger.info(
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
         )
-
-        self.master_thread = threading.Thread(target=self._thread, daemon=True)
         self._stop = False
+        self.master_thread = threading.Thread(target=self._thread, daemon=True)
 
         if self.status == RENDERING:
             # FIXME Can't decide if this should happen here, or if we should reset status and make caller re-start the render.
@@ -87,6 +92,7 @@ class RenderJob(object):
 
     def stop(self) -> None:
         """Stops the render and attempts to terminate all current render processes."""
+        self.logger.info("Stopping job.")
         self._stop = True
 
     def enable_node(self, node: str) -> None:
@@ -96,6 +102,7 @@ class RenderJob(object):
         if node in self.nodes_enabled:
             return
         self.nodes_enabled.add(node)
+        self.logger.info(f"Enabled {node} for rendering.")
         self.db.update_nodes(self.id, tuple(self.nodes_enabled))
 
     def disable_node(self, node: str) -> None:
@@ -105,6 +112,7 @@ class RenderJob(object):
         if node not in self.nodes_enabled:
             return
         self.nodes_enabled.remove(node)
+        self.logger.info(f"Disabled {node} for rendering.")
         self.db.update_nodes(self.id, tuple(self.nodes_enabled))
 
     def get_progress(self) -> float:
@@ -136,7 +144,7 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "render_nodes": tuple(self.nodes_enabled),
+            "render_nodes": sorted(tuple(self.nodes_enabled)),
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,
@@ -150,7 +158,7 @@ class RenderJob(object):
 
     def render_threads_active(self) -> bool:
         """Returns True if any RenderThreads are currently assigned, else False."""
-        for node in self.node_status.items():
+        for node in self.node_status.values():
             if node["thread"] is not None:
                 return True
         return False
@@ -167,13 +175,14 @@ class RenderJob(object):
                 "enabled": True if node in self.nodes_enabled else False,
                 "rendering": True if data["thread"] is not None else False,
             }
+        return ret
 
     def _set_node_status(
         self,
         node: str,
         frame: Optional[str] = None,
         thread: Optional[Type[RenderThread]] = None,
-        progress: int = 0.0,
+        progress: float = 0.0,
     ) -> None:
         self.node_status[node] = {
             "frame": frame,
@@ -188,16 +197,19 @@ class RenderJob(object):
             offset = self.time_stop - self.time_start
         self.time_start = time.time() - offset
         self.time_offset = 0
+        self.logger.debug(f"Started job timer: {self.time_start}")
         self.db.update_job_time_start(self.id, self.time_start)
 
     def _stop_timer(self) -> None:
         self.time_stop = time.time()
+        self.logger.debug(f"Stopped job timer: {self.time_stop}")
         self.db.update_job_time_stop(self.id, self.time_stop)
 
     def _thread(self) -> None:
         """Master thread to manage multiple RenderThreads."""
         self.logger.debug("Started master thread.")
         while not self._stop:
+            time.sleep(0.01)
             if self.queue.empty() and not self.render_threads_active():
                 logger.debug("Render finished at detector.")
                 self._stop_timer()
@@ -213,8 +225,9 @@ class RenderJob(object):
                 len(self.skip_list) == len(self.nodes_enabled)
                 and len(self.nodes_enabled) > 0
             ):
-                logger.info("All nodes are in skip list. Releasing oldest one.")
-                self._set_node_status(self.skip_list.pop(0))
+                n = self.skip_list.pop(0)
+                self._set_node_status(n)
+                logger.info(f"All nodes are in skip list. Releasing {n}.")
 
             # Iterate through nodes, check status, and assign frames
             for node in self.nodes_enabled:
@@ -238,6 +251,11 @@ class RenderJob(object):
                         self.db.update_job_frames_completed(
                             self.id, self.frames_completed
                         )
+                        # Frame successfully finished, try to remove oldest node from skip_list
+                        if len(self.skip_list) > 0:
+                            n = self.skip_list.pop(0)
+                            self._set_node_status(n)
+                            self.logger.info(f"Frame completed, releasing {n} from skip list.")
                     elif t.status == FAILED:
                         self.queue.put(t.frame)
                         self.logger.warning(f"Failed to render {t.frame} on {node}.")
@@ -245,7 +263,7 @@ class RenderJob(object):
                         self.logger.debug(f"Added {node} to skip list.")
                         self._set_node_status(node)
                     continue
-                # Node is ready to go. Get next frame and start render.
+                # Node is ready to go. Assign next frame.
                 frame = self.queue.get()
                 logger.info(f"Sending frame {frame} to {node}.")
                 # TODO Implement terragen thread?

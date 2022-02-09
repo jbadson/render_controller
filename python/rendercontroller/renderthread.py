@@ -6,7 +6,7 @@ import subprocess
 import os.path
 import re
 import shlex
-from .status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("renderthread")
 
@@ -31,8 +31,8 @@ class RenderThread(object):
         self.status = WAITING
         self.pid = None
         self.progress = 0.0
-        self.logger = logger.getChild(
-            f"{os.path.basename(self.path)}:frame {frame} on {self.node}"
+        self.logger = logging.getLogger(
+            f"{os.path.basename(self.path)} frame {frame} on {self.node}"
         )
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.time_start = 0
@@ -80,6 +80,8 @@ class BlenderRenderThread(RenderThread):
             [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
         )
         for line in iter(proc.stdout.readline, ""):
+            if self.status == FAILED:
+                break
             self.parse_line(line)
         self.time_stop = time.time()
         self.logger.debug("Worker thread exited.")

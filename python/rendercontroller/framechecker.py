@@ -37,9 +37,9 @@ class Framechecker(object):
 
     def calculate_indices(self, filename=None):
         """Attempts to determine the slice indices needed to isolate sequential
-        file numbers within a typical filename. Assuming the sequential numbers go 
-        to the end of the file base name, traverse the base name backwards looking 
-        for the first non-numerical character. Assume the adjacent number is the 
+        file numbers within a typical filename. Assuming the sequential numbers go
+        to the end of the file base name, traverse the base name backwards looking
+        for the first non-numerical character. Assume the adjacent number is the
         beginning of the sequential numbers. Returns a tuple with left and right
         indices as integers. Returns false if nothing was found.
 

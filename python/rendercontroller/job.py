@@ -1,125 +1,16 @@
 import threading
 import time
 import os.path
-import shlex
-import shutil
-import subprocess
-import re
 import queue
 import logging
 from typing import Type, List, Tuple, Sequence, Dict, Optional
+from .renderthread import RenderThread, BlenderRenderThread
 from .util import format_time, Config
-from .exceptions import JobStatusError
+from .exceptions import JobStatusError, NodeNotFoundError
 from .database import StateDatabase
+from .status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("job")
-
-# Job statuses
-WAITING = "Waiting"
-RENDERING = "Rendering"
-STOPPED = "Stopped"
-FINISHED = "Finished"
-FAILED = "Failed"
-
-
-class RenderThread(object):
-    """Base class for thread objects that handle rendering a single frame on a particular render engine.
-
-    At a minimum, subclasses must implement the worker() method and some way to set values for public
-    attributes listed below.
-
-    Attributes:
-        status = Status of render process (one of WAITING, RENDERING, FINISHED, FAILED).
-        pid = Process ID of render process on remote render node.
-        progress = Float percent progress of render for this frame.
-        time_stop = Epoch time when render finished.
-    """
-
-    def __init__(self, node: str, path: str, frame: int):
-        self.node = node
-        self.path = path
-        self.frame = frame
-        self.status = WAITING
-        self.pid = None
-        self.progress = 0.0
-        self.logger = logger.getChild(
-            f"{os.path.basename(self.path)}:frame {frame} on {self.node}"
-        )
-        self.thread = threading.Thread(target=self.worker, daemon=True)
-        self.time_start = 0
-        self.time_stop = 0
-
-    @property
-    def render_time(self) -> float:
-        """Returns time in seconds to render the frame."""
-        if self.time_stop:
-            return self.time_start - self.time_stop
-        return self.time_start - time.time()
-
-    def start(self) -> None:
-        """Spawns worker thread and starts the render."""
-        self.time_start = time.time()
-        self.thread.start()
-
-    def worker(self) -> None:
-        """Must be implemented by subclasses.
-
-        This method will be launched in a new threading.Thread. It must execute the
-        render process and populate the status, pid, progress, and time_stop attributes,
-        or delegate those tasks to other methods.
-        """
-        raise NotImplementedError
-
-
-class BlenderRenderThread(RenderThread):
-    """Handles rendering a single frame in Blender.
-
-    Only verified to work with Cycles render engine up to version 2.93.7 on Linux and MacOS.
-    """
-
-    def __init__(self, node: str, path: str, frame: int):
-        # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
-        super().__init__(node, path, frame)
-        self.regex = re.compile("Rendered ([0-9]+)/([0-9]+) Tiles")
-
-    def worker(self) -> None:
-        self.logger.debug("Started worker thread.")
-        # TODO timeout timer? (might be better to put this in master thread)
-        self.status = RENDERING
-        cmd = f"{shutil.which('blender')} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -n blender"
-        proc = subprocess.Popen(
-            [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
-        )
-        for line in iter(proc.stdout.readline, ""):
-            self.parse_line(line)
-        self.time_stop = time.time()
-        self.logger.debug("Worker thread exited.")
-
-    def parse_line(self, line: bytes) -> None:
-        line = line.decode("UTF-8")
-        if not line:  # Broken pipe
-            self.status = FAILED
-            self.logger.warning("Failed to render: broken pipe.")
-            return
-        self.logger.debug(line)
-        # Try to get progress from tiles
-        if line.startswith("Fra:"):
-            m = self.regex.search(line)
-            if m:
-                tiles, total = m.group(1), m.group(2)
-                self.progress = int(tiles) / int(total) * 100
-                return
-        # Detect PID from first return line
-        # Convoluted because Popen.pid is the local ssh process, not the remote blender process.
-        if line.strip().isdigit():
-            self.pid = int(line.strip())
-            self.logger.info(f"Detected pid={self.pid}.")
-            return
-
-        # Detect if frame has finished rendering
-        if line.startswith("Saved:"):
-            self.status = FINISHED
-            self.logger.debug("Detected frame saved.")
 
 
 class RenderJob(object):
@@ -131,7 +22,7 @@ class RenderJob(object):
         path: str,
         start_frame: int,
         end_frame: int,
-        render_nodes: List[str],
+        render_nodes: Sequence[str],
         status: str = WAITING,
         time_start: float = 0.0,
         time_stop: float = 0.0,
@@ -144,7 +35,7 @@ class RenderJob(object):
         self.path = path
         self.start_frame = start_frame
         self.end_frame = end_frame
-        self.nodes_enabled = render_nodes
+        self.nodes_enabled = set(render_nodes)
         self.status = status
         self.time_start = time_start
         self.time_stop = time_stop
@@ -198,17 +89,21 @@ class RenderJob(object):
 
     def enable_node(self, node: str) -> None:
         """Enables a node for rendering on this job."""
+        if node not in self.config.render_nodes:
+            raise NodeNotFoundError(f"'{node}' is not in list of known render nodes")
         if node in self.nodes_enabled:
             return
-        self.nodes_enabled.append(node)
-        self.db.update_nodes(self.id, self.nodes_enabled)
+        self.nodes_enabled.add(node)
+        self.db.update_nodes(self.id, tuple(self.nodes_enabled))
 
     def disable_node(self, node: str) -> None:
         """Disables a node for rendering on this job."""
+        if node not in self.config.render_nodes:
+            raise NodeNotFoundError(f"'{node}' is not in list of known render nodes")
         if node not in self.nodes_enabled:
             return
         self.nodes_enabled.remove(node)
-        self.db.update_nodes(self.id, self.nodes_enabled)
+        self.db.update_nodes(self.id, tuple(self.nodes_enabled))
 
     def get_progress(self) -> float:
         """Returns percent complete."""
@@ -240,7 +135,7 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "render_nodes": self.nodes_enabled,
+            "render_nodes": tuple(self.nodes_enabled),
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,
@@ -271,7 +166,6 @@ class RenderJob(object):
                 "enabled": True if node in self.nodes_enabled else False,
                 "rendering": True if data["thread"] is not None else False,
             }
-
 
     def _set_node_status(
         self,
@@ -339,7 +233,9 @@ class RenderJob(object):
                         )
                         self.frames_completed.append(t.frame)
                         self._set_node_status(node)
-                        self.db.update_job_frames_completed(self.id, self.frames_completed)
+                        self.db.update_job_frames_completed(
+                            self.id, self.frames_completed
+                        )
                     elif t.status == FAILED:
                         self.queue.put(t.frame)
                         self.logger.warning(f"Failed to render {t.frame} on {node}.")

@@ -56,6 +56,7 @@ def test_queue_str(queue):
     # Just make sure it returns a string without blowing up.
     assert str(queue).startswith("RenderQueue(")
 
+
 def test_queue_getitem(queue):
     assert queue[0] is queue_jobs[0]
     assert queue[3] is queue_jobs[3]

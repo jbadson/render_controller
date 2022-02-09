@@ -1,7 +1,7 @@
-
 import time
 import sqlite3
 from typing import Type, List, Tuple, Sequence, Dict, Optional
+
 
 class StateDatabase(object):
     """Interface for SQLite Database to store server state."""
@@ -22,7 +22,7 @@ class StateDatabase(object):
             "time_stop REAL",
             "frames_completed BLOB",
             "queue_position INTEGER",
-            "timestamp FLOAT"
+            "timestamp FLOAT",
         ]
         self.execute(f"CREATE TABLE IF NOT EXISTS jobs ({', '.join(jobs_schema)})")
 
@@ -49,16 +49,21 @@ class StateDatabase(object):
         )
 
     def update_job_status(self, id: str, status: str) -> None:
-        self.execute(f"UPDATE jobs SET status='{status}', timestamp={time.time()} WHERE id='{id}'", commit=True)
+        self.execute(
+            f"UPDATE jobs SET status='{status}', timestamp={time.time()} WHERE id='{id}'",
+            commit=True,
+        )
 
     def update_job_time_start(self, id: str, time_start: float) -> None:
         self.execute(
-            f"UPDATE jobs SET time_start={time_start}, timestamp={time.time()} WHERE id='{id}'", commit=True
+            f"UPDATE jobs SET time_start={time_start}, timestamp={time.time()} WHERE id='{id}'",
+            commit=True,
         )
 
     def update_job_time_stop(self, id: str, time_stop: float) -> None:
         self.execute(
-            f"UPDATE jobs SET time_stop={time_stop}, timestamp={time.time()} WHERE id='{id}'", commit=True
+            f"UPDATE jobs SET time_stop={time_stop}, timestamp={time.time()} WHERE id='{id}'",
+            commit=True,
         )
 
     def update_job_frames_completed(self, id: str, frames_completed: List[int]) -> None:

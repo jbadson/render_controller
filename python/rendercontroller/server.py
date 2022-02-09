@@ -382,9 +382,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             logger.exception("New job request missing required data")
             return self.send_error(HTTPStatus.BAD_REQUEST, "Missing required data")
         try:
-            job_id = self.controller.new_job(
-                path, start, end, nodes
-            )
+            job_id = self.controller.new_job(path, start, end, nodes)
         except Exception as e:
             logger.exception("Error while creating job")
             error = str(e)

@@ -3,12 +3,13 @@ import tempfile
 import os.path
 import sqlite3
 from unittest import mock
+from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 from rendercontroller.controller import StateDatabase
 
 db_testjob1 = {
     "id": "job01",
-    "status": "Rendering",
+    "status": RENDERING,
     "path": "/tmp/job1",
     "start_frame": 0,
     "end_frame": 100,
@@ -21,7 +22,7 @@ db_testjob1 = {
 
 db_testjob2 = {
     "id": "job02",
-    "status": "Waiting",
+    "status": WAITING,
     "path": "/tmp/job2",
     "start_frame": 0,
     "end_frame": 25,
@@ -92,10 +93,10 @@ def test_database_update_job_status(db):
     assert db.get_job("job01")["status"] == db_testjob1["status"]
     assert db.get_job("job02")["status"] == db_testjob2["status"]
     ts_pre = db.get_job("job01")["timestamp"]
-    db.update_job_status("job01", "Stopped")
-    assert db.get_job("job01")["status"] == "Stopped"
+    db.update_job_status("job01", STOPPED)
+    assert db.get_job("job01")["status"] == STOPPED
     # Make sure no changes were made to other job
-    assert db.get_job("job02")["status"] == "Waiting"
+    assert db.get_job("job02")["status"] == WAITING
     # Make sure timestamp was updated
     assert db.get_job("job01")["timestamp"] > ts_pre
 
@@ -125,19 +126,13 @@ def test_database_update_time_stop(db):
 
 
 def test_database_update_job_frames_completed(db):
-    assert (
-        db.get_job("job01")["frames_completed"] == db_testjob1["frames_completed"]
-    )
-    assert (
-        db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
-    )
+    assert db.get_job("job01")["frames_completed"] == db_testjob1["frames_completed"]
+    assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
     ts_pre = db.get_job("job01")["timestamp"]
     db.update_job_frames_completed("job01", [7, 8, 9, 10])
     assert db.get_job("job01")["frames_completed"] == [7, 8, 9, 10]
     # Make sure no changes were made to other job
-    assert (
-        db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
-    )
+    assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
     # Make sure timestamp was updated
     assert db.get_job("job01")["timestamp"] > ts_pre
 

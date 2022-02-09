@@ -5,7 +5,7 @@ from unittest import mock
 
 import rendercontroller.oldjob
 from rendercontroller.controller import RenderController, RenderQueue, RenderJob
-from rendercontroller.job import WAITING, RENDERING, STOPPED, FAILED, FINISHED
+from rendercontroller.status import WAITING, RENDERING, STOPPED, FAILED, FINISHED
 from rendercontroller.exceptions import (
     JobNotFoundError,
     JobStatusError,
@@ -65,6 +65,7 @@ def rc_empty(conf, db):
     conf.render_nodes = test_nodes
     return RenderController(conf)
 
+
 @pytest.fixture(scope="function")
 @mock.patch("rendercontroller.controller.RenderJob")
 @mock.patch("rendercontroller.controller.uuid4")
@@ -79,7 +80,11 @@ def rc_with_mocked_job(uuid, job, rc_empty):
 
 @pytest.fixture(scope="function")
 def rc_with_three_jobs(rc_empty):
-    testjobs = [(testjob01, "testjob01", FINISHED), (testjob02, "testjob02", WAITING), (testjob03, "testjob03", STOPPED)]
+    testjobs = [
+        (testjob01, "testjob01", FINISHED),
+        (testjob02, "testjob02", WAITING),
+        (testjob03, "testjob03", STOPPED),
+    ]
     rq = RenderQueue()
     for j in testjobs:
         params, job_id, status = j
@@ -96,12 +101,13 @@ def rc_with_three_jobs(rc_empty):
 @mock.patch("rendercontroller.controller.RenderQueue")
 @mock.patch("rendercontroller.util.Config")
 def test_controller_init(conf, queue, db):
+    conf.work_dir = "/tmp"
     queue.assert_not_called()
     db.assert_not_called()
     rc = RenderController(conf)
     assert rc.config is conf
     queue.assert_called_once()
-    db.assert_called_once()
+    db.assert_called_with("/tmp/rcontroller.sqlite")
     assert rc.task_thread.running()
 
 
@@ -131,6 +137,7 @@ def test_controller_new_job(uuid, job, rc_empty):
     job_id = "testuuid01"
     uuid.return_value.hex = job_id
     job.return_value.id = job_id
+    job.return_value.status = WAITING
     # Make sure job is not already present
     with pytest.raises(KeyError):
         rc_empty.queue.get_by_id(job_id)
@@ -148,6 +155,18 @@ def test_controller_new_job(uuid, job, rc_empty):
     assert res == job_id
     assert rc_empty.queue.get_by_id(job_id) is job.return_value
     rc_empty.db.insert_job.assert_called_once()
+    rc_empty.db.insert_job.assert_called_with(
+        job_id,
+        WAITING,
+        testjob01["path"],
+        testjob01["start_frame"],
+        testjob01["end_frame"],
+        testjob01["render_nodes"],
+        0.0,
+        0.0,
+        [],
+        0,
+    )
 
 
 def test_controller_start(rc_with_mocked_job):
@@ -163,7 +182,11 @@ def test_controller_start(rc_with_mocked_job):
 
 
 def test_controller_start_next(rc_with_three_jobs):
-    testjobs = [(testjob01, "testjob01", FINISHED), (testjob02, "testjob02", WAITING), (testjob03, "testjob03", STOPPED)]
+    testjobs = [
+        (testjob01, "testjob01", FINISHED),
+        (testjob02, "testjob02", WAITING),
+        (testjob03, "testjob03", STOPPED),
+    ]
     assert len(rc_with_three_jobs.queue) == 3
     for i in range(len(testjobs)):
         assert rc_with_three_jobs.queue[i].id == testjobs[i][1]
@@ -185,7 +208,9 @@ def test_controller_stop(rc_with_mocked_job):
 
 
 def test_controller_enqueue():
-    raise NotImplementedError("Ignore for now, will probably eliminate enqueue() method.")
+    raise NotImplementedError(
+        "Ignore for now, will probably eliminate enqueue() method."
+    )
 
 
 def test_controller_delete(rc_with_three_jobs):
@@ -195,7 +220,7 @@ def test_controller_delete(rc_with_three_jobs):
     rc_with_three_jobs.delete("testjob03")
     assert len(rc_with_three_jobs.queue) == 2
     assert "testjob03" not in rc_with_three_jobs.queue
-    rc_with_three_jobs.db.delete_job.assert_called_once()
+    rc_with_three_jobs.db.delete_job.assert_called_with("testjob03")
     # Make sure it won't delete a job while rendering
     rc_with_three_jobs.queue.get_by_id("testjob01").status = RENDERING
     with pytest.raises(JobStatusError):

@@ -9,7 +9,7 @@ from .job import RenderJob
 from .database import StateDatabase
 from .util import Config
 from .exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
-from .job import RENDERING, WAITING, STOPPED, FINISHED, FAILED
+from .status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("controller")
 
@@ -18,8 +18,8 @@ class RenderQueue(object):
     """
     Ordered iterable that represents a queue of render jobs.
 
-    Extends behavior of OrderedDict to allow accessing elements by both index and key, plus some
-    higher level methods specific to render jobs.
+    This is something like a hybrid of a list and an OrderedDict, which allows accessing
+    elements both by index and key and adds some higher level methods specific to render jobs.
     """
 
     def __init__(self):
@@ -135,8 +135,8 @@ class RenderController(object):
         # rewrite all the terrible stuff in RenderServer.
         self.config = config
         # Inject dependency until job module is rewritten or replaced
-        #job.CONFIG = config
-        #self.server = job.RenderServer()
+        # job.CONFIG = config
+        # self.server = job.RenderServer()
         # New Stuff Here
         self.queue = RenderQueue()
         self.db = StateDatabase(
@@ -201,7 +201,18 @@ class RenderController(object):
         self.queue.append(job)
         # Note: Database insertion, deletion and queue changes are performed by this class.
         # DB updates are delegated to RenderJob instances.
-        self.db.insert_job(job.id, job.status, path, start_frame, end_frame, render_nodes, 0.0, 0.0, [], self.queue.get_position(job.id))
+        self.db.insert_job(
+            job.id,
+            job.status,
+            path,
+            start_frame,
+            end_frame,
+            render_nodes,
+            0.0,
+            0.0,
+            [],
+            self.queue.get_position(job.id),
+        )
         return job.id
 
     def start(self, job_id: str) -> None:
@@ -237,7 +248,7 @@ class RenderController(object):
 
     def enqueue(self, job_id: str) -> None:
         """Places a stopped job back in the render queue."""
-        #FIXME is this necessary?  Re-evaluate logic of WAITING vs STOPPED
+        # FIXME is this necessary?  Re-evaluate logic of WAITING vs STOPPED
         pass
         """
         try:
@@ -269,6 +280,7 @@ class RenderController(object):
         :param str node: Name of render node.
         """
         logger.debug("Enable %s for %s" % (node, job_id))
+        #FIXME redundant - RenderJob also checks that node is in render_nodes -- also disable_node
         if node not in self.render_nodes:
             raise NodeNotFoundError("Node '%s' not found" % node)
         try:

@@ -1,5 +1,6 @@
 from typing import Dict, Any
 
+
 def format_time(time):
     """Converts time in decimal seconds to human-friendly strings.
     format is ddhhmmss.s"""

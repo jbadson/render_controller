@@ -5,7 +5,7 @@ from rendercontroller.status import WAITING, RENDERING, FINISHED, STOPPED, FAILE
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 
 
-testjob1 = {  # Minimum set of kwargs
+testjob1 = {  # Minimum set of kwargs. Mimics creating new job.
     "id": "job01",
     "path": "/tmp/job1",
     "start_frame": 0,
@@ -74,6 +74,9 @@ def test_job_init_new(conf):
         "node4": {"frame": None, "thread": None, "progress": 0.0},
     }
     assert j.node_status == node_status_expected
+    # Test start frame > end frame
+    with pytest.raises(ValueError):
+        j = RenderJob(conf, db, "failjob", "/tmp/failjob", 10, 5, conf_render_nodes)
 
 
 @mock.patch("rendercontroller.controller.Config")
@@ -142,7 +145,7 @@ def test_job_stop(job1):
     assert job1._stop is True
 
 
-def test_enable_node(job1):
+def test_job_enable_node(job1):
     # Should throw exception if node not in Config.render_nodes
     with pytest.raises(NodeNotFoundError):
         job1.enable_node("fakenode")
@@ -162,7 +165,7 @@ def test_enable_node(job1):
     job1.db.update_nodes.assert_not_called()
 
 
-def test_disable_node(job1):
+def test_job_disable_node(job1):
     # Should throw exception if node not in Config.render_nodes
     with pytest.raises(NodeNotFoundError):
         job1.disable_node("fakenode")
@@ -172,7 +175,9 @@ def test_disable_node(job1):
     job1.disable_node(newnode)
     assert newnode not in job1.nodes_enabled
     assert len(job1.nodes_enabled) == 1
-    nodes_expected = {"node2", }
+    nodes_expected = {
+        "node2",
+    }
     job1.db.update_nodes.assert_called_with(testjob1["id"], tuple(nodes_expected))
     job1.db.update_nodes.reset_mock()
     # Should quietly do nothing if node is already disabled
@@ -180,3 +185,53 @@ def test_disable_node(job1):
     assert newnode not in job1.nodes_enabled
     assert job1.nodes_enabled == nodes_expected
     job1.db.update_nodes.assert_not_called()
+
+
+def test_job_get_progress(job1):
+    assert job1.status == WAITING
+    assert job1.frames_completed == []
+    assert job1.get_progress() == 0.0
+    job1.frames_completed = list(range(25))
+    assert job1.get_progress() == pytest.approx(24.75, rel=1e-3)
+    job1.frames_completed = list(range(75))
+    assert job1.get_progress() == pytest.approx(74.26, rel=1e-3)
+    job1.frames_completed = list(range(job1.start_frame, job1.end_frame + 1))
+    assert job1.get_progress() == 100.0
+    # Make sure we don't divide by zero if start_frame == end_frame
+    job1.end_frame = 0
+    assert job1.start_frame == job1.end_frame
+    job1.frames_completed = []
+    assert job1.get_progress() == 0.0
+
+
+def test_job_get_times():
+    pass
+
+
+def test_job_dump():
+    pass
+
+
+def test_job_render_threads_active():
+    pass
+
+
+def test_job_get_node_status():
+    pass
+
+
+def test_job_set_node_status():
+    pass
+
+
+def test_job_start_timer():
+    pass
+
+
+def test_job_stop_timer():
+    pass
+
+
+def test_job_thread():
+    # May need to split thread functionality up into more methods to make testing not a total mess
+    pass

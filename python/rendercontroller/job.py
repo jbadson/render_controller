@@ -33,6 +33,8 @@ class RenderJob(object):
         self.db = db
         self.id = id
         self.path = path
+        if start_frame > end_frame:
+            raise ValueError("End frame cannot be less than start frame.")
         self.start_frame = start_frame
         self.end_frame = end_frame
         self.nodes_enabled = set(render_nodes)
@@ -107,10 +109,9 @@ class RenderJob(object):
 
     def get_progress(self) -> float:
         """Returns percent complete."""
-        if self.status == RENDERING and self.start_frame >= self.end_frame:
-            # Do not divide by zero
-            return 0.0
-        return len(self.frames_completed) / (self.end_frame - self.start_frame) * 100
+        return (
+            len(self.frames_completed) / (self.end_frame - self.start_frame + 1) * 100
+        )
 
     def get_times(self) -> Tuple[float, float, float]:
         """Returns tuple of (elapsed_time, avg_time_per_frame, est_time_remaining) in seconds."""
@@ -217,6 +218,7 @@ class RenderJob(object):
 
             # Iterate through nodes, check status, and assign frames
             for node in self.nodes_enabled:
+                time.sleep(0.01)
                 if self.queue.empty():
                     # If queue empties during iteration, return to outer loop and wait for completion.
                     break

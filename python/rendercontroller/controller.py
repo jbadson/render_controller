@@ -280,7 +280,7 @@ class RenderController(object):
         :param str node: Name of render node.
         """
         logger.debug("Enable %s for %s" % (node, job_id))
-        #FIXME redundant - RenderJob also checks that node is in render_nodes -- also disable_node
+        # FIXME redundant - RenderJob also checks that node is in render_nodes -- also disable_node
         if node not in self.render_nodes:
             raise NodeNotFoundError("Node '%s' not found" % node)
         try:

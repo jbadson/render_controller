@@ -10,7 +10,6 @@ from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 from rendercontroller.database import StateDatabase
 from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
-logger = logging.getLogger("job")
 
 
 class RenderJob(object):
@@ -42,10 +41,12 @@ class RenderJob(object):
         self.time_start = time_start
         self.time_stop = time_stop
         self.time_offset = time_offset
+        self._stop = False
 
         # frames_completed cannot simply be a count because frames may fail and be reassigned
         # out of order, and we must know this in order to correctly restore a job from disk.
         # Must also be mutable and ordered, so ensure it's a list.
+        # FIXME why does it have to be ordered?
         self.frames_completed = list(frames_completed)
 
         # LiFo because we want to be able to put and re-render failed frames before moving on to others.
@@ -65,13 +66,11 @@ class RenderJob(object):
         for node in config.render_nodes:
             self._set_node_status(node)
 
-        self.logger = logging.getLogger(os.path.basename(self.path))
+        self.logger = logging.getLogger(f"RenderJob: {os.path.basename(self.path)}")
         self.logger.info(
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
         )
-        self._stop = False
-        self.master_thread = threading.Thread(target=self._mainloop, daemon=True)
-
+        self._reset_render_state()
         if self.status == RENDERING:
             # FIXME Can't decide if this should happen here, or if we should reset status and make caller re-start the render.
             self.set_status(WAITING)
@@ -86,14 +85,39 @@ class RenderJob(object):
         """Starts the render."""
         if self.status == RENDERING:
             raise JobStatusError("Job is already rendering.")
+        if self.time_start or self.time_stop:
+            # Resuming a render
+            self.logger.debug("Resetting render state.")
+            self._reset_render_state()
         self.set_status(RENDERING)
         self._start_timer()
         self.master_thread.start()
 
     def stop(self) -> None:
-        """Stops the render and attempts to terminate all current render processes."""
+        """Stops the render and attempts to terminate all active render processes."""
         self.logger.info("Stopping job.")
         self._stop = True
+        # Ensure all rendering frames are put back in queue.  Do not leave this to
+        # _mainloop because there is a chance frames could be missed depending on
+        # where in the two iterations the _stop flag is detected.
+        for node in self.node_status:
+            thread = self.node_status[node]["thread"]
+            if thread:
+                # Don't care what thread.status is because the existence of thread implies
+                # completion hasn't been detected in _mainloop even if thread is finished.
+                # If all else fails, it's better to re-render a frame than to skip one.
+                thread.stop()
+                self.queue.put(thread.frame)
+        if self.master_thread and self.master_thread.is_alive():
+            self.logger.debug(f"Waiting for master thread to exit.")
+            self.master_thread.join()
+        self._stop_timer()
+        self.set_status(STOPPED)
+        elapsed, avg, rem = self.get_times()
+        self.logger.info(
+            f"Stopped render after {format_time(elapsed)}. Avg time per frame: {format_time(avg)}. "
+            + "It may take a few moments for all render processes to terminate."
+        )
 
     def enable_node(self, node: str) -> None:
         """Enables a node for rendering on this job."""
@@ -122,7 +146,11 @@ class RenderJob(object):
         )
 
     def get_times(self) -> Tuple[float, float, float]:
-        """Returns tuple of (elapsed_time, avg_time_per_frame, est_time_remaining) in seconds."""
+        """Returns tuple of (elapsed_time, avg_time_per_frame, est_time_remaining) in seconds.
+
+        If job is rendering but no frames have yet finished, avg_time_per_frame and est_time_remaining
+        will both be 0.0. This is obviously not accurate, but less messy than dealing with infinities
+        or multiple return types."""
         if not self.time_start:
             return 0.0, 0.0, 0.0
         if self.time_stop:
@@ -133,7 +161,7 @@ class RenderJob(object):
             avg = elapsed / len(self.frames_completed)
         else:
             avg = 0.0
-        rem = ((self.end_frame - self.start_frame) - len(self.frames_completed)) * avg
+        rem = ((self.end_frame - self.start_frame + 1) - len(self.frames_completed)) * avg
         return elapsed, avg, rem
 
     def dump(self) -> Dict:
@@ -177,6 +205,13 @@ class RenderJob(object):
             }
         return ret
 
+    def _reset_render_state(self) -> None:
+        """Resets internal state in preparation for rendering."""
+        self._stop = False
+        self.master_thread = threading.Thread(target=self._mainloop, daemon=True)
+        for node in self.config.render_nodes:
+            self._set_node_status(node)
+
     def _set_node_status(
         self,
         node: str,
@@ -191,11 +226,22 @@ class RenderJob(object):
         }
 
     def _start_timer(self) -> None:
-        offset = self.time_offset  # Used when restoring job from disk
+        """Starts the render timer."""
+        # self.time_offset is used when restoring a job from disk that was actively rendering when
+        # the server shut down.  It represents the elapsed render time before the server was shut
+        # down, and is used to correct the new start_time so that subsequent calculations do not
+        # include the time while the server was offline.
+        if not self.time_start:
+            # Render has never been started, so server downtime is irrelevant.
+            self.time_offset = 0.0
         if self.time_start and self.time_stop:
-            # If render was previously stopped, we don't care how long it's been.
-            offset = self.time_stop - self.time_start
-        self.time_start = time.time() - offset
+            # Job was stopped or finished. Server downtime is irrelevant but, we must still
+            # account for the render time that has already elapsed.
+            #FIXME this works when restoring a job, but not when restarting a stopped job.
+            # In that case, offset should be time.time() - self.stop_time
+            self.time_offset = self.time_stop - self.time_start
+            self.time_stop = 0.0
+        self.time_start = time.time() - self.time_offset
         self.time_offset = 0.0
         self.logger.debug(f"Started job timer: {self.time_start}")
         self.db.update_job_time_start(self.id, self.time_start)
@@ -236,7 +282,7 @@ class RenderJob(object):
             return
         node = self.skip_list.pop(0)
         self._set_node_status(node)
-        logger.debug(f"Released {node} from skip list.")
+        self.logger.debug(f"Released {node} from skip list.")
 
     def _mainloop(self) -> None:
         """Master thread to manage multiple RenderThreads."""
@@ -248,13 +294,14 @@ class RenderJob(object):
                 break
 
             if len(self.skip_list) >= len(self.nodes_enabled):
-                logger.debug(f"All nodes are in skip list. Releasing oldest one.")
+                self.logger.debug(f"All nodes are in skip list. Releasing oldest one.")
                 self._pop_skipped_node()
 
             # Iterate through nodes, assign frames, and check status
             for node in self.nodes_enabled:
                 time.sleep(0.01)
                 if self._stop:
+                    # Cleanup is handled by the stop() method.
                     break
                 if node in self.skip_list:
                     continue
@@ -270,10 +317,10 @@ class RenderJob(object):
                 # Node is idle, assign next frame.
                 if not self.queue.empty():
                     frame = self.queue.get()
-                    logger.info(f"Sending frame {frame} to {node}.")
+                    self.logger.info(f"Sending frame {frame} to {node}.")
                     # TODO Implement terragen thread?
-                    t = BlenderRenderThread(node, self.path, frame)
+                    t = BlenderRenderThread(self.config, node, self.path, frame)
                     self._set_node_status(node, frame, t)
                     t.start()
 
-        logger.debug("Master thread exited.")
+        self.logger.debug("Master thread exited.")

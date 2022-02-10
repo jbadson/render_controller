@@ -145,6 +145,10 @@ class RenderController(object):
         self.db.initialize()
         self.task_thread = TaskThread(self)
         self.task_thread.start()
+        # Try to restore jobs from database
+        jobs = self.db.get_all_jobs()
+        if jobs:
+            self.restore_jobs(jobs)
 
     @property
     def render_nodes(self) -> Sequence[str]:
@@ -159,9 +163,10 @@ class RenderController(object):
     @property
     def idle(self) -> bool:
         """Returns True if no jobs are currently rendering."""
-        if self.queue.count_status(RENDERING) == 0:
-            return True
-        return False
+        for job in self.queue.values():
+            if job.status == RENDERING:
+                return False
+        return True
 
     def enable_autostart(self) -> None:
         """Enable automatic rendering jobs in the render queue."""
@@ -172,6 +177,25 @@ class RenderController(object):
         """Disable automatic rendering of jobs in the render queue."""
         self.config.autostart = False
         logger.info("Disabled autostart")
+
+    def restore_jobs(self, jobs: List[Dict]):
+        for j in jobs:
+            logger.info(f"Restoring job {j['id']} from disk.")
+            job = RenderJob(
+                config=self.config,
+                db=self.db,
+                id=j["id"],
+                path=j["path"],
+                start_frame=j["start_frame"],
+                end_frame=j["end_frame"],
+                render_nodes=j["render_nodes"],
+                status=j["status"],
+                time_start=j["time_start"],
+                time_stop=j["time_stop"],
+                time_offset=time.time() - j["time_start"],
+                frames_completed=j["frames_completed"],
+            )
+            self.queue.append(job)
 
     def new_job(
         self,
@@ -186,7 +210,7 @@ class RenderController(object):
         :param str path: Path to project file.
         :param int start_frame: Start frame number.
         :param int end_frame: End frame number.
-        :param list nodes: List of render nodes to enable for this job.
+        :param list render_nodes: List of render nodes to enable for this job.
         :return str: ID of newly created job.
         """
         job = RenderJob(
@@ -245,18 +269,6 @@ class RenderController(object):
         except KeyError:
             logger.exception("Failed to stop '%s': KeyError" % job_id)
             raise JobNotFoundError("Job '%s' not found" % job_id)
-
-    def enqueue(self, job_id: str) -> None:
-        """Places a stopped job back in the render queue."""
-        # FIXME is this necessary?  Re-evaluate logic of WAITING vs STOPPED
-        pass
-        """
-        try:
-            self.server.resume_render(job_id, startnow=False)
-        except KeyError:
-            logger.exception("Failed to resume '%s': KeyError" % job_id)
-            raise JobNotFoundError("Job '%s' not found" % job_id)
-            """
 
     def delete(self, job_id: str) -> None:
         """Deletes a render job.  Job must not be rendering."""
@@ -322,12 +334,9 @@ class RenderController(object):
         """Prepares controller for clean shutdown."""
         logger.debug("Shutting down controller")
         for job in self.queue.values():
-            job.stop()
+            if job.status == RENDERING:
+                job.stop()
         self.task_thread.shutdown()
-        self.save_state()
-
-    def save_state(self) -> None:
-        raise NotImplementedError
 
 
 class TaskThread(object):
@@ -353,11 +362,7 @@ class TaskThread(object):
     def mainloop(self) -> None:
         logger.debug("Starting task thread.")
         while not self.stop:
-            # Check for pending actions every 10 sec, but subdivide the loop to prevent shutdown delays
-            for i in range(20):
-                time.sleep(0.5)
-                if self.stop:
-                    break
+            time.sleep(1)
             if self.controller.autostart:
                 if self.controller.idle:
                     self.controller.start_next()

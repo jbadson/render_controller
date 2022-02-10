@@ -207,12 +207,6 @@ def test_controller_stop(rc_with_mocked_job):
         rc.stop("badkey")
 
 
-def test_controller_enqueue():
-    raise NotImplementedError(
-        "Ignore for now, will probably eliminate enqueue() method."
-    )
-
-
 def test_controller_delete(rc_with_three_jobs):
     assert len(rc_with_three_jobs.queue) == 3
     assert "testjob03" in rc_with_three_jobs.queue

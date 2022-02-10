@@ -268,10 +268,10 @@ def test_job_get_times(job1):
     # Case 2b: Job rendered some frames before it was stopped.
     job1.frames_completed = [i for i in range(25)]
     elapsed, avg, rem = job1.get_times()
-    # 100 seconds to render 25 frames => 4 sec/frame and 300s remaining
+    # 100 seconds to render 25 frames => 4 sec/frame and 304s remaining
     assert elapsed == 100.0
     assert avg == 4.0
-    assert rem == 300.0
+    assert rem == 304.0
 
     # Case 3: Job currently rendering (time_start has been set, time_stop has not)
     job1.time_stop = 0.0

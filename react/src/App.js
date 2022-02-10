@@ -23,6 +23,7 @@ class App extends Component {
     this.toggleSettings = this.toggleSettings.bind(this);
     this.toggleAutostart = this.toggleAutostart.bind(this);
     this.deselectJob = this.deselectJob.bind(this);
+    this.clearFinishedJobs = this.clearFinishedJobs.bind(this);
   }
 
   selectJob(jobId) {
@@ -152,15 +153,55 @@ class App extends Component {
     }
   }
 
+  reloadPage() {
+    window.location.reload();
+  }
+
+  /**
+  * For critical errors. Show a pane with formatted error messages.
+  */
+  handleError(error) {
+    if (error.message === "Network Error") {
+      return (
+        <div>
+          <p className="error-msg">RenderController Web UI unable to connect to server</p>
+          <p className="error-txt">There may be a problem with the server or network connectivity.</p>
+          <p className="error-txt"><button className="button-left" onClick={this.reloadPage}>Retry</button></p>
+        </div>
+      )
+    } else {
+      return (
+        <div>
+          <p className="error-msg">RenderController Web UI Error</p>
+          <p className="error-txt">Error message: {error.message}</p>
+        </div>
+      )
+    }
+  }
+
+  clearFinishedJobs() {
+    const { serverJobs } = this.state;
+    serverJobs.forEach(job => {
+      if (job.status === "Finished") {
+        axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + job.id)
+          .then(
+            (result) => {console.log(result)},
+            (error) => {console.error(error.message)}
+          );
+      }
+    })
+  }
+
   render() {
     const { serverJobs, selectedJob, showSettings, error } = this.state;
     if (error) {
-      return <p>Error: {error.message}</p>
+      return this.handleError(error);
     }
     return (
       <ul>
         <li className="layout-row">
           <button className="button-left" onClick={this.toggleInputPane}>New</button>
+          <button className="button-left" onClick={this.clearFinishedJobs}>Clear Finished</button>
           <div className="right">
             <button className="button-left" disabled={showSettings} onClick={this.toggleSettings}>Settings</button>
             {this.renderSettingsWidget()}

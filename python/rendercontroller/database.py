@@ -96,7 +96,7 @@ class StateDatabase(object):
             "render_nodes": row[5].split(","),
             "time_start": row[6],
             "time_stop": row[7],
-            "frames_completed": [int(i) for i in row[8].split(",")],
+            "frames_completed": [int(i) for i in row[8].split(",")] if row[8] else [],
             "queue_position": row[9],
             "timestamp": row[10],
         }
@@ -107,9 +107,9 @@ class StateDatabase(object):
             raise KeyError("Multiple jobs found with same id.")
         return self._parse_job_row(job[0])
 
-    def get_all_jobs(self) -> List:
-        # FIXME Ordering is based on insertion order, NOT queue position.
-        jobs = self.execute("SELECT * FROM jobs")
+    def get_all_jobs(self) -> List[Dict]:
+        """Returns a list of all job records ordered by queue position (ascending)."""
+        jobs = self.execute("SELECT * FROM jobs ORDER BY queue_position ASC")
         ret = []
         for j in jobs:
             ret.append(self._parse_job_row(j))

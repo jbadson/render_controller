@@ -13,51 +13,18 @@ import urllib.parse
 from typing import Sequence, Optional, Dict, List, Any, Callable, Type
 from rendercontroller.controller import RenderController
 from rendercontroller.exceptions import JobNotFoundError, NodeNotFoundError
-from rendercontroller.util import Config
+from rendercontroller.util import Config, list_dir
 
 CONFIG_FILE_PATH = "/etc/rendercontroller.conf"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 LOG_LEVELS = {
-    "everything": 0,
     "debug": logging.DEBUG,
     "info": logging.INFO,
     "warning": logging.WARNING,
 }
 
 logger = logging.getLogger("server")
-
-
-def get_file_type(entry: os.DirEntry) -> str:
-    if entry.is_dir():
-        return "d"
-    elif entry.is_file():
-        return "f"
-    elif entry.is_symlink():
-        return "l"
-    else:
-        return ""
-
-
-def list_dir(directory: str) -> List[Dict[str, Any]]:
-    """
-    Presents the output of os.scandir() as something JSON-serializable.
-    """
-    contents = []
-    for i in os.scandir(directory):
-        contents.append(
-            {
-                "name": i.name,
-                "path": i.path,
-                "type": get_file_type(i),
-                "size": i.stat().st_size,
-                "atime": i.stat().st_atime,
-                "mtime": i.stat().st_mtime,
-                "ctime": i.stat().st_ctime,
-                "ext": os.path.splitext(i.name)[1],
-            }
-        )
-    return contents
 
 
 class ParsedPath(object):
@@ -126,12 +93,11 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     get_endpoints = {"job", "node", "config"}
     post_endpoints = {"job", "node", "storage", "config"}
     job_handlers = {
+        "new": "new_job",
         "info": "job_data",
         "start": "start_job",
         "stop": "stop_job",
-        "enqueue": "enqueue_job",
         "delete": "delete_job",
-        "new": "new_job",
     }
     node_handlers = {
         "list": "list_nodes",
@@ -342,18 +308,6 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         # We can restore the old functionality if requested.
         try:
             self.controller.stop(self.parsed_path.target, True)
-        except JobNotFoundError:
-            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
-        self.send_all_headers()
-
-    def enqueue_job(self):
-        """Places a stopped job back in the render queue."""
-        if not self.parsed_path.target:
-            logger.warning("Job ID not specified in '%s'" % self.parsed_path)
-            self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
-            return
-        try:
-            self.controller.enqueue(self.parsed_path.target)
         except JobNotFoundError:
             return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         self.send_all_headers()

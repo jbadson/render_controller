@@ -211,7 +211,7 @@ class JobStatusPane extends Component {
                 <li className="layout-row">
                     <button
                       className="sm-button"
-                      disabled={data.status === 'Waiting' ? false : true}
+                      disabled={(data.status === 'Waiting' || data.status === 'Stopped') ? false : true}
                       onClick={this.startJob}>
                         Start
                     </button>
@@ -220,12 +220,6 @@ class JobStatusPane extends Component {
                       disabled={data.status === 'Rendering' ? false : true}
                       onClick={this.stopJob}>
                         Stop
-                    </button>
-                    <button
-                      className="sm-button"
-                      disabled={data.status === 'Stopped' ? false : true}
-                      onClick={this.enqueueJob}>
-                        Enqueue
                     </button>
                     <button
                       className="sm-button"

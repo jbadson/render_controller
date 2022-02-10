@@ -6,16 +6,17 @@ import subprocess
 import os.path
 import re
 import shlex
+from typing import Type
+from rendercontroller.util import Config
 from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
-logger = logging.getLogger("renderthread")
 
 
 class RenderThread(object):
     """Base class for thread objects that handle rendering a single frame on a particular render engine.
 
-    At a minimum, subclasses must implement the worker() method and some way to set values for public
-    attributes listed below.
+    At a minimum, subclasses must implement the worker() and stop() methods and some way to set values for
+    public attributes listed below.
 
     Attributes:
         status = Status of render process (one of WAITING, RENDERING, FINISHED, FAILED).
@@ -32,7 +33,7 @@ class RenderThread(object):
         self.pid = None
         self.progress = 0.0
         self.logger = logging.getLogger(
-            f"{os.path.basename(self.path)} frame {frame} on {self.node}"
+            f"{self.__class__.__name__}: {os.path.basename(self.path)} frame {frame} on {self.node}"
         )
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.time_start = 0
@@ -50,6 +51,10 @@ class RenderThread(object):
         self.time_start = time.time()
         self.thread.start()
 
+    def stop(self) -> None:
+        """Stops the render."""
+        raise NotImplementedError
+
     def worker(self) -> None:
         """Must be implemented by subclasses.
 
@@ -66,33 +71,60 @@ class BlenderRenderThread(RenderThread):
     Only verified to work with Cycles render engine up to version 2.93.7 on Linux and MacOS.
     """
 
-    def __init__(self, node: str, path: str, frame: int):
+    def __init__(self, config: Type[Config], node: str, path: str, frame: int):
         # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
         super().__init__(node, path, frame)
         self.regex = re.compile("Rendered ([0-9]+)/([0-9]+) Tiles")
+        if node in config.macs:
+            self.execpath = config.blenderpath_mac
+        else:
+            self.execpath = config.blenderpath_linux
+
+    def stop(self) -> None:
+        """Stops the render.
+
+        Sends a kill command to the remote render process by SSH.  This is not ideal, but unless and until
+        we have a remote client to manage render processes, it will have to do."""
+        if not self.status == RENDERING:
+            return
+        if not self.pid:
+            self.logger.warning("Thread is rendering but no pid value is set. Unable to kill process.")
+            return
+        kill_thread = threading.Thread(target=self._ssh_kill_thread)
+        kill_thread.start()
+
+    def _ssh_kill_thread(self):
+        """Encapsulates ssh kill command in a new thread in case SSH connection is slow."""
+        self.logger.info(f"Attempting to kill pid={self.pid}")
+        subprocess.call([shutil.which("ssh"), self.node, f"kill {self.pid}"])
+        self.logger.debug("ssh kill thread exited")
 
     def worker(self) -> None:
         self.logger.debug("Started worker thread.")
         # TODO timeout timer? (might be better to put this in master thread)
         self.status = RENDERING
-        cmd = f"{shutil.which('blender')} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -n blender"
+        cmd = f"{shlex.quote(self.execpath)} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -i -n blender"
         proc = subprocess.Popen(
             [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
         )
         for line in iter(proc.stdout.readline, ""):
-            if self.status == FAILED:
+            if self.status != RENDERING:
                 break
             self.parse_line(line)
         self.time_stop = time.time()
         self.logger.debug("Worker thread exited.")
 
     def parse_line(self, line: bytes) -> None:
-        line = line.decode("UTF-8")
+        try:
+            line = line.decode("UTF-8")
+        except UnicodeDecodeError:
+            self.logger.exception(f"Failed to decode line to UTF-8")
         if not line:  # Broken pipe
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")
             return
-        self.logger.debug(line)
+        #FIXME uncomment when done
+        #self.logger.debug(f"BLENDER OUTPUT: {line}")
         # Try to get progress from tiles
         if line.startswith("Fra:"):
             m = self.regex.search(line)

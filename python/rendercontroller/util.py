@@ -1,4 +1,38 @@
-from typing import Dict, Any
+import os
+from typing import Dict, Any, List
+
+
+def get_file_type(entry: os.DirEntry) -> str:
+    """Returns a one-character string representing the file type of `entry`."""
+    if entry.is_dir():
+        return "d"
+    elif entry.is_file():
+        return "f"
+    elif entry.is_symlink():
+        return "l"
+    else:
+        return ""
+
+
+def list_dir(directory: str) -> List[Dict[str, Any]]:
+    """
+    Presents the output of os.scandir() as something JSON-serializable.
+    """
+    contents = []
+    for i in os.scandir(directory):
+        contents.append(
+            {
+                "name": i.name,
+                "path": i.path,
+                "type": get_file_type(i),
+                "size": i.stat().st_size,
+                "atime": i.stat().st_atime,
+                "mtime": i.stat().st_mtime,
+                "ctime": i.stat().st_ctime,
+                "ext": os.path.splitext(i.name)[1],
+            }
+        )
+    return contents
 
 
 def format_time(time):

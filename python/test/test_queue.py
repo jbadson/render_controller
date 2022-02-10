@@ -7,7 +7,7 @@ from rendercontroller.job import WAITING, FINISHED, RENDERING, STOPPED, FAILED
 
 def job_factory(id, status):
     """Creates mock RenderJobs with configured properties."""
-    m = mock.Mock(name="RenderJob")
+    m = mock.MagicMock(name="RenderJob")
     m.id = id
     m.status = status
     return m

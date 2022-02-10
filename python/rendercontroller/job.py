@@ -37,7 +37,7 @@ class RenderJob(object):
             raise ValueError("End frame cannot be less than start frame.")
         self.start_frame = start_frame
         self.end_frame = end_frame
-        self.nodes_enabled = set(render_nodes)
+        self.nodes_enabled = render_nodes
         self.status = status
         self.time_start = time_start
         self.time_stop = time_stop
@@ -58,7 +58,7 @@ class RenderJob(object):
 
         # Nodes are added to skip_list when they fail to render a frame. This temporarily disables
         # the node to prevent the scheduler from continuously trying to assign frames to a node
-        # that is having some kind of problem.  Nodes are removed from skip_list in FILO order for
+        # that is having some kind of problem.  Nodes are removed from skip_list in FiFo order for
         # each frame successfully rendered on another node, or if all nodes end up in skip_list.
         self.skip_list = []
         self.node_status = {}
@@ -70,7 +70,7 @@ class RenderJob(object):
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
         )
         self._stop = False
-        self.master_thread = threading.Thread(target=self._thread, daemon=True)
+        self.master_thread = threading.Thread(target=self._mainloop, daemon=True)
 
         if self.status == RENDERING:
             # FIXME Can't decide if this should happen here, or if we should reset status and make caller re-start the render.
@@ -101,9 +101,9 @@ class RenderJob(object):
             raise NodeNotFoundError(f"'{node}' is not in list of known render nodes")
         if node in self.nodes_enabled:
             return
-        self.nodes_enabled.add(node)
+        self.nodes_enabled.append(node)
         self.logger.info(f"Enabled {node} for rendering.")
-        self.db.update_nodes(self.id, tuple(self.nodes_enabled))
+        self.db.update_nodes(self.id, self.nodes_enabled)
 
     def disable_node(self, node: str) -> None:
         """Disables a node for rendering on this job."""
@@ -113,7 +113,7 @@ class RenderJob(object):
             return
         self.nodes_enabled.remove(node)
         self.logger.info(f"Disabled {node} for rendering.")
-        self.db.update_nodes(self.id, tuple(self.nodes_enabled))
+        self.db.update_nodes(self.id, self.nodes_enabled)
 
     def get_progress(self) -> float:
         """Returns percent complete."""
@@ -144,7 +144,7 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "render_nodes": sorted(tuple(self.nodes_enabled)),
+            "render_nodes": sorted(self.nodes_enabled),
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,
@@ -153,7 +153,7 @@ class RenderJob(object):
             "time_remaining": rem,
             "frames_completed": self.frames_completed,
             "progress": self.get_progress(),
-            "node_status": self.get_node_status(),
+            "node_status": self.get_nodes_status(),
         }
 
     def render_threads_active(self) -> bool:
@@ -163,7 +163,7 @@ class RenderJob(object):
                 return True
         return False
 
-    def get_node_status(self) -> Dict:
+    def get_nodes_status(self) -> Dict:
         """Returns a dict containing status for each node.
 
         Similar to self.node_status but modified for external use."""
@@ -180,7 +180,7 @@ class RenderJob(object):
     def _set_node_status(
         self,
         node: str,
-        frame: Optional[str] = None,
+        frame: Optional[int] = None,
         thread: Optional[Type[RenderThread]] = None,
         progress: float = 0.0,
     ) -> None:
@@ -196,7 +196,7 @@ class RenderJob(object):
             # If render was previously stopped, we don't care how long it's been.
             offset = self.time_stop - self.time_start
         self.time_start = time.time() - offset
-        self.time_offset = 0
+        self.time_offset = 0.0
         self.logger.debug(f"Started job timer: {self.time_start}")
         self.db.update_job_time_start(self.id, self.time_start)
 
@@ -205,69 +205,75 @@ class RenderJob(object):
         self.logger.debug(f"Stopped job timer: {self.time_stop}")
         self.db.update_job_time_stop(self.id, self.time_stop)
 
-    def _thread(self) -> None:
+    def _render_finished(self) -> None:
+        self._stop_timer()
+        self.set_status(FINISHED)
+        elapsed, avg, rem = self.get_times()
+        self.logger.info(
+            f"Finished render in {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."
+        )
+
+    def _frame_finished(self, node: str, thread: Type[RenderThread]):
+        self.queue.task_done()
+        self.logger.info(
+            f"Finished frame {thread.frame} on {node} after {format_time(thread.render_time)}."
+        )
+        self.frames_completed.append(thread.frame)
+        self._set_node_status(node)
+        self.db.update_job_frames_completed(self.id, self.frames_completed)
+        # Frame successfully finished, try to pop a node from skip list
+        self._pop_skipped_node()
+
+    def _frame_failed(self, node: str, thread: Type[RenderThread]):
+        self.queue.put(thread.frame)
+        self.logger.warning(f"Failed to render {thread.frame} on {node}.")
+        self.skip_list.append(node)
+        self.logger.debug(f"Added {node} to skip list.")
+        self._set_node_status(node)
+
+    def _pop_skipped_node(self):
+        if not self.skip_list:
+            return
+        node = self.skip_list.pop(0)
+        self._set_node_status(node)
+        logger.debug(f"Released {node} from skip list.")
+
+    def _mainloop(self) -> None:
         """Master thread to manage multiple RenderThreads."""
         self.logger.debug("Started master thread.")
         while not self._stop:
             time.sleep(0.01)
             if self.queue.empty() and not self.render_threads_active():
-                logger.debug("Render finished at detector.")
-                self._stop_timer()
-                self.set_status(FINISHED)
-                elapsed, avg, rem = self.get_times()
-                self.logger.info(
-                    f"Finished render in {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."
-                )
+                self._render_finished()
                 break
 
-            # If all nodes are in skip list, release oldest one.
-            if (
-                len(self.skip_list) == len(self.nodes_enabled)
-                and len(self.nodes_enabled) > 0
-            ):
-                n = self.skip_list.pop(0)
-                self._set_node_status(n)
-                logger.info(f"All nodes are in skip list. Releasing {n}.")
+            if len(self.skip_list) >= len(self.nodes_enabled):
+                logger.debug(f"All nodes are in skip list. Releasing oldest one.")
+                self._pop_skipped_node()
 
-            # Iterate through nodes, check status, and assign frames
+            # Iterate through nodes, assign frames, and check status
             for node in self.nodes_enabled:
                 time.sleep(0.01)
-                if self.queue.empty():
-                    # If queue empties during iteration, return to outer loop and wait for completion.
+                if self._stop:
                     break
                 if node in self.skip_list:
                     continue
-                if self.node_status[node]["thread"] is not None:
+                if self.node_status[node]["thread"]:
                     t = self.node_status[node]["thread"]
                     if t.status == RENDERING:
                         self.node_status[node]["progress"] = t.progress
                     elif t.status == FINISHED:
-                        self.queue.task_done()
-                        self.logger.info(
-                            f"Finished frame {t.frame} on {node} after {format_time(t.render_time)}."
-                        )
-                        self.frames_completed.append(t.frame)
-                        self._set_node_status(node)
-                        self.db.update_job_frames_completed(
-                            self.id, self.frames_completed
-                        )
-                        # Frame successfully finished, try to remove oldest node from skip_list
-                        if len(self.skip_list) > 0:
-                            n = self.skip_list.pop(0)
-                            self._set_node_status(n)
-                            self.logger.info(f"Frame completed, releasing {n} from skip list.")
+                        self._frame_finished(node, t)
                     elif t.status == FAILED:
-                        self.queue.put(t.frame)
-                        self.logger.warning(f"Failed to render {t.frame} on {node}.")
-                        self.skip_list.append(node)
-                        self.logger.debug(f"Added {node} to skip list.")
-                        self._set_node_status(node)
+                        self._frame_failed(node, t)
                     continue
-                # Node is ready to go. Assign next frame.
-                frame = self.queue.get()
-                logger.info(f"Sending frame {frame} to {node}.")
-                # TODO Implement terragen thread?
-                t = BlenderRenderThread(node, self.path, frame)
-                self._set_node_status(node, frame, t)
-                t.start()
+                # Node is idle, assign next frame.
+                if not self.queue.empty():
+                    frame = self.queue.get()
+                    logger.info(f"Sending frame {frame} to {node}.")
+                    # TODO Implement terragen thread?
+                    t = BlenderRenderThread(node, self.path, frame)
+                    self._set_node_status(node, frame, t)
+                    t.start()
+
         logger.debug("Master thread exited.")

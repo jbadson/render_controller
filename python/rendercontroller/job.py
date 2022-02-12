@@ -3,7 +3,7 @@ import time
 import os.path
 import queue
 import logging
-from typing import Type, List, Tuple, Sequence, Dict, Optional
+from typing import Type, List, Tuple, Sequence, Dict, Optional, Any
 from rendercontroller.renderthread import RenderThread, BlenderRenderThread
 from rendercontroller.util import format_time, Config
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
@@ -16,12 +16,12 @@ class RenderJob(object):
     def __init__(
         self,
         config: Type[Config],
-        db: Type[StateDatabase],
+        db: StateDatabase,
         id: str,
         path: str,
         start_frame: int,
         end_frame: int,
-        render_nodes: Sequence[str],
+        render_nodes: List[str],
         status: str = WAITING,
         time_start: float = 0.0,
         time_stop: float = 0.0,
@@ -36,7 +36,7 @@ class RenderJob(object):
             raise ValueError("End frame cannot be less than start frame.")
         self.start_frame = start_frame
         self.end_frame = end_frame
-        self.nodes_enabled = render_nodes
+        self.nodes_enabled: List[str] = render_nodes
         self.status = status
         self.time_start = time_start
         self.time_stop = time_stop
@@ -50,7 +50,7 @@ class RenderJob(object):
         self.frames_completed = list(frames_completed)
 
         # LiFo because we want to be able to put and re-render failed frames before moving on to others.
-        self.queue = queue.LifoQueue()
+        self.queue: queue.LifoQueue = queue.LifoQueue()
         frames = list(range(self.start_frame, self.end_frame + 1))
         frames.reverse()
         for frame in frames:
@@ -61,8 +61,8 @@ class RenderJob(object):
         # the node to prevent the scheduler from continuously trying to assign frames to a node
         # that is having some kind of problem.  Nodes are removed from skip_list in FiFo order for
         # each frame successfully rendered on another node, or if all nodes end up in skip_list.
-        self.skip_list = []
-        self.node_status = {}
+        self.skip_list: List[str] = []
+        self.node_status: Dict[str, dict] = {}
         for node in config.render_nodes:
             self._set_node_status(node)
 
@@ -164,7 +164,7 @@ class RenderJob(object):
         rem = ((self.end_frame - self.start_frame + 1) - len(self.frames_completed)) * avg
         return elapsed, avg, rem
 
-    def dump(self) -> Dict:
+    def dump(self) -> Dict[str, Any]:
         """Returns dict of key job parameters."""
         elapsed, avg, rem = self.get_times()
         return {
@@ -216,7 +216,7 @@ class RenderJob(object):
         self,
         node: str,
         frame: Optional[int] = None,
-        thread: Optional[Type[RenderThread]] = None,
+        thread: Optional[RenderThread] = None,
         progress: float = 0.0,
     ) -> None:
         self.node_status[node] = {
@@ -259,7 +259,7 @@ class RenderJob(object):
             f"Finished render in {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."
         )
 
-    def _frame_finished(self, node: str, thread: Type[RenderThread]):
+    def _frame_finished(self, node: str, thread: RenderThread):
         self.queue.task_done()
         self.logger.info(
             f"Finished frame {thread.frame} on {node} after {format_time(thread.render_time)}."
@@ -270,7 +270,7 @@ class RenderJob(object):
         # Frame successfully finished, try to pop a node from skip list
         self._pop_skipped_node()
 
-    def _frame_failed(self, node: str, thread: Type[RenderThread]):
+    def _frame_failed(self, node: str, thread: RenderThread):
         self.queue.put(thread.frame)
         self.logger.warning(f"Failed to render {thread.frame} on {node}.")
         self.skip_list.append(node)

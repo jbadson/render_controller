@@ -3,8 +3,7 @@
 import pytest
 from unittest import mock
 
-import rendercontroller.oldjob
-from rendercontroller.controller import RenderController, RenderQueue, RenderJob
+from rendercontroller.controller import RenderController, RenderQueue
 from rendercontroller.status import WAITING, RENDERING, STOPPED, FAILED, FINISHED
 from rendercontroller.exceptions import (
     JobNotFoundError,

@@ -30,7 +30,7 @@ class RenderQueue(object):
         self.index = 0
         return self
 
-    def __next__(self) -> Type[RenderJob]:
+    def __next__(self) -> RenderJob:
         if self.index >= len(self.jobs):
             raise StopIteration
         i = self.index
@@ -43,7 +43,7 @@ class RenderQueue(object):
     def __str__(self) -> str:
         return f"RenderQueue{tuple(f'{k}:{v}' for k, v in self.jobs.items())}"
 
-    def __getitem__(self, item: int) -> Type[RenderJob]:
+    def __getitem__(self, item: int) -> RenderJob:
         """Returns job by position.  This is the same as get_by_index()."""
         return tuple(self.jobs.values())[item]
 
@@ -52,22 +52,22 @@ class RenderQueue(object):
             return True
         return False
 
-    def append(self, job: Type[RenderJob]) -> None:
+    def append(self, job: RenderJob) -> None:
         self.jobs[job.id] = job
 
-    def pop(self, id: str) -> Type[RenderJob]:
+    def pop(self, id: str) -> RenderJob:
         """Remove and return a job by id."""
         return self.jobs.pop(id)
 
-    def get_by_id(self, id: str) -> Type[RenderJob]:
+    def get_by_id(self, id: str) -> RenderJob:
         """Returns job identified by id, else raises KeyError."""
         return self.jobs[id]
 
-    def get_by_position(self, index: int) -> Type[RenderJob]:
+    def get_by_position(self, index: int) -> RenderJob:
         """Returns job located at given position, else raises IndexError."""
         return self.__getitem__(index)
 
-    def insert(self, job: Type[RenderJob], index: int) -> None:
+    def insert(self, job: RenderJob, index: int) -> None:
         """Inserts a job at a specific position."""
         items = list(self.jobs.items())
         items.insert(index, (job.id, job))
@@ -76,7 +76,7 @@ class RenderQueue(object):
     def keys(self) -> List[str]:
         return [job.id for job in self.jobs.values()]
 
-    def values(self) -> List[Type[RenderJob]]:
+    def values(self) -> List[RenderJob]:
         return list(self.jobs.values())
 
     def move(self, id: str, index: int) -> None:
@@ -95,7 +95,7 @@ class RenderQueue(object):
                 unfinished.append((j.id, j))
         self.jobs = OrderedDict(unfinished + finished)
 
-    def get_next_waiting(self) -> Optional[Type[RenderJob]]:
+    def get_next_waiting(self) -> Optional[RenderJob]:
         """Returns first item in queue with status Waiting. If none found, returns None."""
         for j in self.jobs.values():
             if j.status == WAITING:
@@ -117,6 +117,7 @@ class RenderQueue(object):
             if i == id:
                 return n
             n += 1
+        raise KeyError(id)
 
 
 class RenderController(object):
@@ -256,13 +257,11 @@ class RenderController(object):
             return job.id
         return None
 
-    def stop(self, job_id: str, kill: bool = True) -> None:
+    def stop(self, job_id: str, ) -> None:
         """
         Stops a render job.
 
         :param str job_id: ID of job to stop.
-        :param bool kill: Kill active render processes. If False,
-            currently rendering frames will be allowed to finish.
         """
         try:
             self.queue.get_by_id(job_id).stop()
@@ -322,7 +321,7 @@ class RenderController(object):
             data.append(self.get_job_data(job.id))
         return data
 
-    def get_job_data(self, job_id: str) -> Dict:
+    def get_job_data(self, job_id: str) -> Dict[str, Any]:
         """Returns details for a render job."""
         try:
             job = self.queue.get_by_id(job_id)
@@ -342,7 +341,7 @@ class RenderController(object):
 class TaskThread(object):
     """Thread to perform periodic background tasks."""
 
-    def __init__(self, controller: Type[RenderController]):
+    def __init__(self, controller: RenderController):
         self.controller = controller
         self.stop = False
         self._thread = threading.Thread(target=self.mainloop, daemon=True)

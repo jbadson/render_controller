@@ -1,6 +1,6 @@
 import time
 import sqlite3
-from typing import Type, List, Tuple, Sequence, Dict, Optional
+from typing import List, Sequence, Dict
 
 
 class StateDatabase(object):
@@ -39,11 +39,11 @@ class StateDatabase(object):
         frames_completed: Sequence[int],
         queue_position: int,
     ) -> None:
-        frames_completed = ",".join([str(i) for i in frames_completed])
+        framestr = ",".join([str(i) for i in frames_completed])
         render_nodes = ",".join(render_nodes)
         self.execute(
             f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {start_frame}, {end_frame}, "
-            + f"'{render_nodes}', {time_start}, {time_stop}, '{frames_completed}', {queue_position}, "
+            + f"'{render_nodes}', {time_start}, {time_stop}, '{framestr}', {queue_position}, "
             + f"{time.time()})",
             commit=True,
         )
@@ -67,9 +67,9 @@ class StateDatabase(object):
         )
 
     def update_job_frames_completed(self, id: str, frames_completed: List[int]) -> None:
-        frames_completed = ",".join([str(i) for i in frames_completed])
+        framestr = ",".join([str(i) for i in frames_completed])
         self.execute(
-            f"UPDATE jobs SET frames_completed='{frames_completed}', timestamp={time.time()} WHERE id='{id}'",
+            f"UPDATE jobs SET frames_completed='{framestr}', timestamp={time.time()} WHERE id='{id}'",
             commit=True,
         )
 
@@ -86,7 +86,8 @@ class StateDatabase(object):
             commit=True,
         )
 
-    def _parse_job_row(self, row: Sequence) -> Dict:
+    @staticmethod
+    def _parse_job_row(row: Sequence) -> Dict:
         return {
             "id": row[0],
             "status": row[1],

@@ -35,47 +35,37 @@ def list_dir(directory: str) -> List[Dict[str, Any]]:
     return contents
 
 
-def format_time(time):
-    """Converts time in decimal seconds to human-friendly strings.
-    format is ddhhmmss.s"""
-    if time < 60:
-        newtime = [round(time, 1)]
-    elif time < 3600:
-        m, s = time / 60, time % 60
-        newtime = [int(m), round(s, 1)]
-    elif time < 86400:
-        m, s = time / 60, time % 60
-        h, m = m / 60, m % 60
-        newtime = [int(h), int(m), round(s, 1)]
-    else:
-        m, s = time / 60, time % 60
-        h, m = m / 60, m % 60
-        d, h = h / 24, h % 24
-        newtime = [int(d), int(h), int(m), round(s, 1)]
-    if len(newtime) == 1:
-        timestr = str(newtime[0]) + "s"
-    elif len(newtime) == 2:
-        timestr = str(newtime[0]) + "m " + str(newtime[1]) + "s"
-    elif len(newtime) == 3:
-        timestr = (
-            str(newtime[0]) + "h " + str(newtime[1]) + "m " + str(newtime[2]) + "s"
-        )
-    else:
-        timestr = (
-            str(newtime[0])
-            + "d "
-            + str(newtime[1])
-            + "h "
-            + str(newtime[2])
-            + "m "
-            + str(newtime[3])
-            + "s"
-        )
+def format_time(time: float) -> str:
+    """Formats time like {days}d {hours}h {min}m {sec}s."""
+    m, s = time // 60, time % 60
+    h, m = m // 60, m % 60
+    d, h = h // 24, h % 24
+    timestr = f"{round(s, 1)}s"
+    if time >= 60:
+        timestr = f"{int(m)}m {int(s)}s"
+    if time >= 3600:
+        timestr = f"{int(h)}h " + timestr
+    if time >= 86400:
+        timestr = f"{int(d)}d " + timestr
     return timestr
 
 
 class Config(object):
     """Singleton configuration object."""
+
+    listen_addr: str
+    listen_port: int
+    cors_origin: str
+    autostart: bool
+    log_level: str
+    log_file_path: str
+    work_dir: str
+    fileserver_base_dir: str
+    timeout: int
+    render_nodes: List[str]
+    macs: List[str]
+    blenderpath_mac: str
+    blenderpath_linux: str
 
     def __init__(self):
         raise RuntimeError("Config class cannot be instantiated")

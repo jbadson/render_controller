@@ -10,7 +10,7 @@ import yaml
 import signal
 import socketserver
 import urllib.parse
-from typing import Sequence, Optional, Dict, List, Any, Callable, Type
+from typing import Sequence, Optional, Dict, List, Any, Union
 from rendercontroller.controller import RenderController
 from rendercontroller.exceptions import JobNotFoundError, NodeNotFoundError
 from rendercontroller.util import Config, list_dir
@@ -55,6 +55,10 @@ class TCPServer(socketserver.ThreadingTCPServer):
         """Closure to give handler function instance context."""
 
         def handler(signum, frame):
+            """
+            signum -- Signal number.
+            frame -- Stack frame (not used, but is required by interface).
+            """
             logger.debug(f"Caught signal {signum}")
             self.shutdown()
 
@@ -87,9 +91,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         to handler method names.
     """
 
-    controller = None
-    origin = "*"
-    fileserver_base_dir = "/dev/null"
+    controller: RenderController
+    origin: str
+    fileserver_base_dir: str
     get_endpoints = {"job", "node", "config"}
     post_endpoints = {"job", "node", "storage", "config"}
     job_handlers = {
@@ -157,7 +161,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         ):
             body = bytes(json.dumps(ret), "UTF-8")
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", int(len(body)))
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if self.command != "HEAD" and body:
             self.wfile.write(body)
@@ -200,9 +204,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         """Provides CORS headers to OPTIONS requests."""
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", 0)
+        self.send_header("Content-Length", "0")
         self.send_header("Access-Control-Allow-Origin", self.origin)
-        self.send_header("Access-Control-Allow-Credentials", True)
+        self.send_header("Access-Control-Allow-Credentials", "true")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers", "origin, content-type, request"
@@ -224,9 +228,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         """
         self.send_response(code)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", content_length)
+        self.send_header("Content-Length", str(content_length))
         self.send_header("Access-Control-Allow-Origin", self.origin)
-        self.send_header("Access-Control-Allow-Credentials", True)
+        self.send_header("Access-Control-Allow-Credentials", "true")
         self.end_headers()
 
     def send_json(self, data: Any, code: int = HTTPStatus.OK) -> None:
@@ -277,11 +281,14 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     def job_data(self) -> None:
         """Sends info about a render job."""
+        data: Union[Dict[str, Any], List[Dict[str, Any]]]
         if self.parsed_path.target:
+            # Send data for specified job
             data = self.controller.get_job_data(self.parsed_path.target)
             if not data:
                 return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         else:
+            # No job ID specified, so send data about *all* jobs
             data = self.controller.get_all_job_data()
         self.send_json(data)
 
@@ -304,10 +311,8 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             logger.warning("Job ID not specified in '%s'" % self.parsed_path)
             self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
             return
-        # For now, always kill all rendering frames immediately.
-        # We can restore the old functionality if requested.
         try:
-            self.controller.stop(self.parsed_path.target, True)
+            self.controller.stop(self.parsed_path.target)
         except JobNotFoundError:
             return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         self.send_all_headers()
@@ -380,7 +385,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         try:
             job_id = self.parsed_path.parts[3]
         except IndexError:
-            self.send_error(HTTPStatus.BAD_REQUEST, "No job ID specified")
+            return self.send_error(HTTPStatus.BAD_REQUEST, "No job ID specified")
         try:
             self.controller.disable_node(job_id, self.parsed_path.target)
         except JobNotFoundError:

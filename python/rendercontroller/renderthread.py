@@ -6,7 +6,7 @@ import subprocess
 import os.path
 import re
 import shlex
-from typing import Type
+from typing import Type, Optional
 from rendercontroller.util import Config
 from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
@@ -30,14 +30,14 @@ class RenderThread(object):
         self.path = path
         self.frame = frame
         self.status = WAITING
-        self.pid = None
-        self.progress = 0.0
+        self.pid: Optional[int] = None
+        self.progress: float = 0.0
         self.logger = logging.getLogger(
             f"{self.__class__.__name__}: {os.path.basename(self.path)} frame {frame} on {self.node}"
         )
         self.thread = threading.Thread(target=self.worker, daemon=True)
-        self.time_start = 0
-        self.time_stop = 0
+        self.time_start: float = 0.0
+        self.time_stop: float = 0.0
 
     @property
     def render_time(self) -> float:
@@ -114,11 +114,12 @@ class BlenderRenderThread(RenderThread):
         self.time_stop = time.time()
         self.logger.debug("Worker thread exited.")
 
-    def parse_line(self, line: bytes) -> None:
+    def parse_line(self, bline: bytes) -> None:
         try:
-            line = line.decode("UTF-8")
+            line: str = bline.decode("UTF-8")
         except UnicodeDecodeError:
             self.logger.exception(f"Failed to decode line to UTF-8")
+            return
         if not line:  # Broken pipe
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")

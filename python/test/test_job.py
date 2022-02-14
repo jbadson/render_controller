@@ -291,7 +291,7 @@ def test_job_get_times(job1):
     # A little lag between subsequent calls to time.time(), so use approx.
     assert elapsed == pytest.approx(100.0)
     assert avg == pytest.approx(4.0)
-    assert rem == pytest.approx(300.0)
+    assert rem == pytest.approx(304.0)
 
 
 def test_job_dump(job1, job2, testjob1, testjob2):
@@ -434,10 +434,13 @@ def test_job_set_node_status(job1):
 
 
 @mock.patch("time.time")
-def test_job_start_timer(timer, job1):
+def test_job_start_timer1(timer, job1):
+    """Case 1: New job, status waiting (i.e. time_start not set), no offset.
+
+    Correction factor should be 0.0
+    """
     t = 123.456
     timer.return_value = t
-    # Case 1: New job (time_start not set), no offset
     assert job1.time_start == 0.0
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_not_called()
@@ -446,35 +449,85 @@ def test_job_start_timer(timer, job1):
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_called_with(job1.id, t)
 
-    # Case 2: New job, offset
-    job1.time_start = 0.0
-    job1.time_offset = 10.2
-    job1.db.reset_mock()
-    job1.db.update_job_time_start.assert_not_called()
-    job1._start_timer()
-    assert job1.time_start == 113.256
-    assert job1.time_offset == 0.0
-    job1.db.update_job_time_start.assert_called_with(job1.id, 113.256)
+@mock.patch("time.time")
+def test_job_start_timer2(timer, job1):
+    """Case 2: New or restored job, status waiting, offset.
 
-    # Case 3: Stopped job (time_start is set), no offset
-    job1.time_start = 51.5
-    job1.time_offset = 0.0
-    job1.db.reset_mock()
+    Offset should be ignored, correction factor should be 0.0
+    """
+    t = 123.456
+    timer.return_value = t
+    job1.time_offset = 10.2
     job1.db.update_job_time_start.assert_not_called()
+    assert not job1.time_start
+    assert not job1.time_stop
     job1._start_timer()
     assert job1.time_start == t
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_called_with(job1.id, t)
 
-    # Case 4: Stopped job, offset
-    job1.time_start = 51.5
-    job1.time_offset = 10.2
-    job1.db.reset_mock()
+@mock.patch("time.time")
+def test_job_start_timer3(timer, job1):
+    """Case 3: Stopped or finished job (time_start and time_stop both set), no offset.
+
+    Correction factor should be time_stop - time_start
+    """
+    t = 123.456
+    timer.return_value = t
+    start = 51.5
+    stop = 100.0
+    job1.time_start = start
+    job1.time_stop = stop
+    assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_not_called()
     job1._start_timer()
-    assert job1.time_start == 113.256
+    expected = t - (stop - start)
+    assert job1.time_start == expected
+    assert job1.time_stop == 0.0
     assert job1.time_offset == 0.0
-    job1.db.update_job_time_start.assert_called_with(job1.id, 113.256)
+    job1.db.update_job_time_start.assert_called_with(job1.id, expected)
+
+@mock.patch("time.time")
+def test_job_start_timer4(timer, job1):
+    """Case 4: Stopped or finished job with offset.
+
+    Offset should be ignored, correction factor should be time_stop - time_start
+    """
+    t = 123.456
+    timer.return_value = t
+    start = 51.5
+    stop = 100.0
+    job1.time_start = start
+    job1.time_stop = stop
+    job1.time_offset = 10.2
+    job1.db.update_job_time_start.assert_not_called()
+    job1._start_timer()
+    expected = t - (stop - start)
+    assert job1.time_start == expected
+    assert job1.time_stop == 0.0
+    assert job1.time_offset == 0.0
+    job1.db.update_job_time_start.assert_called_with(job1.id, expected)
+
+@mock.patch("time.time")
+def test_job_start_timer5(timer, job1):
+    """Case 5: Restoring job from disk, status rendering (time_start is set, time_stop is not), offset.
+
+    Correction factor should == offset
+    """
+    t = 123.456
+    timer.return_value = t
+    start = 51.5
+    offset = 10.2
+    job1.time_start = start
+    job1.time_offset = offset
+    assert job1.time_stop == 0.0
+    job1.db.update_job_time_start.assert_not_called()
+    job1._start_timer()
+    expected = t - offset
+    assert job1.time_start == expected
+    assert job1.time_stop == 0.0
+    assert job1.time_offset == 0.0
+    job1.db.update_job_time_start.assert_called_with(job1.id, expected)
 
 
 @mock.patch("time.time")
@@ -646,6 +699,7 @@ def test_job_mainloop_4(ffin, ffail, job1):
 
 @mock.patch("rendercontroller.job.RenderJob._set_node_status")
 @mock.patch("rendercontroller.job.BlenderRenderThread")
+@mock.patch("rendercontroller.job.Config")
 def test_job_mainloop_5(rt, sns, job1):
     """Tests third block of inner (node) loop: node is idle -> assign frame."""
     stop = LoopStopper(2)
@@ -654,10 +708,12 @@ def test_job_mainloop_5(rt, sns, job1):
     q.get.return_value = 2
     q.empty.return_value = False
     job1.queue = q
+    # FIXME why is nodes_enabled mocked?
+    assert isinstance(job1.nodes_enabled, list)
     assert "node1" in job1.nodes_enabled
     assert not job1.get_nodes_status()["node1"]["rendering"]
     job1._mainloop()
     q.get.assert_called_once()
-    rt.assert_called_with("node1", job1.path, 2)
+    rt.assert_called_with(job1.config, "node1", job1.path, 2, job1.logger)
     sns.assert_called_with("node1", 2, rt.return_value)
     rt.return_value.start.assert_called_once()

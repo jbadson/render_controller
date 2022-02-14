@@ -66,7 +66,8 @@ class RenderJob(object):
         for node in config.render_nodes:
             self._set_node_status(node)
 
-        self.logger = logging.getLogger(f"RenderJob: {os.path.basename(self.path)}")
+        #self.logger = logging.getLogger(f"RenderJob: {self.id} {os.path.basename(self.path)}")
+        self.logger = logging.getLogger(f"{self.id} {os.path.basename(self.path)} RenderJob")
         self.logger.info(
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
         )
@@ -226,22 +227,26 @@ class RenderJob(object):
         }
 
     def _start_timer(self) -> None:
-        """Starts the render timer."""
-        # self.time_offset is used when restoring a job from disk that was actively rendering when
-        # the server shut down.  It represents the elapsed render time before the server was shut
-        # down, and is used to correct the new start_time so that subsequent calculations do not
-        # include the time while the server was offline.
+        """Starts the render timer by setting the `time_start` instance variable.
+
+        For a brand new job, the `time_start` is simply now, but under certain circumstances a correction factor is
+        applied.  This is because jobs can be stopped and resumed, and the server can be shut down and restarted, but
+        render time calculations should reflect only the time the job was actually rendering. Rather than attempting
+        to account for this in each calculation, we offset the `time_start` by an appropriate amount to correct for it.
+        """
+        # `time_offset` is used when restoring from disk. It is the render time elapsed before the server shut down.
+        correction = self.time_offset
         if not self.time_start:
             # Render has never been started, so server downtime is irrelevant.
-            self.time_offset = 0.0
+            correction = 0.0
         if self.time_start and self.time_stop:
             # Job was stopped or finished. Server downtime is irrelevant but, we must still
             # account for the render time that has already elapsed.
             #FIXME this works when restoring a job, but not when restarting a stopped job.
             # In that case, offset should be time.time() - self.stop_time
-            self.time_offset = self.time_stop - self.time_start
+            correction = self.time_stop - self.time_start
             self.time_stop = 0.0
-        self.time_start = time.time() - self.time_offset
+        self.time_start = time.time() - correction
         self.time_offset = 0.0
         self.logger.debug(f"Started job timer: {self.time_start}")
         self.db.update_job_time_start(self.id, self.time_start)
@@ -293,18 +298,18 @@ class RenderJob(object):
                 self._render_finished()
                 break
 
-            if len(self.skip_list) >= len(self.nodes_enabled):
+            if len(self.skip_list) > 0 and len(self.skip_list) >= len(self.nodes_enabled):
                 self.logger.debug(f"All nodes are in skip list. Releasing oldest one.")
                 self._pop_skipped_node()
 
             # Iterate through nodes, assign frames, and check status
-            for node in self.nodes_enabled:
+            for node in self.config.render_nodes:
                 time.sleep(0.01)
                 if self._stop:
                     # Cleanup is handled by the stop() method.
                     break
-                if node in self.skip_list:
-                    continue
+                # Check status of all nodes, not just enabled.  User may disable a node after a frame
+                # has been assigned, so we need to continue monitoring status until RenderThread ends.
                 if self.node_status[node]["thread"]:
                     t = self.node_status[node]["thread"]
                     if t.status == RENDERING:
@@ -314,12 +319,19 @@ class RenderJob(object):
                     elif t.status == FAILED:
                         self._frame_failed(node, t)
                     continue
-                # Node is idle, assign next frame.
-                if not self.queue.empty():
+                if node in self.nodes_enabled:
+                    # Now check if any enabled nodes are ready for a new frame.
+                    if node in self.skip_list:
+                        continue
+                    if self.queue.empty():
+                        # All frames assigned, but not necessarily done rendering.
+                        # Continue iterating until all RenderThreads end.
+                        continue
+                    # Node is idle, assign next frame
                     frame = self.queue.get()
                     self.logger.info(f"Sending frame {frame} to {node}.")
                     # TODO Implement terragen thread?
-                    t = BlenderRenderThread(self.config, node, self.path, frame)
+                    t = BlenderRenderThread(self.config, node, self.path, frame, self.logger)
                     self._set_node_status(node, frame, t)
                     t.start()
 

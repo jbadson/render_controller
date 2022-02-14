@@ -147,14 +147,6 @@ def test_queue_move(queue):
     assert queue.keys() == ["job1", "job3", "job4", "job5", "job2", "job6"]
 
 
-def test_queue_sort_by_status(queue):
-    for i in queue_jobs:
-        queue.append(i)
-    assert queue.keys() == orig_keys
-    queue.sort_by_status()
-    assert queue.keys() == ["job1", "job3", "job4", "job6", "job2", "job5"]
-
-
 def test_queue_get_next_waiting(queue):
     for i in queue_jobs:
         queue.append(i)

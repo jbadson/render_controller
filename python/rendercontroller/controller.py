@@ -84,17 +84,6 @@ class RenderQueue(object):
         job = self.jobs.pop(id)
         self.insert(job, index)
 
-    def sort_by_status(self) -> None:
-        """Sorts the queue by status. Finished jobs go to end, all others keep their ordering"""
-        unfinished = []
-        finished = []
-        for j in self.jobs.values():
-            if j.status == FINISHED:
-                finished.append((j.id, j))
-            else:
-                unfinished.append((j.id, j))
-        self.jobs = OrderedDict(unfinished + finished)
-
     def get_next_waiting(self) -> Optional[RenderJob]:
         """Returns first item in queue with status Waiting. If none found, returns None."""
         for j in self.jobs.values():

@@ -3,8 +3,6 @@ import './JobInput.css';
 import axios from "axios";
 import { FileBrowserPopup } from './FileBrowser';
 
-const RENDER_ENGINES = ["blend", "tgd"]
-
 
 /**
  * Number input field that changes CSS className if value contains a non-digit.
@@ -239,9 +237,9 @@ class JobInput extends Component {
     };
 
     const ret = {
-      path: this.state.path,
-      start_frame: this.state.startFrame,
-      end_frame: this.state.endFrame,
+      path: path,
+      start_frame: startFrame,
+      end_frame: endFrame,
       nodes: selectedNodes
     }
     axios.post(process.env.REACT_APP_BACKEND_API + "/job/new", ret)

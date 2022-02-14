@@ -83,17 +83,18 @@ class App extends Component {
   }
 
   /**
-   * Sorts jobs for the queue pane.  Rendering jobs go first and Finished
-   * jobs go last.  Everything else goes in between with server order preserved.
+   * Sorts jobs for the queue pane.
    */
   sortJobs() {
     const jobList = this.state.serverJobs;
-    const jobsRendering = jobList.filter(job => job.status === "Rendering")
-    const jobsFinished = jobList.filter(job => job.status === "Finished")
-    const jobsOther = jobList.filter(job => job.status !== "Rendering")
-      .filter(job => job.status !== "Finished")
 
-    const sortedJobs = [...jobsRendering, ...jobsOther, ...jobsFinished]
+    const unfinished = jobList.filter(job => (job.status === "Waiting" || job.status === "Rendering"))
+    unfinished.reverse()
+    const stopped = jobList.filter(job => job.status === "Stopped")
+    const finished = jobList.filter(job => job.status === "Finished")
+
+    const sortedJobs = [...unfinished, ...stopped, ...finished]
+
     this.setState({
       serverJobs: sortedJobs
     })
@@ -185,7 +186,6 @@ class App extends Component {
       if (job.status === "Finished") {
         axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + job.id)
           .then(
-            (result) => {console.log(result)},
             (error) => {console.error(error.message)}
           );
       }

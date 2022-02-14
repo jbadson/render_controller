@@ -25,14 +25,17 @@ class RenderThread(object):
         time_stop = Epoch time when render finished.
     """
 
-    def __init__(self, node: str, path: str, frame: int):
+    def __init__(self, node: str, path: str, frame: int, logger: Optional[logging.Logger]):
         self.node = node
         self.path = path
         self.frame = frame
         self.status = WAITING
         self.pid: Optional[int] = None
         self.progress: float = 0.0
-        self.logger = logging.getLogger(
+        if logger:
+            self.logger = logger.getChild(f"{self.__class__.__name__} frame {frame} on {node}")
+        else:
+            self.logger = logging.getLogger(
             f"{self.__class__.__name__}: {os.path.basename(self.path)} frame {frame} on {self.node}"
         )
         self.thread = threading.Thread(target=self.worker, daemon=True)
@@ -71,9 +74,9 @@ class BlenderRenderThread(RenderThread):
     Only verified to work with Cycles render engine up to version 2.93.7 on Linux and MacOS.
     """
 
-    def __init__(self, config: Type[Config], node: str, path: str, frame: int):
+    def __init__(self, config: Type[Config], node: str, path: str, frame: int, logger: logging.Logger):
         # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
-        super().__init__(node, path, frame)
+        super().__init__(node, path, frame, logger)
         self.regex = re.compile("Rendered ([0-9]+)/([0-9]+) Tiles")
         if node in config.macs:
             self.execpath = config.blenderpath_mac

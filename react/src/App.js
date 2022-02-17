@@ -59,6 +59,18 @@ class App extends Component {
       .then(result => {this.getAutostart()}); // Updates checkbox state
   }
 
+  clearFinishedJobs() {
+    const { serverJobs } = this.state;
+    serverJobs.forEach(job => {
+      if (job.status === "Finished") {
+        axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + job.id)
+          .then(
+            (error) => {console.error(error.message)}
+          );
+      }
+    })
+  }
+
   getAutostart() {
     axios.get(process.env.REACT_APP_BACKEND_API + "/config/autostart")
       .then(
@@ -87,14 +99,20 @@ class App extends Component {
    */
   sortJobs() {
     const jobList = this.state.serverJobs;
-
     const unfinished = jobList.filter(job => (job.status === "Waiting" || job.status === "Rendering"))
+    // For waiting jobs, the stack should reflect the actual queue order on the server from top to bottom.
+    // This will naturally put rendering jobs started by autostart at the bottom of this section, however
+    // jobs that are started manually will remain in their original queue position.
     unfinished.reverse()
     const stopped = jobList.filter(job => job.status === "Stopped")
     const finished = jobList.filter(job => job.status === "Finished")
+    // For stopped and finished jobs, display order is based on the time the job stopped rendering, with
+    // the most recent at the top of their respective section. This gives the appearance of jobs moving down
+    // the waiting queue, rendering, then stacking up at the bottom.
+    stopped.sort((a, b) => a.time_stop < b.time_stop ? 1 : -1)
+    finished.sort((a, b) => a.time_stop < b.time_stop ? 1 : -1)
 
     const sortedJobs = [...unfinished, ...stopped, ...finished]
-
     this.setState({
       serverJobs: sortedJobs
     })
@@ -178,18 +196,6 @@ class App extends Component {
         </div>
       )
     }
-  }
-
-  clearFinishedJobs() {
-    const { serverJobs } = this.state;
-    serverJobs.forEach(job => {
-      if (job.status === "Finished") {
-        axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + job.id)
-          .then(
-            (error) => {console.error(error.message)}
-          );
-      }
-    })
   }
 
   render() {

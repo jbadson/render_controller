@@ -2,6 +2,7 @@ import logging
 import threading
 import os.path
 import time
+import inspect
 from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
 from collections import OrderedDict
@@ -229,14 +230,19 @@ class RenderController(object):
         )
         return job.id
 
+    def _try_get_job(self, job_id: str) -> RenderJob:
+        """Returns an instance of RenderJob matching job_id, otherwise throws JobNotFoundError."""
+        try:
+            return self.queue.get_by_id(job_id)
+        except KeyError:
+            caller = inspect.stack()[1].function
+            logger.error(f"_try_get_job() invoked by {caller}() caught KeyError on '{job_id}'")
+        raise JobNotFoundError(f"Job {job_id} not found")
+
     def start(self, job_id: str) -> None:
         """Starts a render job."""
         # TODO raise exception if fails
-        try:
-            self.queue.get_by_id(job_id).render()
-        except KeyError:
-            logger.exception("Failed to start '%s': KeyError" % job_id)
-            raise JobNotFoundError("Job '%s' not found" % job_id)
+        self._try_get_job(job_id).start()
 
     def start_next(self) -> Optional[str]:
         """Starts next job in queue and return job ID.  If no jobs in queue, returns None."""
@@ -252,19 +258,17 @@ class RenderController(object):
 
         :param str job_id: ID of job to stop.
         """
-        try:
-            self.queue.get_by_id(job_id).stop()
-        except KeyError:
-            logger.exception("Failed to stop '%s': KeyError" % job_id)
-            raise JobNotFoundError("Job '%s' not found" % job_id)
+        self._try_get_job(job_id).stop()
+
+    def reset_waiting(self, job_id: str) -> None:
+        """For a job that has been stopped, reset the status to waiting so it can be started by autostart.
+
+        Job will retain its original queue position."""
+        self._try_get_job(job_id).reset_waiting()
 
     def delete(self, job_id: str) -> None:
         """Deletes a render job.  Job must not be rendering."""
-        try:
-            job = self.queue.get_by_id(job_id)
-        except KeyError:
-            logger.exception("Failed to delete '%s': KeyError" % job_id)
-            raise JobNotFoundError("Job '%s' not found" % job_id)
+        job = self._try_get_job(job_id)
         if job.status == RENDERING:
             raise JobStatusError("Cannot delete job while it is rendering.")
         self.queue.pop(job_id)
@@ -279,14 +283,7 @@ class RenderController(object):
         :param str job_id: ID of job to modify.
         :param str node: Name of render node.
         """
-        logger.debug("Enable %s for %s" % (node, job_id))
-        # FIXME redundant - RenderJob also checks that node is in render_nodes -- also disable_node
-        if node not in self.render_nodes:
-            raise NodeNotFoundError("Node '%s' not found" % node)
-        try:
-            self.queue.get_by_id(job_id).enable_node(node)
-        except KeyError:
-            raise JobNotFoundError("Job '%s' not found" % job_id)
+        self._try_get_job(job_id).enable_node(node)
 
     def disable_node(self, job_id: str, node: str) -> None:
         """
@@ -295,13 +292,7 @@ class RenderController(object):
         :param str job_id: ID of job to modify.
         :param str node: Name of render node.
         """
-        logger.debug("Disable %s for %s" % (node, job_id))
-        if node not in self.render_nodes:
-            raise NodeNotFoundError("Node '%s' not found" % node)
-        try:
-            self.queue.get_by_id(job_id).disable_node(node)
-        except KeyError:
-            raise JobNotFoundError("Job '%s' not found" % job_id)
+        self._try_get_job(job_id).disable_node(node)
 
     def get_all_job_data(self) -> List[Dict[str, Any]]:
         """Returns complete status info about all jobs on server."""
@@ -312,11 +303,7 @@ class RenderController(object):
 
     def get_job_data(self, job_id: str) -> Dict[str, Any]:
         """Returns details for a render job."""
-        try:
-            job = self.queue.get_by_id(job_id)
-        except KeyError:
-            raise JobNotFoundError(f"Job {job_id} not found")
-        return job.dump()
+        return self._try_get_job(job_id).dump()
 
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""

@@ -102,6 +102,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         "start": "start_job",
         "stop": "stop_job",
         "delete": "delete_job",
+        "reset_status": "reset_job_status",
     }
     node_handlers = {
         "list": "list_nodes",
@@ -325,6 +326,18 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             self.controller.delete(self.parsed_path.target)
+        except JobNotFoundError:
+            return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
+        self.send_all_headers()
+
+    def reset_job_status(self):
+        """For a stopped job, resets status to waiting so it can be started by autostart."""
+        if not self.parsed_path.target:
+            logger.warning("Job ID not specified in '%s'" % self.parsed_path)
+            self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
+            return
+        try:
+            self.controller.reset_waiting(self.parsed_path.target)
         except JobNotFoundError:
             return self.send_error(HTTPStatus.NOT_FOUND, "Job ID not found")
         self.send_all_headers()

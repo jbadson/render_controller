@@ -11,7 +11,6 @@ from rendercontroller.database import StateDatabase
 from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 
-
 class RenderJob(object):
     def __init__(
         self,
@@ -74,10 +73,10 @@ class RenderJob(object):
         self._reset_render_state()
         if self.status == RENDERING:
             # FIXME Can't decide if this should happen here, or if we should reset status and make caller re-start the render.
-            self.set_status(WAITING)
+            self._set_status(WAITING)
             self.render()
 
-    def set_status(self, status: str) -> None:
+    def _set_status(self, status: str) -> None:
         """Sets job status and updates it in database."""
         self.status = status
         self.db.update_job_status(self.id, status)
@@ -90,7 +89,7 @@ class RenderJob(object):
             # Resuming a render
             self.logger.debug("Resetting render state.")
             self._reset_render_state()
-        self.set_status(RENDERING)
+        self._set_status(RENDERING)
         self._start_timer()
         self.master_thread.start()
 
@@ -113,12 +112,18 @@ class RenderJob(object):
             self.logger.debug(f"Waiting for master thread to exit.")
             self.master_thread.join()
         self._stop_timer()
-        self.set_status(STOPPED)
+        self._set_status(STOPPED)
         elapsed, avg, rem = self.get_times()
         self.logger.info(
             f"Stopped render after {format_time(elapsed)}. Avg time per frame: {format_time(avg)}. "
             + "It may take a few moments for all render processes to terminate."
         )
+
+    def reset_waiting(self) -> None:
+        """If job has been stopped, reset status to waiting so it can be started by autostart."""
+        if self.status != STOPPED:
+            raise JobStatusError(self.status)
+        self._set_status(WAITING)
 
     def enable_node(self, node: str) -> None:
         """Enables a node for rendering on this job."""
@@ -258,7 +263,7 @@ class RenderJob(object):
 
     def _render_finished(self) -> None:
         self._stop_timer()
-        self.set_status(FINISHED)
+        self._set_status(FINISHED)
         elapsed, avg, rem = self.get_times()
         self.logger.info(
             f"Finished render in {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."

@@ -111,6 +111,7 @@ class JobStatusPane extends Component {
     this.stopJob = this.stopJob.bind(this);
     this.enqueueJob = this.enqueueJob.bind(this);
     this.deleteJob = this.deleteJob.bind(this);
+    this.reRenderJob = this.reRenderJob.bind(this);
   }
 
   startJob() {
@@ -131,7 +132,7 @@ class JobStatusPane extends Component {
   }
 
   enqueueJob() {
-    axios.post(process.env.REACT_APP_BACKEND_API + "/job/enqueue/" + this.props.jobId)
+    axios.post(process.env.REACT_APP_BACKEND_API + "/job/reset_status/" + this.props.jobId)
     .then(
       //FIXME: Add note about starting job manually
       (result) => {console.log(result)},
@@ -145,6 +146,10 @@ class JobStatusPane extends Component {
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
     ).then(this.props.onDelete());
+  }
+
+  reRenderJob() {
+    alert("not implemented")
   }
 
   getUpdate() {
@@ -210,19 +215,36 @@ class JobStatusPane extends Component {
                 </li>
                 <li className="layout-row">
                     <button
-                      className="sm-button"
+                      className="sm-button tooltip"
+                      help-text="Start the render."
                       disabled={(data.status === 'Waiting' || data.status === 'Stopped') ? false : true}
                       onClick={this.startJob}>
                         Start
                     </button>
                     <button
-                      className="sm-button"
+                      className="sm-button tooltip"
+                      help-text="Stop the render.  Stopped jobs are ignored by autostart."
                       disabled={data.status === 'Rendering' ? false : true}
                       onClick={this.stopJob}>
                         Stop
                     </button>
                     <button
-                      className="sm-button"
+                      className="sm-button tooltip"
+                      help-text="Reset job status so it will no longer be ignored by autostart."
+                      disabled={data.status === 'Stopped' ? false : true}
+                      onClick={this.enqueueJob}>
+                        Return to Queue
+                    </button>
+                    <button
+                      className="sm-button tooltip"
+                      help-text="Create a new job with the same parameters as this one. You will be able to modify the settings."
+                      disabled={(data.status === 'Stopped' || data.status === 'Finished') ? false : true}
+                      onClick={this.reRenderJob}>
+                        Duplicate
+                    </button>
+                    <button
+                      className="sm-button tooltip"
+                      help-text="Delete this job.  If job is currently rendering, you must stop it first."
                       disabled={data.status !== 'Rendering' ? false : true}
                       onClick={this.deleteJob}>
                         Delete

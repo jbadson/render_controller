@@ -7,44 +7,37 @@ import os.path
 import re
 import shlex
 from typing import Type, Optional
+from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 from rendercontroller.util import Config
-from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 
 class RenderThread(object):
-    """Base class for thread objects that handle rendering a single frame on a particular render engine.
+    """Base class for thread objects that handle rendering a single frame with a particular render engine.
 
-    At a minimum, subclasses must implement the worker() and stop() methods and some way to set values for
-    public attributes listed below.
+    At a minimum, subclasses must implement the `worker` and `stop` methods, and assign values to the
+    public instance variables described below.
 
-    Attributes:
-        status = Status of render process (one of WAITING, RENDERING, FINISHED, FAILED).
-        pid = Process ID of render process on remote render node.
-        progress = Float percent progress of render for this frame.
-        time_stop = Epoch time when render finished or was stopped.
+        status: str = Status of render process: status.WAITING, status.RENDERING, status.FINISHED, or status.FAILED.
+        progress: float = Percent progress of this render process.
+        time_stop: float = Epoch time when this render processes ended.
     """
 
-    def __init__(self, config: Type[Config], node: str, path: str, frame: int, logger: Optional[logging.Logger]):
+    def __init__(self, config: Type[Config], job_id: str, node: str, path: str, frame: int):
         self.config = config
         self.node = node
         self.path = path
         self.frame = frame
         self.status = WAITING
-        self.pid: Optional[int] = None
         self.progress: float = 0.0
-        if logger:
-            self.logger = logger.getChild(f"{self.__class__.__name__} frame {frame} on {node}")
-        else:
-            self.logger = logging.getLogger(
-            f"{self.__class__.__name__}: {os.path.basename(self.path)} frame {frame} on {self.node}"
-        )
+        log_base = f"{job_id} {os.path.basename(self.path)} {self.__class__.__name__} "
+        instance_info = f"{self.__class__.__name__} frame {frame} on {node}: "
+        self.logger = logging.getLogger(log_base + instance_info)
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.time_start: float = 0.0
         self.time_stop: float = 0.0
 
-    @property
-    def render_time(self) -> float:
-        """Returns time in seconds to render the frame."""
+    def elapsed_time(self) -> float:
+        """Returns time taken to render the frame in seconds."""
         if self.time_stop:
             return self.time_start - self.time_stop
         return self.time_start - time.time()
@@ -65,7 +58,7 @@ class RenderThread(object):
         """Must be implemented by subclasses.
 
         This method will be executed in a new threading.Thread. It must execute the render process and ensure
-        values are assigned to the `status`, `pid`, `progress`, and `time_stop` instance variables.
+        values are assigned to the `status`, `progress`, and `time_stop` instance variables.
         """
         raise NotImplementedError
 
@@ -76,14 +69,15 @@ class BlenderRenderThread(RenderThread):
     Only verified to work with Cycles render engine up to version 2.93.7 on Linux and MacOS.
     """
 
-    def __init__(self, config: Type[Config], node: str, path: str, frame: int, logger: logging.Logger):
+    def __init__(self, *args, **kwargs):
         # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
-        super().__init__(config, node, path, frame, logger)
+        super().__init__(*args, **kwargs)
+        self.pid: Optional[int] = None
         self.regex = re.compile("Rendered ([0-9]+)/([0-9]+) Tiles")
-        if node in config.macs:
-            self.execpath = config.blenderpath_mac
+        if self.node in self.config.macs:
+            self.execpath = self.config.blenderpath_mac
         else:
-            self.execpath = config.blenderpath_linux
+            self.execpath = self.config.blenderpath_linux
 
     def stop(self) -> None:
         """Stops the render.

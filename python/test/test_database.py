@@ -3,7 +3,7 @@ import tempfile
 import os.path
 import sqlite3
 from unittest import mock
-from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 from rendercontroller.controller import StateDatabase
 

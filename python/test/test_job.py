@@ -2,7 +2,7 @@ import pytest
 import time
 from unittest import mock
 from rendercontroller.job import RenderJob
-from rendercontroller.status import WAITING, RENDERING, FINISHED, STOPPED, FAILED
+from rendercontroller.constants import WAITING, RENDERING, FINISHED, STOPPED, FAILED
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 
 
@@ -170,7 +170,7 @@ def test_job_init_restore(render, conf, testjob2):
 def test_job_set_status(job1, testjob1):
     assert job1.status == WAITING
     job1.db.update_job_status.assert_not_called()
-    job1.set_status(STOPPED)
+    job1._set_status(STOPPED)
     assert job1.status == STOPPED
     job1.db.update_job_status.assert_called_with(testjob1["id"], STOPPED)
 
@@ -567,7 +567,7 @@ def test_job_frame_finished(pop, sns, job1):
     assert frame not in job1.frames_completed
     rt = mock.MagicMock(name="RenderThread")
     rt.frame = frame
-    rt.render_time = 123.456
+    rt.elapsed_time.return_value = 123.456
     job1._frame_finished("node1", rt)
     job1.queue.task_done.assert_called_once()
     assert frame in job1.frames_completed

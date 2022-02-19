@@ -4,7 +4,7 @@ import pytest
 from unittest import mock
 
 from rendercontroller.controller import RenderController, RenderQueue
-from rendercontroller.status import WAITING, RENDERING, STOPPED, FAILED, FINISHED
+from rendercontroller.constants import WAITING, RENDERING, STOPPED, FAILED, FINISHED
 from rendercontroller.exceptions import (
     JobNotFoundError,
     JobStatusError,
@@ -228,9 +228,6 @@ def test_controller_enable_node(rc_with_mocked_job):
     job.return_value.enable_node.assert_not_called()
     rc.enable_node("testjob01", "node4")
     job.return_value.enable_node.assert_called_with("node4")
-    # Test node not found
-    with pytest.raises(NodeNotFoundError):
-        rc.enable_node("testjob01", "node99")
     # Test job not found
     with pytest.raises(JobNotFoundError):
         rc.enable_node("badkey", "node1")
@@ -241,9 +238,6 @@ def test_controller_disable_node(rc_with_mocked_job):
     job.return_value.enable_node.assert_not_called()
     rc.disable_node("testjob01", "node4")
     job.return_value.disable_node.assert_called_with("node4")
-    # Test node not found
-    with pytest.raises(NodeNotFoundError):
-        rc.disable_node("testjob01", "node99")
     # Test job not found
     with pytest.raises(JobNotFoundError):
         rc.disable_node("badkey", "node1")

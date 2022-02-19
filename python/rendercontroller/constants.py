@@ -4,3 +4,6 @@ RENDERING = "Rendering"
 STOPPED = "Stopped"
 FINISHED = "Finished"
 FAILED = "Failed"
+
+# Render engines
+BLENDER = "blender"

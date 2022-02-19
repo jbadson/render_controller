@@ -10,7 +10,7 @@ from rendercontroller.job import RenderJob
 from rendercontroller.database import StateDatabase
 from rendercontroller.util import Config
 from rendercontroller.exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
-from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("controller")
 
@@ -242,7 +242,7 @@ class RenderController(object):
     def start(self, job_id: str) -> None:
         """Starts a render job."""
         # TODO raise exception if fails
-        self._try_get_job(job_id).start()
+        self._try_get_job(job_id).render()
 
     def start_next(self) -> Optional[str]:
         """Starts next job in queue and return job ID.  If no jobs in queue, returns None."""

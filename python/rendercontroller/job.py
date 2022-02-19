@@ -4,11 +4,60 @@ import os.path
 import queue
 import logging
 from typing import Type, List, Tuple, Sequence, Dict, Optional, Any
+from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED, BLENDER
 from rendercontroller.renderthread import RenderThread, BlenderRenderThread
 from rendercontroller.util import format_time, Config
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 from rendercontroller.database import StateDatabase
-from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+
+
+class Executor(object):
+    """Manages the execution of a render process on a particular node.
+
+    Deep lore: Why does this class even exist? The plan has long been to remove the SSH dependency and
+    run a client on render nodes to manage render processes locally. It's not clear if that will ever
+    materialize because SSH has worked well enough for our purposes so far, but this class was added in
+    the spirit of modularity to provide a generic interface between the frame distribution logic and the
+    render execution logic. If and when the client is implemented, the RenderThreads will live there,
+    which is why we don't want RenderJob to invoke them directly.
+    """
+    def __init__(self, config: Type[Config], job_id: str, path: str, node: str):
+        self.config = config
+        self.job_id = job_id
+        self.node = node
+        self.path = path
+        self._frame: Optional[int] = None
+        self.thread: Optional[RenderThread] = None
+        # Guess render engine based on file extension.
+        if self.path.lower().endswith(".blend"):
+            self.engine = BLENDER
+        else:
+            raise ValueError("Could not determine render engine from filename.")
+
+    @property
+    def status(self) -> str:
+        if self.thread:
+            return self.thread.status
+        return WAITING
+
+    @property
+    def progress(self) -> float:
+        if self.thread:
+            return self.thread.progress
+        return 0.0
+
+    def render(self, frame: int) -> None:
+        if self.thread and self.thread.status == RENDERING:
+            raise RuntimeError("Node already has an active render process.")
+        if self.engine == BLENDER:
+            self.thread = BlenderRenderThread(config=self.config, job_id=self.job_id, node=self.node, frame=frame)
+        if not self.thread:
+            raise RuntimeError("No suitable RenderThread subclass found.")
+        self.thread.start()
+
+    def stop(self) -> None:
+        if self.thread:
+            self.thread.stop()
 
 
 class RenderJob(object):
@@ -272,7 +321,7 @@ class RenderJob(object):
     def _frame_finished(self, node: str, thread: RenderThread):
         self.queue.task_done()
         self.logger.info(
-            f"Finished frame {thread.frame} on {node} after {format_time(thread.render_time)}."
+            f"Finished frame {thread.frame} on {node} after {format_time(thread.elapsed_time())}."
         )
         self.frames_completed.append(thread.frame)
         self._set_node_status(node)
@@ -336,7 +385,7 @@ class RenderJob(object):
                     frame = self.queue.get()
                     self.logger.info(f"Sending frame {frame} to {node}.")
                     # TODO Implement terragen thread?
-                    t = BlenderRenderThread(self.config, node, self.path, frame, self.logger)
+                    t = BlenderRenderThread(self.config, self.id, node, self.path, frame)
                     self._set_node_status(node, frame, t)
                     t.start()
 

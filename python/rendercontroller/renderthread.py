@@ -11,7 +11,6 @@ from rendercontroller.util import Config
 from rendercontroller.status import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 
-
 class RenderThread(object):
     """Base class for thread objects that handle rendering a single frame on a particular render engine.
 
@@ -22,10 +21,11 @@ class RenderThread(object):
         status = Status of render process (one of WAITING, RENDERING, FINISHED, FAILED).
         pid = Process ID of render process on remote render node.
         progress = Float percent progress of render for this frame.
-        time_stop = Epoch time when render finished.
+        time_stop = Epoch time when render finished or was stopped.
     """
 
-    def __init__(self, node: str, path: str, frame: int, logger: Optional[logging.Logger]):
+    def __init__(self, config: Type[Config], node: str, path: str, frame: int, logger: Optional[logging.Logger]):
+        self.config = config
         self.node = node
         self.path = path
         self.frame = frame
@@ -55,15 +55,17 @@ class RenderThread(object):
         self.thread.start()
 
     def stop(self) -> None:
-        """Stops the render."""
+        """Must be implemented by subclasses.
+
+        This method should terminate the active render process and ensure the `time_stop` instance variable is set.
+        """
         raise NotImplementedError
 
     def worker(self) -> None:
         """Must be implemented by subclasses.
 
-        This method will be launched in a new threading.Thread. It must execute the
-        render process and populate the status, pid, progress, and time_stop attributes,
-        or delegate those tasks to other methods.
+        This method will be executed in a new threading.Thread. It must execute the render process and ensure
+        values are assigned to the `status`, `pid`, `progress`, and `time_stop` instance variables.
         """
         raise NotImplementedError
 
@@ -76,7 +78,7 @@ class BlenderRenderThread(RenderThread):
 
     def __init__(self, config: Type[Config], node: str, path: str, frame: int, logger: logging.Logger):
         # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
-        super().__init__(node, path, frame, logger)
+        super().__init__(config, node, path, frame, logger)
         self.regex = re.compile("Rendered ([0-9]+)/([0-9]+) Tiles")
         if node in config.macs:
             self.execpath = config.blenderpath_mac

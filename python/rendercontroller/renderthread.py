@@ -75,7 +75,10 @@ class BlenderRenderThread(RenderThread):
         # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
         super().__init__(*args, **kwargs)
         self.pid: Optional[int] = None
-        self.regex = re.compile("Rendered ([0-9]+)/([0-9]+) Tiles")
+        self.patterns = (
+            re.compile("Rendered ([0-9]+)/([0-9]+) Tiles"), # Cycles
+            re.compile("Rendering\s+([0-9]+)\s+/\s+([0-9]+)\s+samples"), # Eevee
+        )
         if self.node in self.config.macs:
             self.execpath = self.config.blenderpath_mac
         else:
@@ -131,11 +134,12 @@ class BlenderRenderThread(RenderThread):
         # self.logger.debug(f"BLENDER OUTPUT: {line}")
         # Try to get progress from tiles
         if line.startswith("Fra:"):
-            m = self.regex.search(line)
-            if m:
-                tiles, total = m.group(1), m.group(2)
-                self.progress = int(tiles) / int(total) * 100
-                return
+            for regex in self.patterns:
+                m = regex.search(line)
+                if m:
+                    tiles, total = m.group(1), m.group(2)
+                    self.progress = int(tiles) / int(total) * 100
+                    return
         # Detect PID from first return line
         # Convoluted because Popen.pid is the local ssh process, not the remote blender process.
         if line.strip().isdigit():

@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from . import server, controller, job, framechecker, cli
+from . import server, controller, job, framechecker
 
 __version__ = "1.1.1"
 

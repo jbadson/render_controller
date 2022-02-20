@@ -25,7 +25,6 @@ setup(
     data_files=[("/etc", ["conf/rendercontroller.conf"])],
     entry_points={"console_scripts": [
         "rcontroller-server = rendercontroller:main",
-        "rcontroller = rendercontroller:cli.main",
         "framechecker = rendercontroller:framechecker.main",
     ]},
     setup_requires=[],

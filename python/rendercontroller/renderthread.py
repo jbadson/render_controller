@@ -68,16 +68,17 @@ class RenderThread(object):
 class BlenderRenderThread(RenderThread):
     """Handles rendering a single frame in Blender.
 
-    Only verified to work with Cycles render engine up to version 2.93.7 on Linux and MacOS.
+    Works with Cycles and Eevee, tested with Blender version 2.93.7 on MacOS and Linux.
     """
 
     def __init__(self, *args, **kwargs):
         # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
         super().__init__(*args, **kwargs)
         self.pid: Optional[int] = None
+        # Allow multiple regex patterns to support the different Blender output formats
         self.patterns = (
-            re.compile("Rendered ([0-9]+)/([0-9]+) Tiles"), # Cycles
-            re.compile("Rendering\s+([0-9]+)\s+/\s+([0-9]+)\s+samples"), # Eevee
+            re.compile("Rendered ([0-9]+)/([0-9]+) Tiles"),  # Cycles
+            re.compile("Rendering\s+([0-9]+)\s+/\s+([0-9]+)\s+samples"),  # Eevee
         )
         if self.node in self.config.macs:
             self.execpath = self.config.blenderpath_mac
@@ -137,8 +138,8 @@ class BlenderRenderThread(RenderThread):
             for regex in self.patterns:
                 m = regex.search(line)
                 if m:
-                    tiles, total = m.group(1), m.group(2)
-                    self.progress = int(tiles) / int(total) * 100
+                    rendered, total = m.group(1), m.group(2)
+                    self.progress = int(rendered) / int(total) * 100
                     return
         # Detect PID from first return line
         # Convoluted because Popen.pid is the local ssh process, not the remote blender process.

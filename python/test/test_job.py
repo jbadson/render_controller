@@ -526,59 +526,58 @@ def test_job_frame_finished(pop, job1):
     pop.assert_called_once()
 
 
-@mock.patch("rendercontroller.job.RenderJob._set_node_status")
-def test_job_frame_failed(sns, job1):
+def test_job_frame_failed(job1):
     frame = 5
     node = "node1"
     q = mock.MagicMock(name="queue.LiFoQueue")
     job1.queue = q
-    q.put.assert_not_called()
+    ex = mock.MagicMock(name="Executor")
+    ex.frame = frame
+    job1.node_status[node] = ex
     assert node not in job1.skip_list
-    sns.assert_not_called()
-    rt = mock.MagicMock(name="RenderThread")
-    rt.frame = frame
-    job1._frame_failed(node, rt)
+    q.put.assert_not_called()
+    ex.ack_done.assert_not_called()
+    job1._frame_failed(node)
     q.put.assert_called_with(frame)
     assert node in job1.skip_list
+    ex.ack_done.assert_called_once()
     assert frame not in job1.frames_completed
-    sns.assert_called_with(node)
 
 
-@mock.patch("rendercontroller.job.RenderJob._set_node_status")
-def test_job_pop_skipped_node(sns, job1):
+#FIXME remvoe all refs to _set_node_status
+def test_job_pop_skipped_node(job1):
     # Case 1: skip list empty
     assert len(job1.skip_list) == 0
     job1._pop_skipped_node()  # Nothing should happen
     assert len(job1.skip_list) == 0
-    sns.assert_not_called()
     # Case 2: Something in skip list
     job1.skip_list.append("node2")
     job1._pop_skipped_node()
     assert "node2" not in job1.skip_list
-    sns.assert_called_with("node2")
 
 
 @mock.patch("rendercontroller.job.RenderJob._render_finished")
 def test_job_mainloop_1(rfin, job1):
     """Tests first block of mainloop: checking if job is finished."""
-    stop = LoopStopper(1)
-    job1._stop = stop
-    q = mock.MagicMock(name="queue.LiFoQueue")
-    job1.queue = q
+    job1._stop = LoopStopper(1)
     # Case 1: Queue empty and no threads running -> _render_finished
+    q = mock.MagicMock(name="queue.LiFoQueue")
+    q.empty.return_value = True
+    job1.queue = q
     rfin.assert_not_called()
     assert not job1.frames_rendering()
-    q.empty.return_value = True
     job1._mainloop()
     rfin.assert_called_once()
     # Corollary: If queue empty but threads *are* running, do not call finished
     rfin.reset_mock()
-    t = mock.MagicMock(name="RenderThread")
-    t.status = "other"  # to bypass status checking logic, don't care about that yet.
-    job1.node_status["node1"] = {"frame": 5, "thread": t, "progress": 0.0}
+    ex = mock.MagicMock(name="Executor")
+    ex.is_idle.return_value = False
+    job1.node_status["node1"] = ex
+    ex.is_idle.assert_not_called()
     assert job1.frames_rendering()
     job1._mainloop()
     rfin.assert_not_called()
+    ex.is_idle.assert_called_once()
 
 
 @mock.patch("rendercontroller.job.RenderJob._pop_skipped_node")
@@ -601,69 +600,77 @@ def test_job_mainloop_2(pop, job1, testjob1):
     pop.assert_called_once()
 
 
-@mock.patch("rendercontroller.job.BlenderRenderThread")
-def test_job_mainloop_3(rt, job1):
-    """Tests first block of inner (node) loop: node in skip list."""
-    stop = LoopStopper(2)  # _stop gets checked a second time in node loop
-    job1._stop = stop
-    q = mock.MagicMock(name="queue.LiFoQueue")
-    q.empty.return_value = False
-    job1.queue = q
-    job1.skip_list = ["node1"]
-    assert "node1" in job1.nodes_enabled
-    assert not job1.get_nodes_status()["node1"]["rendering"]
-    job1._mainloop()
-    q.get.assert_not_called()
-    rt.assert_not_called()
-
-
 @mock.patch("rendercontroller.job.RenderJob._frame_failed")
 @mock.patch("rendercontroller.job.RenderJob._frame_finished")
-def test_job_mainloop_4(ffin, ffail, job1):
-    """Tests second block of inner (node) loop: node has thread assigned -> check status."""
+def test_job_mainloop_3(ffin, ffail, job1):
+    """Tests first unit of inner (node) loop: node has thread assigned -> check status."""
     stop = LoopStopper(2)
     job1._stop = stop
-    t = mock.MagicMock(name="RenderThread")
-    # Case 1: RENDERING -> get progress
-    assert job1.node_status["node1"]["progress"] == 0.0
-    t.status = RENDERING
-    t.progress = 12.5
-    job1.node_status["node1"]["thread"] = t
+    mock_node_status = {}
+    for node in job1.config.render_nodes:
+        mock_node_status[node] = mock.MagicMock(name=f"Executor_{node}")
+    job1.node_status = mock_node_status
+
+    # Case 1: FINISHED or FAILED, but mainloop has already ack'd -> do nothing
+    # 1a: FINISHED and idle (ack'd)
+    job1.node_status["node1"].is_idle.return_value = True
+    job1.node_status["node1"].status = FINISHED
     job1._mainloop()
-    assert job1.node_status["node1"]["progress"] == 12.5
-    # Case 2: FINISHED -> _frame_finished
-    stop.reset()
-    ffin.reset_mock()
-    t.status = FINISHED
-    job1._mainloop()
-    ffin.assert_called_with("node1", t)
+    ffin.assert_not_called()
     ffail.assert_not_called()
-    # Case 3: FAILED -> _frame_failed
+    # 1b: FAILED and idle (ack'd)
+    stop.reset()
+    job1.node_status["node1"].status = FINISHED
+    job1._mainloop()
+    ffin.assert_not_called()
+    ffail.assert_not_called()
+
+    # Case 2: FINISHED but not ack'd -> _frame_finished
+    stop.reset()
+    job1.node_status["node1"].is_idle.return_value = False
+    job1.node_status["node1"].status = FINISHED
+    job1._mainloop()
+    ffin.assert_called_with("node1")
+    ffail.assert_not_called()
+
+    # Case 3: FAILED but not ack'd -> _frame_failed
     stop.reset()
     ffin.reset_mock()
-    t.status = FAILED
+    job1.node_status["node1"].status = FAILED
+    job1.node_status["node1"].is_idle.return_value = False
     job1._mainloop()
-    ffail.assert_called_with("node1", t)
+    ffail.assert_called_with("node1")
     ffin.assert_not_called()
 
 
-@mock.patch("rendercontroller.job.RenderJob._set_node_status")
-@mock.patch("rendercontroller.job.BlenderRenderThread")
-@mock.patch("rendercontroller.job.Config")
-def test_job_mainloop_5(rt, sns, job1):
-    """Tests third block of inner (node) loop: node is idle -> assign frame."""
+def test_job_mainloop_5(job1):
+    """Tests second unit of inner (node) loop: node is idle -> assign frame."""
     stop = LoopStopper(2)
     job1._stop = stop
     q = mock.MagicMock(name="queue.LiFoQueue")
     q.get.return_value = 2
     q.empty.return_value = False
     job1.queue = q
-    # FIXME why is nodes_enabled mocked?
-    assert isinstance(job1.nodes_enabled, list)
+    mock_node_status = {}
+    for node in job1.config.render_nodes:
+        mock_node_status[node] = mock.MagicMock(name=f"Executor_{node}")
+    job1.node_status = mock_node_status
+    # Case 1: Node is in skiplist -> do not assign frame
+    job1.skip_list = ["node1", ]
+    q.get.assert_not_called()
+    job1.node_status["node1"].render.assert_not_called()
     assert "node1" in job1.nodes_enabled
-    assert not job1.get_nodes_status()["node1"]["rendering"]
+    job1._mainloop()
+    q.get.assert_not_called()
+    job1.node_status["node1"].render.assert_not_called()
+
+    # Case 2: Node not in skiplist -> assign frame
+    stop.reset()
+    job1.skip_list = []
+    job1.node_status["node1"].reset_mock()
+    q.get.assert_not_called()
+    job1.node_status["node1"].render.assert_not_called()
+    assert "node1" in job1.nodes_enabled
     job1._mainloop()
     q.get.assert_called_once()
-    rt.assert_called_with(job1.config, "node1", job1.path, 2, job1.logger)
-    sns.assert_called_with("node1", 2, rt.return_value)
-    rt.return_value.start.assert_called_once()
+    job1.node_status["node1"].render.assert_called_with(2)

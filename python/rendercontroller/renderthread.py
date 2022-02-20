@@ -22,7 +22,9 @@ class RenderThread(object):
         time_stop: float = Epoch time when this render processes ended.
     """
 
-    def __init__(self, config: Type[Config], job_id: str, node: str, path: str, frame: int):
+    def __init__(
+        self, config: Type[Config], job_id: str, node: str, path: str, frame: int
+    ):
         self.config = config
         self.node = node
         self.path = path
@@ -87,7 +89,9 @@ class BlenderRenderThread(RenderThread):
         if not self.status == RENDERING:
             return
         if not self.pid:
-            self.logger.warning("Thread is rendering but no pid value is set. Unable to kill process.")
+            self.logger.warning(
+                "Thread is rendering but no pid value is set. Unable to kill process."
+            )
             return
         kill_thread = threading.Thread(target=self._ssh_kill_thread)
         kill_thread.start()
@@ -123,8 +127,8 @@ class BlenderRenderThread(RenderThread):
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")
             return
-        #FIXME uncomment when done
-        #self.logger.debug(f"BLENDER OUTPUT: {line}")
+        # FIXME uncomment when done
+        # self.logger.debug(f"BLENDER OUTPUT: {line}")
         # Try to get progress from tiles
         if line.startswith("Fra:"):
             m = self.regex.search(line)

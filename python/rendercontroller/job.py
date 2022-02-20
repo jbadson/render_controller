@@ -4,7 +4,14 @@ import os.path
 import queue
 import logging
 from typing import Type, List, Tuple, Sequence, Dict, Optional, Any
-from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED, BLENDER
+from rendercontroller.constants import (
+    WAITING,
+    RENDERING,
+    STOPPED,
+    FINISHED,
+    FAILED,
+    BLENDER,
+)
 from rendercontroller.renderthread import RenderThread, BlenderRenderThread
 from rendercontroller.util import format_time, Config
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
@@ -21,6 +28,7 @@ class Executor(object):
     render execution logic. If and when the client is implemented, the RenderThreads will live there,
     which is why we don't want RenderJob to invoke them directly.
     """
+
     def __init__(self, config: Type[Config], job_id: str, path: str, node: str):
         self.config = config
         self.job_id = job_id
@@ -58,7 +66,7 @@ class Executor(object):
         return 0.0
 
     def is_idle(self) -> bool:
-        #FIXME Still not sure how to deal with this.  Executor is idle if thread does not exist, or if thread.status
+        # FIXME Still not sure how to deal with this.  Executor is idle if thread does not exist, or if thread.status
         # is finished or stopped (waiting implies it's about to start).  But still need way for mainloop to register
         # that a thread has finished. Going with ack_done for now, but not sure it's the right approach.
         return self.idle
@@ -77,7 +85,13 @@ class Executor(object):
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Node already has an active render process.")
         if self.engine == BLENDER:
-            self.thread = BlenderRenderThread(config=self.config, job_id=self.job_id, node=self.node, path=self.path, frame=frame)
+            self.thread = BlenderRenderThread(
+                config=self.config,
+                job_id=self.job_id,
+                node=self.node,
+                path=self.path,
+                frame=frame,
+            )
         if not self.thread:
             raise RuntimeError("No suitable RenderThread subclass found.")
         self.idle = False
@@ -142,7 +156,9 @@ class RenderJob(object):
         for node in config.render_nodes:
             self.node_status[node] = Executor(self.config, self.id, self.path, node)
 
-        self.logger = logging.getLogger(f"{self.id} {os.path.basename(self.path)} RenderJob")
+        self.logger = logging.getLogger(
+            f"{self.id} {os.path.basename(self.path)} RenderJob"
+        )
         self.logger.info(
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
         )
@@ -238,7 +254,9 @@ class RenderJob(object):
             avg = elapsed / len(self.frames_completed)
         else:
             avg = 0.0
-        rem = ((self.end_frame - self.start_frame + 1) - len(self.frames_completed)) * avg
+        rem = (
+            (self.end_frame - self.start_frame + 1) - len(self.frames_completed)
+        ) * avg
         return elapsed, avg, rem
 
     def dump(self) -> Dict[str, Any]:
@@ -303,7 +321,7 @@ class RenderJob(object):
         if self.time_start and self.time_stop:
             # Job was stopped or finished. Server downtime is irrelevant but, we must still
             # account for the render time that has already elapsed.
-            #FIXME this works when restoring a job, but not when restarting a stopped job.
+            # FIXME this works when restoring a job, but not when restarting a stopped job.
             # In that case, offset should be time.time() - self.stop_time
             correction = self.time_stop - self.time_start
             self.time_stop = 0.0
@@ -361,7 +379,9 @@ class RenderJob(object):
                 self._render_finished()
                 break
 
-            if len(self.skip_list) > 0 and len(self.skip_list) >= len(self.nodes_enabled):
+            if len(self.skip_list) > 0 and len(self.skip_list) >= len(
+                self.nodes_enabled
+            ):
                 self.logger.debug(f"All nodes are in skip list. Releasing oldest one.")
                 self._pop_skipped_node()
 

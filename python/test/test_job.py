@@ -399,6 +399,7 @@ def test_job_start_timer1(timer, job1):
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_called_with(job1.id, t)
 
+
 @mock.patch("time.time")
 def test_job_start_timer2(timer, job1):
     """Case 2: New or restored job, status waiting, offset.
@@ -415,6 +416,7 @@ def test_job_start_timer2(timer, job1):
     assert job1.time_start == t
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_called_with(job1.id, t)
+
 
 @mock.patch("time.time")
 def test_job_start_timer3(timer, job1):
@@ -437,6 +439,7 @@ def test_job_start_timer3(timer, job1):
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_called_with(job1.id, expected)
 
+
 @mock.patch("time.time")
 def test_job_start_timer4(timer, job1):
     """Case 4: Stopped or finished job with offset.
@@ -457,6 +460,7 @@ def test_job_start_timer4(timer, job1):
     assert job1.time_stop == 0.0
     assert job1.time_offset == 0.0
     job1.db.update_job_time_start.assert_called_with(job1.id, expected)
+
 
 @mock.patch("time.time")
 def test_job_start_timer5(timer, job1):
@@ -544,7 +548,6 @@ def test_job_frame_failed(job1):
     assert frame not in job1.frames_completed
 
 
-#FIXME remvoe all refs to _set_node_status
 def test_job_pop_skipped_node(job1):
     # Case 1: skip list empty
     assert len(job1.skip_list) == 0
@@ -656,7 +659,9 @@ def test_job_mainloop_5(job1):
         mock_node_status[node] = mock.MagicMock(name=f"Executor_{node}")
     job1.node_status = mock_node_status
     # Case 1: Node is in skiplist -> do not assign frame
-    job1.skip_list = ["node1", ]
+    job1.skip_list = [
+        "node1",
+    ]
     q.get.assert_not_called()
     job1.node_status["node1"].render.assert_not_called()
     assert "node1" in job1.nodes_enabled

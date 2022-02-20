@@ -9,7 +9,11 @@ from collections import OrderedDict
 from rendercontroller.job import RenderJob
 from rendercontroller.database import StateDatabase
 from rendercontroller.util import Config
-from rendercontroller.exceptions import JobNotFoundError, NodeNotFoundError, JobStatusError
+from rendercontroller.exceptions import (
+    JobNotFoundError,
+    NodeNotFoundError,
+    JobStatusError,
+)
 from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED
 
 logger = logging.getLogger("controller")
@@ -236,7 +240,9 @@ class RenderController(object):
             return self.queue.get_by_id(job_id)
         except KeyError:
             caller = inspect.stack()[1].function
-            logger.error(f"_try_get_job() invoked by {caller}() caught KeyError on '{job_id}'")
+            logger.error(
+                f"_try_get_job() invoked by {caller}() caught KeyError on '{job_id}'"
+            )
         raise JobNotFoundError(f"Job {job_id} not found")
 
     def start(self, job_id: str) -> None:
@@ -252,7 +258,10 @@ class RenderController(object):
             return job.id
         return None
 
-    def stop(self, job_id: str, ) -> None:
+    def stop(
+        self,
+        job_id: str,
+    ) -> None:
         """
         Stops a render job.
 

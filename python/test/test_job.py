@@ -32,7 +32,7 @@ def testjob1():
     Note: Must be in fixture to pass-by-reference induced confusion if tests change values."""
     return {
         "id": "job01",
-        "path": "/tmp/job1",
+        "path": "/tmp/job1.blend",
         "start_frame": 0,
         "end_frame": 100,
         "render_nodes": ["node1", "node2"],
@@ -45,7 +45,7 @@ def testjob2():
     return {
         "id": "job02",
         "status": RENDERING,
-        "path": "/tmp/job2",
+        "path": "/tmp/job2.blend",
         "start_frame": 0,
         "end_frame": 25,
         "render_nodes": ["node1", "node2", "node3"],
@@ -91,8 +91,9 @@ def job2(ml, rt, testjob2):
     return job
 
 
+@mock.patch("rendercontroller.job.Executor")
 @mock.patch("rendercontroller.controller.Config")
-def test_job_init_new(conf, testjob1):
+def test_job_init_new(conf, ex, testjob1):
     """Tests creating a new job."""
     conf.render_nodes = render_nodes
     db = mock.MagicMock(name="StateDatabase")
@@ -110,7 +111,7 @@ def test_job_init_new(conf, testjob1):
     assert j.time_start == 0.0
     assert j.time_stop == 0.0
     assert j.time_offset == 0.0
-    assert j.frames_completed == []
+    assert j.frames_completed == set()
     queue_expected = list(range(0, 100 + 1))
     queue_actual = []
     while not j.queue.empty():
@@ -118,10 +119,10 @@ def test_job_init_new(conf, testjob1):
     assert queue_actual == queue_expected
     assert j.skip_list == []
     node_status_expected = {
-        "node1": {"frame": None, "thread": None, "progress": 0.0},
-        "node2": {"frame": None, "thread": None, "progress": 0.0},
-        "node3": {"frame": None, "thread": None, "progress": 0.0},
-        "node4": {"frame": None, "thread": None, "progress": 0.0},
+        "node1": ex.return_value,
+        "node2": ex.return_value,
+        "node3": ex.return_value,
+        "node4": ex.return_value,
     }
     assert j.node_status == node_status_expected
     # Test start frame > end frame
@@ -129,9 +130,10 @@ def test_job_init_new(conf, testjob1):
         j = RenderJob(conf, db, "failjob", "/tmp/failjob", 10, 5, render_nodes)
 
 
+@mock.patch("rendercontroller.job.Executor")
 @mock.patch("rendercontroller.controller.Config")
 @mock.patch("rendercontroller.job.RenderJob.render")
-def test_job_init_restore(render, conf, testjob2):
+def test_job_init_restore(render, conf, ex, testjob2):
     """Tests restoring a job from disk."""
     conf.render_nodes = render_nodes
     db = mock.MagicMock(name="StateDatabase")
@@ -149,7 +151,7 @@ def test_job_init_restore(render, conf, testjob2):
     assert j.time_start == testjob2["time_start"]
     assert j.time_stop == testjob2["time_stop"]
     assert j.time_offset == testjob2["time_offset"]
-    assert j.frames_completed == testjob2["frames_completed"]
+    assert j.frames_completed == set(testjob2["frames_completed"])
     # Check generated params
     queue_expected = list(range(9, 25 + 1))
     queue_actual = []
@@ -159,10 +161,10 @@ def test_job_init_restore(render, conf, testjob2):
     assert j.skip_list == []
     render.assert_called_once()
     node_status_expected = {
-        "node1": {"frame": None, "thread": None, "progress": 0.0},
-        "node2": {"frame": None, "thread": None, "progress": 0.0},
-        "node3": {"frame": None, "thread": None, "progress": 0.0},
-        "node4": {"frame": None, "thread": None, "progress": 0.0},
+        "node1": ex.return_value,
+        "node2": ex.return_value,
+        "node3": ex.return_value,
+        "node4": ex.return_value,
     }
     assert j.node_status == node_status_expected
 
@@ -237,18 +239,18 @@ def test_job_disable_node(job1, testjob1):
 
 def test_job_get_progress(job1):
     assert job1.status == WAITING
-    assert job1.frames_completed == []
+    assert job1.frames_completed == set()
     assert job1.get_progress() == 0.0
-    job1.frames_completed = list(range(25))
+    job1.frames_completed = set(range(25))
     assert job1.get_progress() == pytest.approx(24.75, rel=1e-3)
-    job1.frames_completed = list(range(75))
+    job1.frames_completed = set(range(75))
     assert job1.get_progress() == pytest.approx(74.26, rel=1e-3)
-    job1.frames_completed = list(range(job1.start_frame, job1.end_frame + 1))
+    job1.frames_completed = set(range(job1.start_frame, job1.end_frame + 1))
     assert job1.get_progress() == 100.0
     # Make sure we don't divide by zero if start_frame == end_frame
     job1.end_frame = 0
     assert job1.start_frame == job1.end_frame
-    job1.frames_completed = []
+    job1.frames_completed = set()
     assert job1.get_progress() == 0.0
 
 
@@ -349,13 +351,16 @@ def test_job_dump(job1, job2, testjob1, testjob2):
     }
 
 
-def test_job_render_threads_active(job1):
-    assert job1.render_threads_active() is False
-    job1.node_status["node2"]["thread"] = mock.MagicMock(name="RenderThread")
-    assert job1.render_threads_active() is True
+@mock.patch("rendercontroller.job.Executor")
+def test_job_frames_rendering(ex, job1):
+    assert job1.frames_rendering() is False
+    job1.node_status["node2"] = mock.MagicMock(name="Executor")
+    job1.node_status["node2"].is_idle.return_value = False
+    assert job1.frames_rendering() is True
 
 
-def test_job_get_nodes_status(job1):
+@mock.patch("rendercontroller.job.Executor")
+def test_job_get_nodes_status(ex, job1):
     expected = {
         "node1": {"frame": None, "progress": 0.0, "enabled": True, "rendering": False},
         "node2": {"frame": None, "progress": 0.0, "enabled": True, "rendering": False},
@@ -365,9 +370,10 @@ def test_job_get_nodes_status(job1):
     # Case 1: Defaults & node enabled but idle
     assert job1.get_nodes_status() == expected
     # Case 2: Node enabled and rendering
-    job1.node_status["node2"]["frame"] = 1
-    job1.node_status["node2"]["thread"] = mock.MagicMock(name="RenderThread")
-    job1.node_status["node2"]["progress"] = 15.0
+    job1.node_status["node2"] = mock.MagicMock(name="Executor")
+    job1.node_status["node2"].frame = 1
+    job1.node_status["node2"].is_idle.return_value = False
+    job1.node_status["node2"].progress = 15.0
     expected["node2"] = {
         "frame": 1,
         "progress": 15.0,
@@ -375,62 +381,6 @@ def test_job_get_nodes_status(job1):
         "rendering": True,
     }
     assert job1.get_nodes_status() == expected
-
-
-def test_job_set_node_status(job1):
-    # Case 1: Reset to defaults (no params passed)
-    job1.node_status = {}
-    assert "node1" not in job1.node_status
-    job1._set_node_status("node1")  # Node is enabled
-    assert job1.get_nodes_status()["node1"] == {
-        "frame": None,
-        "progress": 0.0,
-        "enabled": True,
-        "rendering": False,
-    }
-    assert "node3" not in job1.node_status
-    job1._set_node_status("node3")  # Node is not enabled
-    assert job1.get_nodes_status()["node3"] == {
-        "frame": None,
-        "progress": 0.0,
-        "enabled": False,
-        "rendering": False,
-    }
-    # Case 2: Set frame only
-    job1._set_node_status("node1", frame=3)
-    assert job1.get_nodes_status()["node1"] == {
-        "frame": 3,
-        "progress": 0.0,
-        "enabled": True,
-        "rendering": False,
-    }
-    # Case 3: Set progress only
-    job1._set_node_status("node1", progress=28.1)
-    assert job1.get_nodes_status()["node1"] == {
-        "frame": None,
-        "progress": 28.1,
-        "enabled": True,
-        "rendering": False,
-    }
-    # Case 4: Set thread only
-    t = mock.MagicMock(name="RenderThread")
-    job1._set_node_status("node1", thread=t)
-    assert job1.get_nodes_status()["node1"] == {
-        "frame": None,
-        "progress": 0.0,
-        "enabled": True,
-        "rendering": True,
-    }
-    assert job1.node_status["node1"]["thread"] is t
-    # Case 5: Set everything
-    job1._set_node_status("node1", frame=5, progress=81.53, thread=t)
-    assert job1.get_nodes_status()["node1"] == {
-        "frame": 5,
-        "progress": 81.53,
-        "enabled": True,
-        "rendering": True,
-    }
-    assert job1.node_status["node1"]["thread"] is t
 
 
 @mock.patch("time.time")
@@ -555,24 +505,24 @@ def test_job_render_finished(timer, times, job2):
     times.assert_called_once()
 
 
-@mock.patch("rendercontroller.job.RenderJob._set_node_status")
 @mock.patch("rendercontroller.job.RenderJob._pop_skipped_node")
-def test_job_frame_finished(pop, sns, job1):
+def test_job_frame_finished(pop, job1):
     frame = 5
     queue = mock.MagicMock(name="queue.LiFoQueue")
     job1.queue = queue
     job1.queue.task_done.assert_not_called()
+    ex = mock.MagicMock(name="Executor")
+    job1.node_status["node1"] = ex
+    ex.ack_done.assert_not_called()
     pop.assert_not_called()
-    sns.assert_not_called()
     assert frame not in job1.frames_completed
-    rt = mock.MagicMock(name="RenderThread")
-    rt.frame = frame
-    rt.elapsed_time.return_value = 123.456
-    job1._frame_finished("node1", rt)
+    ex.frame = frame
+    ex.elapsed_time.return_value = 123.456
+    job1._frame_finished("node1")
     job1.queue.task_done.assert_called_once()
+    ex.ack_done.assert_called_once()
     assert frame in job1.frames_completed
-    sns.assert_called_with("node1")
-    job1.db.update_job_frames_completed.assert_called_with(job1.id, [5])
+    job1.db.update_job_frames_completed.assert_called_with(job1.id, {5})
     pop.assert_called_once()
 
 
@@ -617,7 +567,7 @@ def test_job_mainloop_1(rfin, job1):
     job1.queue = q
     # Case 1: Queue empty and no threads running -> _render_finished
     rfin.assert_not_called()
-    assert not job1.render_threads_active()
+    assert not job1.frames_rendering()
     q.empty.return_value = True
     job1._mainloop()
     rfin.assert_called_once()
@@ -626,7 +576,7 @@ def test_job_mainloop_1(rfin, job1):
     t = mock.MagicMock(name="RenderThread")
     t.status = "other"  # to bypass status checking logic, don't care about that yet.
     job1.node_status["node1"] = {"frame": 5, "thread": t, "progress": 0.0}
-    assert job1.render_threads_active()
+    assert job1.frames_rendering()
     job1._mainloop()
     rfin.assert_not_called()
 

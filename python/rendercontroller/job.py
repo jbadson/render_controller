@@ -26,7 +26,7 @@ class Executor(object):
         self.job_id = job_id
         self.node = node
         self.path = path
-        self._frame: Optional[int] = None
+        self.idle: bool = True
         self.thread: Optional[RenderThread] = None
         # Guess render engine based on file extension.
         if self.path.lower().endswith(".blend"):
@@ -46,13 +46,41 @@ class Executor(object):
             return self.thread.progress
         return 0.0
 
+    @property
+    def frame(self) -> Optional[int]:
+        if self.thread:
+            return self.thread.frame
+        return None
+
+    def elapsed_time(self) -> float:
+        if self.thread:
+            return self.thread.elapsed_time()
+        return 0.0
+
+    def is_idle(self) -> bool:
+        #FIXME Still not sure how to deal with this.  Executor is idle if thread does not exist, or if thread.status
+        # is finished or stopped (waiting implies it's about to start).  But still need way for mainloop to register
+        # that a thread has finished. Going with ack_done for now, but not sure it's the right approach.
+        return self.idle
+
+    def ack_done(self) -> None:
+        """Tells Executor that the calling function has registered that render has finished or was stopped.
+
+        This is necessary to ensure the calling function has had an opportunity to perform necessary cleanup
+        tasks before this Executor is marked as idle and ready to accept another frame.
+        """
+        if self.thread and self.thread.status == RENDERING:
+            raise RuntimeError("Render is not done.")
+        self.idle = True
+
     def render(self, frame: int) -> None:
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Node already has an active render process.")
         if self.engine == BLENDER:
-            self.thread = BlenderRenderThread(config=self.config, job_id=self.job_id, node=self.node, frame=frame)
+            self.thread = BlenderRenderThread(config=self.config, job_id=self.job_id, node=self.node, path=self.path, frame=frame)
         if not self.thread:
             raise RuntimeError("No suitable RenderThread subclass found.")
+        self.idle = False
         self.thread.start()
 
     def stop(self) -> None:
@@ -89,13 +117,13 @@ class RenderJob(object):
         self.time_start = time_start
         self.time_stop = time_stop
         self.time_offset = time_offset
-        self._stop = False
+        self._stop: bool
+        self.master_thread: threading.Thread
+        self._reset_render_state()
 
         # frames_completed cannot simply be a count because frames may fail and be reassigned
         # out of order, and we must know this in order to correctly restore a job from disk.
-        # Must also be mutable and ordered, so ensure it's a list.
-        # FIXME why does it have to be ordered?
-        self.frames_completed = list(frames_completed)
+        self.frames_completed = set(frames_completed)
 
         # LiFo because we want to be able to put and re-render failed frames before moving on to others.
         self.queue: queue.LifoQueue = queue.LifoQueue()
@@ -110,18 +138,15 @@ class RenderJob(object):
         # that is having some kind of problem.  Nodes are removed from skip_list in FiFo order for
         # each frame successfully rendered on another node, or if all nodes end up in skip_list.
         self.skip_list: List[str] = []
-        self.node_status: Dict[str, dict] = {}
+        self.node_status: Dict[str, Executor] = {}
         for node in config.render_nodes:
-            self._set_node_status(node)
+            self.node_status[node] = Executor(self.config, self.id, self.path, node)
 
-        #self.logger = logging.getLogger(f"RenderJob: {self.id} {os.path.basename(self.path)}")
         self.logger = logging.getLogger(f"{self.id} {os.path.basename(self.path)} RenderJob")
         self.logger.info(
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
         )
-        self._reset_render_state()
         if self.status == RENDERING:
-            # FIXME Can't decide if this should happen here, or if we should reset status and make caller re-start the render.
             self._set_status(WAITING)
             self.render()
 
@@ -149,14 +174,11 @@ class RenderJob(object):
         # Ensure all rendering frames are put back in queue.  Do not leave this to
         # _mainloop because there is a chance frames could be missed depending on
         # where in the two iterations the _stop flag is detected.
-        for node in self.node_status:
-            thread = self.node_status[node]["thread"]
-            if thread:
-                # Don't care what thread.status is because the existence of thread implies
-                # completion hasn't been detected in _mainloop even if thread is finished.
-                # If all else fails, it's better to re-render a frame than to skip one.
-                thread.stop()
-                self.queue.put(thread.frame)
+        for executor in self.node_status.values():
+            executor.stop()
+            frame = executor.frame
+            if frame:
+                self.queue.put(frame)
         if self.master_thread and self.master_thread.is_alive():
             self.logger.debug(f"Waiting for master thread to exit.")
             self.master_thread.join()
@@ -234,15 +256,15 @@ class RenderJob(object):
             "time_elapsed": elapsed,
             "time_avg_per_frame": avg,
             "time_remaining": rem,
-            "frames_completed": self.frames_completed,
+            "frames_completed": sorted(self.frames_completed),
             "progress": self.get_progress(),
             "node_status": self.get_nodes_status(),
         }
 
-    def render_threads_active(self) -> bool:
-        """Returns True if any RenderThreads are currently assigned, else False."""
-        for node in self.node_status.values():
-            if node["thread"] is not None:
+    def frames_rendering(self) -> bool:
+        """Returns True if any frames are currently rendering, else False."""
+        for executor in self.node_status.values():
+            if not executor.is_idle():
                 return True
         return False
 
@@ -251,12 +273,12 @@ class RenderJob(object):
 
         Similar to self.node_status but modified for external use."""
         ret = {}
-        for node, data in self.node_status.items():
+        for node, executor in self.node_status.items():
             ret[node] = {
-                "frame": data["frame"],
-                "progress": data["progress"],
+                "frame": executor.frame,
+                "progress": executor.progress,
                 "enabled": True if node in self.nodes_enabled else False,
-                "rendering": True if data["thread"] is not None else False,
+                "rendering": True if not executor.is_idle() else False,
             }
         return ret
 
@@ -264,21 +286,6 @@ class RenderJob(object):
         """Resets internal state in preparation for rendering."""
         self._stop = False
         self.master_thread = threading.Thread(target=self._mainloop, daemon=True)
-        for node in self.config.render_nodes:
-            self._set_node_status(node)
-
-    def _set_node_status(
-        self,
-        node: str,
-        frame: Optional[int] = None,
-        thread: Optional[RenderThread] = None,
-        progress: float = 0.0,
-    ) -> None:
-        self.node_status[node] = {
-            "frame": frame,
-            "thread": thread,
-            "progress": progress,
-        }
 
     def _start_timer(self) -> None:
         """Starts the render timer by setting the `time_start` instance variable.
@@ -318,29 +325,31 @@ class RenderJob(object):
             f"Finished render in {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."
         )
 
-    def _frame_finished(self, node: str, thread: RenderThread):
+    def _frame_finished(self, node: str):
+        executor = self.node_status[node]
         self.queue.task_done()
         self.logger.info(
-            f"Finished frame {thread.frame} on {node} after {format_time(thread.elapsed_time())}."
+            f"Finished frame {executor.frame} on {node} after {format_time(executor.elapsed_time())}."
         )
-        self.frames_completed.append(thread.frame)
-        self._set_node_status(node)
+        self.frames_completed.add(executor.frame)
+        executor.ack_done()
         self.db.update_job_frames_completed(self.id, self.frames_completed)
         # Frame successfully finished, try to pop a node from skip list
         self._pop_skipped_node()
 
-    def _frame_failed(self, node: str, thread: RenderThread):
-        self.queue.put(thread.frame)
-        self.logger.warning(f"Failed to render {thread.frame} on {node}.")
+    def _frame_failed(self, node: str):
+        executor = self.node_status[node]
+        self.logger.warning(f"Failed to render {executor.frame} on {node}.")
+        self.queue.put(executor.frame)
+        self.logger.debug(f"Returned frame {executor.frame} to queue.")
         self.skip_list.append(node)
         self.logger.debug(f"Added {node} to skip list.")
-        self._set_node_status(node)
+        executor.ack_done()
 
     def _pop_skipped_node(self):
         if not self.skip_list:
             return
         node = self.skip_list.pop(0)
-        self._set_node_status(node)
         self.logger.debug(f"Released {node} from skip list.")
 
     def _mainloop(self) -> None:
@@ -348,7 +357,7 @@ class RenderJob(object):
         self.logger.debug("Started master thread.")
         while not self._stop:
             time.sleep(0.01)
-            if self.queue.empty() and not self.render_threads_active():
+            if self.queue.empty() and not self.frames_rendering():
                 self._render_finished()
                 break
 
@@ -364,29 +373,25 @@ class RenderJob(object):
                     break
                 # Check status of all nodes, not just enabled.  User may disable a node after a frame
                 # has been assigned, so we need to continue monitoring status until RenderThread ends.
-                if self.node_status[node]["thread"]:
-                    t = self.node_status[node]["thread"]
-                    if t.status == RENDERING:
-                        self.node_status[node]["progress"] = t.progress
-                    elif t.status == FINISHED:
-                        self._frame_finished(node, t)
-                    elif t.status == FAILED:
-                        self._frame_failed(node, t)
+                executor = self.node_status[node]
+                if not executor.is_idle():
+                    if executor.status == FINISHED:
+                        self._frame_finished(node)
+                    elif executor.status == FAILED:
+                        self._frame_failed(node)
                     continue
+                # Now check if any enabled nodes are ready for a new frame.
                 if node in self.nodes_enabled:
-                    # Now check if any enabled nodes are ready for a new frame.
                     if node in self.skip_list:
                         continue
                     if self.queue.empty():
                         # All frames assigned, but not necessarily done rendering.
-                        # Continue iterating until all RenderThreads end.
+                        # Continue iterating until all Executors report done.
                         continue
                     # Node is idle, assign next frame
                     frame = self.queue.get()
                     self.logger.info(f"Sending frame {frame} to {node}.")
                     # TODO Implement terragen thread?
-                    t = BlenderRenderThread(self.config, self.id, node, self.path, frame)
-                    self._set_node_status(node, frame, t)
-                    t.start()
+                    executor.render(frame)
 
         self.logger.debug("Master thread exited.")

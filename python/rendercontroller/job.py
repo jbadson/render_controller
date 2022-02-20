@@ -11,8 +11,13 @@ from rendercontroller.constants import (
     FINISHED,
     FAILED,
     BLENDER,
+    TERRAGEN,
 )
-from rendercontroller.renderthread import RenderThread, BlenderRenderThread
+from rendercontroller.renderthread import (
+    RenderThread,
+    BlenderRenderThread,
+    Terragen3RenderThread,
+)
 from rendercontroller.util import format_time, Config
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 from rendercontroller.database import StateDatabase
@@ -39,6 +44,8 @@ class Executor(object):
         # Guess render engine based on file extension.
         if self.path.lower().endswith(".blend"):
             self.engine = BLENDER
+        elif self.path.lower().endswith(".tgd"):
+            self.engine = TERRAGEN
         else:
             raise ValueError("Could not determine render engine from filename.")
 
@@ -92,7 +99,15 @@ class Executor(object):
                 path=self.path,
                 frame=frame,
             )
-        if not self.thread:
+        elif self.engine == TERRAGEN:
+            self.thread = Terragen3RenderThread(
+                config=self.config,
+                job_id=self.job_id,
+                node=self.node,
+                path=self.path,
+                frame=self.frame,
+            )
+        else:
             raise RuntimeError("No suitable RenderThread subclass found.")
         self.idle = False
         self.thread.start()

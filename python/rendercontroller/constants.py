@@ -7,3 +7,4 @@ FAILED = "Failed"
 
 # Render engines
 BLENDER = "blender"
+TERRAGEN = "terragen"

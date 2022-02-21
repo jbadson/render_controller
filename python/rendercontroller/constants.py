@@ -8,3 +8,6 @@ FAILED = "Failed"
 # Render engines
 BLENDER = "blender"
 TERRAGEN = "terragen"
+
+# Extra special log level
+LOG_EVERYTHING = 1

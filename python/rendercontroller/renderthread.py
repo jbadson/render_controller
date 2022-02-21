@@ -7,7 +7,7 @@ import os.path
 import re
 import shlex
 from typing import Type, Optional
-from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED, LOG_EVERYTHING
 from rendercontroller.util import Config
 
 
@@ -31,9 +31,10 @@ class RenderThread(object):
         self.frame = frame
         self.status = WAITING
         self.progress: float = 0.0
-        log_base = f"{job_id} {os.path.basename(self.path)} {self.__class__.__name__} "
-        instance_info = f"{self.__class__.__name__} frame {frame} on {node}: "
-        self.logger = logging.getLogger(log_base + instance_info)
+        self.logger = logging.getLogger(
+            f"{job_id} {os.path.basename(self.path)} {self.__class__.__name__} "
+            f"{self.__class__.__name__} frame {frame} on {node}"
+        )
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.time_start: float = 0.0
         self.time_stop: float = 0.0
@@ -108,7 +109,6 @@ class BlenderRenderThread(RenderThread):
 
     def worker(self) -> None:
         self.logger.debug("Started worker thread.")
-        # TODO timeout timer? (might be better to put this in master thread)
         self.status = RENDERING
         cmd = f"{shlex.quote(self.execpath)} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -i -n blender"
         proc = subprocess.Popen(
@@ -123,7 +123,7 @@ class BlenderRenderThread(RenderThread):
 
     def parse_line(self, bline: bytes) -> None:
         try:
-            line: str = bline.decode("UTF-8")
+            line: str = bline.decode("UTF-8").strip("\n")
         except UnicodeDecodeError:
             self.logger.exception(f"Failed to decode line to UTF-8")
             return
@@ -131,8 +131,7 @@ class BlenderRenderThread(RenderThread):
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")
             return
-        # FIXME uncomment when done
-        # self.logger.debug(f"BLENDER OUTPUT: {line}")
+        self.logger.log(level=LOG_EVERYTHING, msg=f"STDOUT \"{line}\"")
         # Try to get progress from rendered parts
         if line.startswith("Fra:"):
             for regex in self.patterns:
@@ -196,7 +195,6 @@ class Terragen3RenderThread(RenderThread):
 
     def worker(self) -> None:
         self.logger.debug("Started worker thread.")
-        # TODO timeout timer? (might be better to put this in master thread)
         self.status = RENDERING
         cmd = f"{shlex.quote(self.execpath)} -p {shlex.quote(self.path)} -hide " \
             + f"-exit -r -f {self.frame} & pgrep -i -n Terragen & wait"
@@ -220,7 +218,7 @@ class Terragen3RenderThread(RenderThread):
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")
             return
-        self.logger.debug(f"TERRAGEN OUTPUT: {line}")
+        self.logger.log(level=LOG_EVERYTHING, msg=f"STDOUT \"{line}\"")
         # Terragen prints percent progress during render pass, so try to find that.
         if line.startswith("Rendering"):
             #NOTE: terragen ALWAYS has at least 2 passes, so progress will go to 100% at least twice.

@@ -14,6 +14,7 @@ from typing import Sequence, Optional, Dict, List, Any, Union
 from rendercontroller.controller import RenderController
 from rendercontroller.exceptions import JobNotFoundError, NodeNotFoundError
 from rendercontroller.util import Config, list_dir
+from rendercontroller.constants import LOG_EVERYTHING
 
 CONFIG_FILE_PATH = "/etc/rendercontroller.conf"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -22,8 +23,10 @@ LOG_LEVELS = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
     "warning": logging.WARNING,
+    "everything": LOG_EVERYTHING,
 }
 
+logging.addLevelName(LOG_EVERYTHING, "EVERYTHING")
 logger = logging.getLogger("server")
 
 
@@ -77,7 +80,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
     :param RenderController controller: Instance of RenderController
     :param str origin: CORS domain to allow with
         Access-Control-Allow-Origin header.
-    :param str fileserver_base_dir: Base directory of the shared filesystem
+    :param str file_browser_base_dir: Base directory of the shared filesystem
         that contains render project files.
     :param set[str] get_endpoints: Set of allowed GET endpoints.
     :param set[str] post_endpoints: Set of allowed POST endpoints.
@@ -93,7 +96,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     controller: RenderController
     origin: str
-    fileserver_base_dir: str
+    file_browser_base_dir: str
     get_endpoints = {"job", "node", "config"}
     post_endpoints = {"job", "node", "storage", "config"}
     job_handlers = {
@@ -120,11 +123,11 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     @classmethod
     def configure(
-        cls, controller: RenderController, origin: str, fileserver_base_dir: str
+        cls, controller: RenderController, origin: str, file_browser_base_dir: str
     ) -> None:
         cls.controller = controller
         cls.origin = origin
-        cls.fileserver_base_dir = fileserver_base_dir
+        cls.file_browser_base_dir = file_browser_base_dir
 
     def log_message(self, format: str, *args) -> None:
         """Override parent method to allow logging to file."""
@@ -427,9 +430,9 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith(".."):
             logger.warning("Request to browse illegal path: '%s'" % path)
             return self.send_error(HTTPStatus.BAD_REQUEST, "Invalid path")
-        if not path.startswith(self.fileserver_base_dir):
+        if not path.startswith(self.file_browser_base_dir):
             # Don't use os.path.join() because it replaces abs path root.
-            path = os.path.normpath(self.fileserver_base_dir + "/" + path)
+            path = os.path.normpath(self.file_browser_base_dir + "/" + path)
         logger.debug("absolute path: %s" % path)
         try:
             contents = list_dir(path)
@@ -482,7 +485,7 @@ def main(config_path: str) -> int:
         return 1
 
     controller = RenderController(Config)
-    HttpHandler.configure(controller, Config.cors_origin, Config.fileserver_base_dir)
+    HttpHandler.configure(controller, Config.cors_origin, Config.file_browser_base_dir)
     server = TCPServer(
         controller=controller,
         server_address=(Config.listen_addr, Config.listen_port),

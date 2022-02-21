@@ -60,8 +60,7 @@ class Config(object):
     log_level: str
     log_file_path: str
     work_dir: str
-    fileserver_base_dir: str
-    timeout: int
+    file_browser_base_dir: str
     render_nodes: List[str]
     macs: List[str]
     blenderpath_mac: str

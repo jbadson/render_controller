@@ -110,7 +110,9 @@ class BlenderRenderThread(RenderThread):
     def worker(self) -> None:
         self.logger.debug("Started worker thread.")
         self.status = RENDERING
-        cmd = f"{shlex.quote(self.execpath)} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -i -n blender"
+        #FIXME pgrep -i option does not exist in linux, but not sure if case is the same on mac vs linux.
+        # need to check and fix if necessary.
+        cmd = f"{shlex.quote(self.execpath)} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -n blender"
         proc = subprocess.Popen(
             [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
         )
@@ -197,7 +199,7 @@ class Terragen3RenderThread(RenderThread):
         self.logger.debug("Started worker thread.")
         self.status = RENDERING
         cmd = f"{shlex.quote(self.execpath)} -p {shlex.quote(self.path)} -hide " \
-            + f"-exit -r -f {self.frame} & pgrep -i -n Terragen & wait"
+            + f"-exit -r -f {self.frame} & pgrep -n Terragen & wait"
         proc = subprocess.Popen(
             [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
         )
@@ -226,7 +228,8 @@ class Terragen3RenderThread(RenderThread):
             # overall render progress.
             for part in line.split():
                 if "%" in part:
-                    percent = float(part[:-1])
+                    self.progress = float(part[:-1])
+                    return
 
         # Try to detect PID
         if line.strip().isdigit():

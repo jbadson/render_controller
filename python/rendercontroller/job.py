@@ -105,7 +105,7 @@ class Executor(object):
                 job_id=self.job_id,
                 node=self.node,
                 path=self.path,
-                frame=self.frame,
+                frame=frame,
             )
         else:
             raise RuntimeError("No suitable RenderThread subclass found.")

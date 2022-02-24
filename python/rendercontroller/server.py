@@ -70,6 +70,7 @@ class TCPServer(socketserver.ThreadingTCPServer):
     def shutdown(self):
         logger.info("Shutting down server")
         self.controller.shutdown()
+        logger.debug("Attempting to stop TCP server")
         super().shutdown()
 
 

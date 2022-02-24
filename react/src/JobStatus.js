@@ -3,6 +3,7 @@ import './JobStatus.css';
 import axios from 'axios';
 import ProgressBar from './ProgressBar';
 import CheckBox from './CheckBox';
+import JobInput from './JobInput';
 import { fmtTime, getBasename } from './util';
 
 /**
@@ -106,12 +107,14 @@ class JobStatusPane extends Component {
     this.state = {
       data: null,
       error: null,
+      showInputPane: false,
     }
     this.startJob = this.startJob.bind(this);
     this.stopJob = this.stopJob.bind(this);
     this.enqueueJob = this.enqueueJob.bind(this);
     this.deleteJob = this.deleteJob.bind(this);
     this.reRenderJob = this.reRenderJob.bind(this);
+    this.toggleInputPane = this.toggleInputPane.bind(this);
   }
 
   startJob() {
@@ -149,7 +152,11 @@ class JobStatusPane extends Component {
   }
 
   reRenderJob() {
-    alert("not implemented")
+    this.toggleInputPane();
+  }
+
+  toggleInputPane() {
+    this.setState(state => ({showInputPane: !state.showInputPane}));
   }
 
   getUpdate() {
@@ -186,80 +193,93 @@ class JobStatusPane extends Component {
   }
 
   render() {
-    const { data, error } = this.state;
+    const { data, error, showInputPane } = this.state;
     if (error) {
       return <p>Error: {error.message}</p>
     } else if (!data) {
       return <p>No data to display</p>
     }
-    return (
-      <div className="jsp-container">
-        <ul>
-          <li className="jsp-row">
-            <div className="jsp-header">{getBasename(data.path)}</div>
-          </li>
-          <li className="jsp-row">
-            <div className="jsp-inner">
-              <ul>
-                <li className="layout-row">
-                  <JobStatusBox
-                    status={data.status}
-                    filePath={data.path}
-                    startFrame={data.start_frame}
-                    endFrame={data.end_frame}
-                    timeElapsed={data.time_elapsed}
-                    timeAvg={data.time_avg_per_frame}
-                    timeRemaining={data.time_remaining}
-                    progress={data.progress}
-                  />
-                </li>
-                <li className="layout-row">
-                    <button
-                      className="sm-button tooltip"
-                      help-text="Start the render."
-                      disabled={(data.status === 'Waiting' || data.status === 'Stopped') ? false : true}
-                      onClick={this.startJob}>
-                        Start
-                    </button>
-                    <button
-                      className="sm-button tooltip"
-                      help-text="Stop the render.  Stopped jobs are ignored by autostart."
-                      disabled={data.status === 'Rendering' ? false : true}
-                      onClick={this.stopJob}>
-                        Stop
-                    </button>
-                    <button
-                      className="sm-button tooltip"
-                      help-text="Reset job status so it will no longer be ignored by autostart."
-                      disabled={data.status === 'Stopped' ? false : true}
-                      onClick={this.enqueueJob}>
-                        Return to Queue
-                    </button>
-                    <button
-                      className="sm-button tooltip"
-                      help-text="Create a new job with the same parameters as this one. You will be able to modify the settings."
-                      disabled={(data.status === 'Stopped' || data.status === 'Finished') ? false : true}
-                      onClick={this.reRenderJob}>
-                        Duplicate
-                    </button>
-                    <button
-                      className="sm-button tooltip"
-                      help-text="Delete this job.  If job is currently rendering, you must stop it first."
-                      disabled={data.status !== 'Rendering' ? false : true}
-                      onClick={this.deleteJob}>
-                        Delete
-                    </button>
-                </li>
-                <li className="layout-row">
-                  {Object.keys(data.node_status).map(node => this.renderNodeBox(node, data.node_status[node]))}
-                </li>
-              </ul>
-            </div>
-          </li>
-        </ul>
-      </div>
+    if (showInputPane) {
+      return (
+        <JobInput
+          path={data.path}
+          startFrame={data.start_frame}
+          endFrame={data.end_frame}
+          nodesEnabled={data.nodes_enabled}
+          useAllNodes={false}
+          onClose={this.toggleInputPane}
+        />
+      )
+    } else {
+      return (
+        <div className="jsp-container">
+          <ul>
+            <li className="jsp-row">
+              <div className="jsp-header">{getBasename(data.path)}</div>
+            </li>
+            <li className="jsp-row">
+              <div className="jsp-inner">
+                <ul>
+                  <li className="layout-row">
+                    <JobStatusBox
+                      status={data.status}
+                      filePath={data.path}
+                      startFrame={data.start_frame}
+                      endFrame={data.end_frame}
+                      timeElapsed={data.time_elapsed}
+                      timeAvg={data.time_avg_per_frame}
+                      timeRemaining={data.time_remaining}
+                      progress={data.progress}
+                    />
+                  </li>
+                  <li className="layout-row">
+                      <button
+                        className="sm-button tooltip"
+                        help-text="Start the render."
+                        disabled={(data.status === 'Waiting' || data.status === 'Stopped') ? false : true}
+                        onClick={this.startJob}>
+                          Start
+                      </button>
+                      <button
+                        className="sm-button tooltip"
+                        help-text="Stop the render.  Stopped jobs will not be re-started automatically."
+                        disabled={data.status === 'Rendering' ? false : true}
+                        onClick={this.stopJob}>
+                          Stop
+                      </button>
+                      <button
+                        className="sm-button tooltip"
+                        help-text="Change stopped job status to 'Waiting' so it can be started automatically."
+                        disabled={data.status === 'Stopped' ? false : true}
+                        onClick={this.enqueueJob}>
+                          Return to Queue
+                      </button>
+                      <button
+                        className="sm-button tooltip"
+                        help-text="Create a new job based on this one. You will be able to modify the settings."
+                        disabled={false}
+                        onClick={this.reRenderJob}>
+                          Duplicate
+                      </button>
+                      <button
+                        className="sm-button tooltip"
+                        help-text="Delete this job.  If job is currently rendering, you must stop it first."
+                        disabled={data.status !== 'Rendering' ? false : true}
+                        onClick={this.deleteJob}>
+                          Delete
+                      </button>
+                  </li>
+                  <li className="layout-row">
+                    {Object.keys(data.node_status).map(node => this.renderNodeBox(node, data.node_status[node]))}
+                  </li>
+                </ul>
+              </div>
+            </li>
+          </ul>
+        </div>
     )
   }
+}
 }
 
 

@@ -57,7 +57,8 @@ The server also expects the render project files to be located in the same locat
 * nodejs 17.0.1+
 * npm 8.1.0+
 * A web server.  Nginx or Apache will work.  If you're only hosting this app and don't need any special features, [serve](https://github.com/zeit/serve) is a simple option.
-** NOTE: Do not install this on a public-facing web server. There is no provision for access control or authentication and the security model assumes it is accessible only from trusted networks.
+
+ __WARNING: Do not install this on a public-facing web server. There is no provision for access control or authentication and the security model assumes it is accessible only from trusted networks.__
 
 #### Installation
 1. Install Dependencies

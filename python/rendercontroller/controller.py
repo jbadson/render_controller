@@ -317,10 +317,14 @@ class RenderController(object):
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""
         logger.debug("Shutting down controller")
+        self.task_thread.shutdown()
+        # Must stop task thread first or it might autostart waiting jobs
+        logger.debug("Attempting to stop running jobs.")
         for job in self.queue.values():
             if job.status == RENDERING:
+                logger.debug(f"Attempting to stop {job.id}")
                 job.stop()
-        self.task_thread.shutdown()
+        logger.debug("Controller shutdown complete")
 
 
 class TaskThread(object):
@@ -341,7 +345,6 @@ class TaskThread(object):
         logger.debug("Attempting to terminate task thread.")
         self.stop = True
         self._thread.join()  # Wait for any cleanup tasks to finish
-        logger.debug("Terminated task thread.")
 
     def mainloop(self) -> None:
         logger.debug("Starting task thread.")
@@ -350,3 +353,4 @@ class TaskThread(object):
             if self.controller.autostart:
                 if self.controller.idle:
                     self.controller.start_next()
+        logger.debug("Terminated task thread.")

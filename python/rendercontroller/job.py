@@ -282,7 +282,7 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "render_nodes": sorted(self.nodes_enabled),
+            "nodes_enabled": sorted(self.nodes_enabled),
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,

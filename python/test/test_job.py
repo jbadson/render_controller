@@ -303,7 +303,7 @@ def test_job_dump(job1, job2, testjob1, testjob2):
         "path": testjob1["path"],
         "start_frame": testjob1["start_frame"],
         "end_frame": testjob1["end_frame"],
-        "render_nodes": testjob1["render_nodes"],
+        "nodes_enabled": testjob1["render_nodes"],
         "status": WAITING,
         "time_start": 0.0,
         "time_stop": 0.0,
@@ -330,7 +330,7 @@ def test_job_dump(job1, job2, testjob1, testjob2):
     assert dump["path"] == testjob2["path"]
     assert dump["start_frame"] == testjob2["start_frame"]
     assert dump["end_frame"] == testjob2["end_frame"]
-    assert dump["render_nodes"] == testjob2["render_nodes"]
+    assert dump["nodes_enabled"] == testjob2["render_nodes"]
     assert dump["status"] == RENDERING
     assert dump["time_start"] == job2.time_start
     assert dump["time_stop"] == 0.0

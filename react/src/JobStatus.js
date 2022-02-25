@@ -137,7 +137,6 @@ class JobStatusPane extends Component {
   enqueueJob() {
     axios.post(process.env.REACT_APP_BACKEND_API + "/job/reset_status/" + this.props.jobId)
     .then(
-      //FIXME: Add note about starting job manually
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
     );

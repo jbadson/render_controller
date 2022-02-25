@@ -108,6 +108,7 @@ class BlenderRenderThread(RenderThread):
         self.logger.debug("ssh kill thread exited")
 
     def worker(self) -> None:
+        """Runs in a new threading.Thread and renders the specified frame."""
         self.logger.debug("Started worker thread.")
         self.status = RENDERING
         #FIXME pgrep -i option does not exist in linux, but not sure if case is the same on mac vs linux.
@@ -196,6 +197,7 @@ class Terragen3RenderThread(RenderThread):
         self.logger.debug("ssh kill thread exited")
 
     def worker(self) -> None:
+        """Runs in a new threading.Thread and renders the specified frame."""
         self.logger.debug("Started worker thread.")
         self.status = RENDERING
         cmd = f"{shlex.quote(self.execpath)} -p {shlex.quote(self.path)} -hide " \

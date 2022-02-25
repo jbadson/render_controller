@@ -79,16 +79,17 @@ class Executor(object):
         return self.idle
 
     def ack_done(self) -> None:
-        """Tells Executor that the calling function has registered that render has finished or was stopped.
+        """Notifies this object that the caller has registered that the frame in progress has finished or was stopped.
 
-        This is necessary to ensure the calling function has had an opportunity to perform necessary cleanup
-        tasks before this Executor is marked as idle and ready to accept another frame.
+        This is necessary to ensure the caller has had an opportunity to perform necessary cleanup
+        tasks before this object is marked as idle and ready to accept another frame.
         """
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Render is not done.")
         self.idle = True
 
     def render(self, frame: int) -> None:
+        """Renders a frame"""
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Node already has an active render process.")
         if self.engine == BLENDER:
@@ -113,11 +114,13 @@ class Executor(object):
         self.thread.start()
 
     def stop(self) -> None:
+        """Shuts down the executor."""
         if self.thread:
             self.thread.stop()
 
 
 class RenderJob(object):
+    """Represents a project to be rendered."""
     def __init__(
         self,
         config: Type[Config],
@@ -204,7 +207,7 @@ class RenderJob(object):
         self._stop = True
         # Ensure all rendering frames are put back in queue.  Do not leave this to
         # _mainloop because there is a chance frames could be missed depending on
-        # where in the two iterations the _stop flag is detected.
+        # where in the nested iterations the _stop flag is detected.
         for executor in self.node_status.values():
             executor.stop()
             frame = executor.frame
@@ -346,11 +349,13 @@ class RenderJob(object):
         self.db.update_job_time_start(self.id, self.time_start)
 
     def _stop_timer(self) -> None:
+        """Stops the render timer."""
         self.time_stop = time.time()
         self.logger.debug(f"Stopped job timer: {self.time_stop}")
         self.db.update_job_time_stop(self.id, self.time_stop)
 
     def _render_finished(self) -> None:
+        """Marks the render as finished."""
         self._stop_timer()
         self._set_status(FINISHED)
         elapsed, avg, rem = self.get_times()
@@ -359,6 +364,7 @@ class RenderJob(object):
         )
 
     def _frame_finished(self, node: str):
+        """Marks a frame as finished and prepares the node to receive a new frame."""
         executor = self.node_status[node]
         self.queue.task_done()
         self.logger.info(
@@ -371,6 +377,7 @@ class RenderJob(object):
         self._pop_skipped_node()
 
     def _frame_failed(self, node: str):
+        """Marks a frame as failed and returns it to queue."""
         executor = self.node_status[node]
         self.logger.warning(f"Failed to render {executor.frame} on {node}.")
         self.queue.put(executor.frame)
@@ -380,13 +387,14 @@ class RenderJob(object):
         executor.ack_done()
 
     def _pop_skipped_node(self):
+        """Removes the oldest node from the skip list."""
         if not self.skip_list:
             return
         node = self.skip_list.pop(0)
         self.logger.debug(f"Released {node} from skip list.")
 
     def _mainloop(self) -> None:
-        """Master thread to manage multiple RenderThreads."""
+        """Runs in a new threading.Thread.  Manages the rendering of all the frames for this job."""
         self.logger.debug("Started master thread.")
         while not self._stop:
             time.sleep(0.01)

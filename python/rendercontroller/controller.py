@@ -115,24 +115,10 @@ class RenderQueue(object):
 
 
 class RenderController(object):
-    """
-    Manages render jobs.
-
-    Right now this is a janky hack to decouple the old RenderServer from
-    its custom network protocol so we can have a REST API and web front end.
-    Eventually it will replace RenderServer and everything will be much
-    less terrible.
-    """
+    """Manages render jobs."""
 
     def __init__(self, config: Type[Config]) -> None:
-        # TODO Update docstrings once all old job stuff is removed
-        # This is bad but will get things moving until I have time to
-        # rewrite all the terrible stuff in RenderServer.
         self.config = config
-        # Inject dependency until job module is rewritten or replaced
-        # job.CONFIG = config
-        # self.server = job.RenderServer()
-        # New Stuff Here
         self.queue = RenderQueue()
         self.db = StateDatabase(
             os.path.join(self.config.work_dir, "rcontroller.sqlite")
@@ -147,12 +133,12 @@ class RenderController(object):
 
     @property
     def render_nodes(self) -> Sequence[str]:
-        """List of render nodes."""
+        """List of render all nodes available for rendering."""
         return self.config.render_nodes
 
     @property
     def autostart(self) -> bool:
-        """State of autostart mode."""
+        """Automatically start next job in queue?."""
         return self.config.autostart
 
     @property
@@ -174,6 +160,7 @@ class RenderController(object):
         logger.info("Disabled autostart")
 
     def restore_jobs(self, jobs: List[Dict]):
+        """Create new RenderJob instances from data persisted to disk. Used to restore server state after restart."""
         for j in jobs:
             logger.info(f"Restoring job {j['id']} from disk.")
             job = RenderJob(
@@ -246,7 +233,7 @@ class RenderController(object):
         raise JobNotFoundError(f"Job {job_id} not found")
 
     def start(self, job_id: str) -> None:
-        """Starts a render job."""
+        """Starts rendering specified job."""
         # TODO raise exception if fails
         self._try_get_job(job_id).render()
 
@@ -262,17 +249,11 @@ class RenderController(object):
         self,
         job_id: str,
     ) -> None:
-        """
-        Stops a render job.
-
-        :param str job_id: ID of job to stop.
-        """
+        """Stops the specified job."""
         self._try_get_job(job_id).stop()
 
     def reset_waiting(self, job_id: str) -> None:
-        """For a job that has been stopped, reset the status to waiting so it can be started by autostart.
-
-        Job will retain its original queue position."""
+        """Reset STOPPED job to WAITING so it can be started automatically by autostart."""
         self._try_get_job(job_id).reset_waiting()
 
     def delete(self, job_id: str) -> None:
@@ -311,7 +292,7 @@ class RenderController(object):
         return data
 
     def get_job_data(self, job_id: str) -> Dict[str, Any]:
-        """Returns details for a render job."""
+        """Returns status info for a render job."""
         return self._try_get_job(job_id).dump()
 
     def shutdown(self) -> None:

@@ -8,7 +8,6 @@ class StateDatabase(object):
 
     def __init__(self, filepath: str):
         self.filepath = filepath
-        # FIXME Might be better to have conn as instance variable. Would that lock the db file?
 
     def initialize(self) -> None:
         jobs_schema = [
@@ -39,6 +38,7 @@ class StateDatabase(object):
         frames_completed: Sequence[int],
         queue_position: int,
     ) -> None:
+        """Adds a new RenderJob to the database."""
         framestr = ",".join([str(i) for i in frames_completed])
         render_nodes = ",".join(render_nodes)
         self.execute(

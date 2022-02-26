@@ -17,30 +17,36 @@ RenderController consists of a backend service written in Python and a browser-b
 
 
 ## Installation
+### Prerequisites
+#### SSH
+Render controller uses SSH to communicate with render nodes.  You must configure your render nodes with SSH keys so that the server is able to log in without a password.  The hostnames in the `rendercontroller.conf` file must match the SSH hostnames.  If you need to configure the SSH user, key file, etc., use a ~/.ssh/config file for the user running the server process.  If you are attempting to access nodes outside of your local network, you may also need to configure firewall rules to allow incoming SSH connections from the server. It's not a bad idea to create a new user specifically for this purpose, and you can restrict its permissions to only what is necessary to start and kill render processes.
+
+#### Shared Filesystem
+The server also expects the render project files to be found in the same location on every node.  The server has no file handling capabilities of its own, so it is assumed that you will use some kind of shared storage that is mounted at the same place on every node and on the server. Although shared storage is not strictly required, if you choose not to use it you will have to manually place project files on each node and retrieve the rendered frames when they're done.  The file browser in the web UI also accesses the local filesystem on the *server*, not the user's local machine (see below), so you will have to synchronize that as well.  It is far easier to just use a shared filesystem of some kind.  Since we're already using SSH for the render processes, SSHFS is a simple and effective option, but any network filesystem will do.
+
+
 ### Backend Service Setup
 #### Requirements
 * Linux or MacOS
 * Python 3.6+
 * Pip for Python 3
 
-#### System Prerequisites
-##### SSH
-Render controller uses SSH to communicate with render nodes.  You must configure your render nodes with SSH keys so that the server is able to log in without a password.  If you use an SSH config file to define your hostnames and connection properties, you should ensure the hostnames match the ones in the Render controller config file.  If you are attempting to access nodes outside of your local network, you may also need to configure firewall rules to allow incoming SSH connections from the server. It's not a bad idea to create a new user specifically for this purpose, and you can restrict its permissions to only what is necessary to start and kill render processes.
-
-##### Shared Filesystem
-The server also expects the render project files to be located in the same location on every node.  The server has no file handling capabilities of its own, so it is assumed that you will use some kind of shared storage that is mounted in the same location on every node and on the server. Although shared storage is not strictly required, if you choose not to use it you will have to manually place project files on each node and retrieve the rendered frames when they're done.  The file browser in the web UI also accesses the local filesystem on the *server*, not the user's local machine, so you will have to synchronize that as well.  It is far easier to just use a shared filesystem of some kind.  Since we're already using SSH for the render processes, SSHFS is a simple and effection option, but any network filesystem will do.
-
 #### Python Dependencies
 * pyyaml
-* pytest (only required if you intend to run unit tests)
+* pytest (only if you want to run unit tests)
+
 
 #### Installation
+
+> __WARNING: Do not expose the REST API to the public internet. There are no provisions for access control or authentication, and the security model assumes it is accessible only from trusted networks.__
+ 
 1. Install Dependencies
     * RHEL/CentOS 7: `yum install python36 python36-pip`
     * MacOS: `brew install python` or use the official installer from python.org.
 1. Download and build the latest version
     * `git clone https://github.com/jbadson/render_controller.git`
     * `cd render_controller/python && pip3 setup.py sdist`
+    * Note: The `master` branch always represents the latest stable version, and may include hotfixes that haven't yet been rolled into a minor release.  If you prefer to pin to a specific release version, check out the corresponding `release/##` branch instead.
 1. Install with pip
     * `pip3 install dist/rendercontroller-{version}.tar.gz`
 1. Create the work directory and log file.
@@ -49,23 +55,23 @@ The server also expects the render project files to be located in the same locat
     * Make sure both are writable by the user that will run the server.
 1. Edit `/etc/rendercontroller.conf` to specify your render nodes, shared storage mount point, and paths to render engine executables.
 1. Configure service to start on boot.
-	* If using Linux with Systemd, there's a sample service file in `python/systemd/rendercontroller.service`.  It would be wise to add a `User=` entry and run the service as a non-root user.
+	* If you're hosting this on Linux, there's a sample systemd service file in `python/systemd/rendercontroller.service`.  You may have to modify it according to your local environment.
 
 
 ### Web Interface Setup
 #### Requirements
-* nodejs 17.0.1+
-* npm 8.1.0+
+* nodejs 10.14+
+* npm 6.14+
 * A web server.  Nginx or Apache will work.  If you're only hosting this app and don't need any special features, [serve](https://github.com/zeit/serve) is a simple option.
 
- __WARNING: Do not install this on a public-facing web server. There is no provision for access control or authentication and the security model assumes it is accessible only from trusted networks.__
-
 #### Installation
+> __WARNING: Do not install this on a public-facing web server. There are no provisions for access control or authentication, and the security model assumes it is accessible only from trusted networks.__
 1. Install Dependencies
-    * RHEL/CentOS 7: Build nodejs from source or use one of the offical linux binaries from nodejs.org.  The RPM verion in EPEL is too old (as of Dec 2018).
+    * Linux: See if a suitable version is available from through your OS [package manager](https://nodejs.org/en/download/package-manager/).  If not, you may need to build from source.
     * MacOS: `brew install node`
 1. Download the latest version
     * `git clone https://github.com/jbadson/render_controller.git`
+    * Note: The `master` branch always represents the latest stable version, and may include hotfixes that haven't yet been rolled into a minor release.  If you prefer to pin to a specific release version, check out the corresponding `release/##` branch instead.
 1. Edit `.env.production` with the correct host and port for your backend API.
 1. Build the production package
     * `cd render_controller/react && npm run build`
@@ -75,19 +81,19 @@ The server also expects the render project files to be located in the same locat
 ## Usage Considerations
 The basic usage of RenderController should be fairly straightforward, but there are a few things to be aware of.
 ### Project File Setup
-Because your project will be rendered in parallel on multiple nodes, you must ensure that the file paths to all linked objects (textures, imports, etc) are located in the same place on every node.  The easiest way to do this is to keep all of your project dependencies on shared storage (see above) that is accessible from all nodes.  If you're unable to do that (e.g. you want to edit projects on a fast local SSD), then always use relative file paths for all linked dependencies and don't forget to copy the latest versions of your dependencies to shared storage before rendering.  You should also configure your project files to save render output to a location on shared storage or you will have to have some other way of retrieving rendered frames.
+Because your project will be rendered in parallel on multiple nodes, the file paths to all linked objects (textures, imports, etc) must be the same on every node.  The easiest way to do this is to keep all of your project dependencies on shared storage (see above) that is accessible from all nodes.  If you're unable to do that (e.g. you want to edit projects on a fast local SSD), then always use relative file paths for all linked dependencies and don't forget to copy the latest versions of your dependencies to shared storage before rendering.  You should also configure your project files to save render output to a location on shared storage or you will have to have some other way of retrieving rendered frames.
 
 ### Browsing for Files in Web UI
-When creating a new render job, the `Browse` button probably does not do what you expect.  Because render projects often consist of a large nubmer of files and most 3D software does not enforce any sort of project structure, it's difficult to anticipate how users might organize their projects.  And since RenderController expects all render nodes to have access to [shared storage](#Shared Filesystem) anyway, we sidestep this complexity by __restricting the file browser to the contents of shared storage *as seen by the RenderController server*, not the user's local machine.__ RenderController does not move or modify project files at all. The browser is simply a way to specify the path to files that should alread be accessible on the render nodes.  The assumption is that every render node, the server, and the user's workstation all have the shared filesystem mounted in the same location.  If so, this will be transparent because all project paths will be the same.  If you choose not to work from the shared filesystem, you will have to copy you project and all of its dependencies with relative paths intact to the shared filesystem using SSH, NFS, FTP, or whatever method you prefer before RenderController will be able to see it.
+When creating a new render job, the `Browse` button probably does not do what you expect.  Because render projects often consist of a large number of files and most 3D software does not enforce any sort of project structure, it's difficult to anticipate how users might organize their projects.  And since RenderController expects all render nodes to have access to [shared storage](#Shared Filesystem) anyway, we sidestep this complexity by __restricting the file browser to the contents of shared storage *as seen by the RenderController server*, not the user's local machine.__ RenderController does not move or modify project files at all. The browser is simply a way to specify the path to files that should already be accessible on the render nodes.  The assumption is that every render node, the server, and the user's workstation all have the shared filesystem mounted in the same location.  If so, this will be transparent because all project paths will be the same everywhere.  If you choose not to work from the shared filesystem, you will have to copy you project and all of its dependencies with relative paths intact to the shared filesystem using SSH, NFS, FTP, or whatever method you prefer before RenderController will be able to see it.
 
 ### Multiple Render Passes
-If your project file includes multiple passes or layers, the render node progress bars in the web UI may go to 100% for each pass.  This does not affect the overall render progress bar or indicate a problem with the render.  It happens because the server reads progress directly from the command line output and does not examine the project file to determine how many layers it might have.  The server only uses this progress information for showing the progress bar in the web UI.  Frame completion is not registered until a frame is saved to disk.
+If your project file includes multiple passes or layers, the render node progress bars in the web UI may go to 100% for each pass.  This does not affect the overall render progress bar or indicate a problem with the render.  It happens because the server reads progress directly from the command line output and does not examine the project file to determine how many layers it might have.  The server only uses this progress information for showing the progress bars in the web UI.  Frame completion is not registered until a frame is saved to disk.
 
 ### Stopped Renders and the Render Queue
-When a render has been manually stopped by a user, it is assigned the status `Stopped`.  This means that the render can only be started manually.  If you want to place the job back in queue to be rendered automatically, use the `Return to Queue` button to reset the status to `Waiting`.
+When a render has been manually stopped by a user, it is assigned the status `Stopped`.  This means that the render can only be re-started manually.  If you want to place the job back in queue to be rendered automatically, use the `Return to Queue` button to reset the status to `Waiting`.
 
 ### Disabling a Node While Rendering
-If you disable a render node while it has a frame actively rendering, that frame will be allowed to finish but no new frames will be assigned.
+If you disable a render node while it is actively rendering a frame, that frame will be allowed to finish but no new frames will be assigned to the node.
 
 
 ## REST API Reference

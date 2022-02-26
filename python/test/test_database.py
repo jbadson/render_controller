@@ -16,7 +16,7 @@ db_testjob1 = {
     "render_nodes": ["node1", "node2"],
     "time_start": 1643945597.08555,
     "time_stop": 1643945737.287661,
-    "frames_completed": [0, 1, 2, 3, 4, 5],
+    "frames_completed": {0, 1, 2, 3, 4, 5},
     "queue_position": 0,
 }
 
@@ -29,7 +29,7 @@ db_testjob2 = {
     "render_nodes": ["node1", "node2", "node3"],
     "time_start": 1643945770.027214,
     "time_stop": 1643945813.785717,
-    "frames_completed": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    "frames_completed": {0, 1, 2, 3, 4, 6, 7, 8},  # 5 is missing intentionally
     "queue_position": 1,
 }
 
@@ -132,8 +132,8 @@ def test_database_update_job_frames_completed(db):
     assert db.get_job("job01")["frames_completed"] == db_testjob1["frames_completed"]
     assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
     ts_pre = db.get_job("job01")["timestamp"]
-    db.update_job_frames_completed("job01", [7, 8, 9, 10])
-    assert db.get_job("job01")["frames_completed"] == [7, 8, 9, 10]
+    db.update_job_frames_completed("job01", {7, 8, 9, 10})
+    assert db.get_job("job01")["frames_completed"] == {7, 8, 9, 10}
     # Make sure no changes were made to other job
     assert db.get_job("job02")["frames_completed"] == db_testjob2["frames_completed"]
     # Make sure timestamp was updated

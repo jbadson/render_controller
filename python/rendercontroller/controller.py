@@ -291,7 +291,11 @@ class RenderController(object):
 
     def get_job_data(self, job_id: str) -> Dict[str, Any]:
         """Returns status info for a render job."""
-        return self._try_get_job(job_id).dump()
+        ret = self._try_get_job(job_id).dump()
+        # frames_completed can potentially be fairly large, and is neither used
+        # by the web UI nor JSON serializable, so just remove it.
+        ret.pop("frames_completed")
+        return ret
 
     def shutdown(self) -> None:
         """Prepares controller for clean shutdown."""
@@ -303,7 +307,7 @@ class RenderController(object):
             if job.status == RENDERING:
                 logger.debug(f"Attempting to stop {job.id}")
                 job.stop()
-        logger.debug("Controller shutdown complete")
+        logger.debug("Controller shutdown complete.")
 
 
 class TaskThread(object):

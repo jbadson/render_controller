@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import logging
 import http.server
 from http import HTTPStatus
@@ -8,6 +6,7 @@ from json import JSONDecodeError
 import os
 import yaml
 import signal
+import selectors
 import socketserver
 import urllib.parse
 from typing import Sequence, Optional, Dict, List, Any, Union
@@ -39,13 +38,46 @@ class ParsedPath(object):
         self.target = self.parts[2] if len(self.parts) > 2 else None
 
 
-class TCPServer(socketserver.ThreadingTCPServer):
+class ShutdownableTCPServer(socketserver.TCPServer):
+    """
+    socketserver.BaseServer uses an arcane loop termination process in serve_forever that is prone to deadlocking.
+    It has been discussed in many issues (#13749, #12463, #2302, etc.) over more than a decade, but there seems to
+    be no consensus as to whether the problem even really exists, much less a solution.  Since it has become a problem
+    for me, and I have not found a better way to solve it, I am overriding it with a simpler mechanism that seems to
+    work for my purposes.  I make no guarantees about the reasonableness or pythonic purity of this solution.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._stop = False
+        super().__init__(*args, **kwargs)
+
+    def shutdown(self):
+        """Overrides parent method with simpler shutdown flag."""
+        self._stop = True
+
+    def serve_forever(self, poll_interval=0.5):
+        """Essentially the same as the parent method but without multi-step shutdown dunder stuff."""
+        with selectors.PollSelector() as selector:
+            selector.register(self, selectors.EVENT_READ)
+
+            while not self._stop:
+                ready = selector.select(poll_interval)
+                # bpo-35017: shutdown() called during select(), exit immediately.
+                if self._stop:
+                    break
+                if ready:
+                    self._handle_request_noblock()
+                self.service_actions()
+        logger.debug("serve_forever() exited")
+
+
+class TCPServer(ShutdownableTCPServer):
     allow_reuse_address = True
 
     def __init__(self, controller: RenderController, *args, **kwargs):
         self.controller = controller
-        signal.signal(signal.SIGTERM, self._signal_handler())
         super().__init__(*args, **kwargs)
+        signal.signal(signal.SIGTERM, self._signal_handler())
 
     def handle_error(self, request, client_address):
         """Overrides parent method to customize logging."""
@@ -63,15 +95,18 @@ class TCPServer(socketserver.ThreadingTCPServer):
             frame -- Stack frame (not used, but is required by interface).
             """
             logger.debug(f"Caught signal {signum}")
-            self.shutdown()
+            if signum == 15:
+                self.stop()
 
         return handler
 
-    def shutdown(self):
-        logger.info("Shutting down server")
+    def stop(self):
+        logger.info("Shutting down")
         self.controller.shutdown()
         logger.debug("Attempting to stop TCP server")
-        super().shutdown()
+        # super().shutdown()
+        self.server_close()
+        self.shutdown()
 
 
 class HttpHandler(http.server.SimpleHTTPRequestHandler):
@@ -496,6 +531,7 @@ def main(config_path: str) -> int:
     except KeyboardInterrupt:
         server.shutdown()
     except:
-        logging.exception("Unhandled exception. Server shutting down.")
+        logging.exception("Server exited with unhandled exception.")
         return 1
+    logger.debug("Server exited normally")
     return 0

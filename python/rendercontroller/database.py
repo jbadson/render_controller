@@ -1,7 +1,7 @@
 import time
 import json
 import sqlite3
-from typing import List, Sequence, Dict, Tuple
+from typing import List, Sequence, Dict, Tuple, Set
 
 
 class StateDatabase(object):
@@ -38,7 +38,7 @@ class StateDatabase(object):
         render_nodes: Sequence[str],
         time_start: float,
         time_stop: float,
-        frames_completed: Sequence[int],
+        frames_completed: Set[int],
         queue_position: int,
     ) -> None:
         """Adds a new RenderJob to the database."""
@@ -55,7 +55,9 @@ class StateDatabase(object):
             json.dumps(render_nodes),
             time_start,
             time_stop,
-            json.dumps(tuple(frames_completed)),  # Because set is not JSON serializable.
+            json.dumps(
+                tuple(frames_completed)
+            ),  # Because set is not JSON serializable.
             queue_position,
             time.time(),
         )
@@ -81,7 +83,7 @@ class StateDatabase(object):
             commit=True,
         )
 
-    def update_job_frames_completed(self, id: str, frames_completed: Sequence[int]) -> None:
+    def update_job_frames_completed(self, id: str, frames_completed: Set[int]) -> None:
         self.execute(
             f"UPDATE jobs SET frames_completed = ?, timestamp = ? WHERE id = ?",
             (json.dumps(tuple(frames_completed)), time.time(), id),
@@ -113,7 +115,7 @@ class StateDatabase(object):
             "render_nodes": json.loads(row[5]),
             "time_start": row[6],
             "time_stop": row[7],
-            "frames_completed": json.loads(row[8]),
+            "frames_completed": set(json.loads(row[8])),
             "queue_position": row[9],
             "timestamp": row[10],
         }

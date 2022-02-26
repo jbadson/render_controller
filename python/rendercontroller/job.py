@@ -3,7 +3,7 @@ import time
 import os.path
 import queue
 import logging
-from typing import Type, List, Tuple, Sequence, Dict, Optional, Any
+from typing import Type, List, Tuple, Sequence, Dict, Optional, Any, Set
 from rendercontroller.constants import (
     WAITING,
     RENDERING,
@@ -41,6 +41,11 @@ class Executor(object):
         self.path = path
         self.idle: bool = True
         self.thread: Optional[RenderThread] = None
+
+        self.logger = logging.getLogger(
+            f"{job_id} {os.path.basename(path)} Executor.{node}"
+        )
+
         # Guess render engine based on file extension.
         if self.path.lower().endswith(".blend"):
             self.engine = BLENDER
@@ -48,6 +53,7 @@ class Executor(object):
             self.engine = TERRAGEN
         else:
             raise ValueError("Could not determine render engine from filename.")
+        self.logger.debug(f"Set render engine to {self.engine}")
 
     @property
     def status(self) -> str:
@@ -89,12 +95,14 @@ class Executor(object):
         """
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Render is not done.")
+        self.logger.debug("Caller acknowledged frame done.")
         self.idle = True
 
     def render(self, frame: int) -> None:
         """Renders a frame"""
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Node already has an active render process.")
+        self.logger.debug(f"Assigned frame {frame}")
         if self.engine == BLENDER:
             self.thread = BlenderRenderThread(
                 config=self.config,
@@ -119,7 +127,9 @@ class Executor(object):
     def stop(self) -> None:
         """Shuts down the executor."""
         if self.thread:
+            self.logger.debug("RenderThread exists, stopping.")
             self.thread.stop()
+        self.logger.debug("Executor terminated.")
 
 
 class RenderJob(object):
@@ -138,7 +148,7 @@ class RenderJob(object):
         time_start: float = 0.0,
         time_stop: float = 0.0,
         time_offset: float = 0.0,
-        frames_completed: Sequence[int] = (),
+        frames_completed: Optional[Set[int]] = None,
     ):
         self.config = config
         self.db = db
@@ -153,13 +163,15 @@ class RenderJob(object):
         self.time_start = time_start
         self.time_stop = time_stop
         self.time_offset = time_offset
-        self._stop: bool
+        self._stop: bool = False
         self.master_thread: threading.Thread
         self._reset_render_state()
 
-        # frames_completed cannot simply be a count because frames may fail and be reassigned
-        # out of order, and we must know this in order to correctly restore a job from disk.
-        self.frames_completed = set(frames_completed)
+        # In order to restore a partially-rendered job from disk, we need to know exactly which frames
+        # have already been rendered.  This cannot be a simple count because the process of returning
+        # a failed frame to queue can result in the sequence of completed frames being discontinuous
+        # if the job is stopped at the right moment.
+        self.frames_completed = frames_completed if frames_completed else set()
 
         # LiFo because we want to be able to put and re-render failed frames before moving on to others.
         self.queue: queue.LifoQueue = queue.LifoQueue()
@@ -182,7 +194,8 @@ class RenderJob(object):
             f"{self.id} {os.path.basename(self.path)} RenderJob"
         )
         self.logger.info(
-            f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes {', '.join(self.nodes_enabled)} with ID {self.id}"
+            f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes "
+            f"{', '.join(self.nodes_enabled)} with ID {self.id}"
         )
         if self.status == RENDERING:
             self._set_status(WAITING)
@@ -207,6 +220,8 @@ class RenderJob(object):
 
     def stop(self) -> None:
         """Stops the render and attempts to terminate all active render processes."""
+        if self.status != RENDERING:
+            raise JobStatusError("Job is not rendering.")
         self.logger.info("Stopping job.")
         self._stop = True
         # Ensure all rendering frames are put back in queue.  Do not leave this to
@@ -214,9 +229,8 @@ class RenderJob(object):
         # where in the nested iterations the _stop flag is detected.
         for executor in self.node_status.values():
             executor.stop()
-            frame = executor.frame
-            if frame:
-                self.queue.put(frame)
+            if executor.frame:
+                self.queue.put(executor.frame)
         if self.master_thread and self.master_thread.is_alive():
             self.logger.debug(f"Waiting for master thread to exit.")
             self.master_thread.join()
@@ -289,14 +303,14 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "nodes_enabled": sorted(self.nodes_enabled),
+            "nodes_enabled": self.nodes_enabled,
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,
             "time_elapsed": elapsed,
             "time_avg_per_frame": avg,
             "time_remaining": rem,
-            "frames_completed": sorted(self.frames_completed),
+            "frames_completed": self.frames_completed,
             "progress": self.get_progress(),
             "node_status": self.get_nodes_status(),
         }

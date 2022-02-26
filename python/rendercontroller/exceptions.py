@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-
-
 class JobNotFoundError(LookupError):
     """Raised when a render job is not found."""
 

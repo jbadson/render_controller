@@ -34,7 +34,7 @@ def testjob2():
         "time_start": 1643945770.027214,
         "time_stop": 1643945813.785717,
         "time_offset": 300,
-        "frames_completed": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+        "frames_completed": {0, 1, 2, 3, 4, 5, 6, 7, 8},
     }
 
 
@@ -133,7 +133,7 @@ def test_job_init_restore(render, conf, ex, testjob2):
     assert j.time_start == testjob2["time_start"]
     assert j.time_stop == testjob2["time_stop"]
     assert j.time_offset == testjob2["time_offset"]
-    assert j.frames_completed == set(testjob2["frames_completed"])
+    assert j.frames_completed == testjob2["frames_completed"]
     # Check generated params
     queue_expected = list(range(9, 25 + 1))
     queue_actual = []
@@ -174,9 +174,14 @@ def test_job_render(timer, job1):
 
 
 def test_job_stop(job1):
+    job1.render()
     assert job1._stop is False
+    assert job1.status == RENDERING
     job1.stop()
     assert job1._stop is True
+    assert job1.status == STOPPED
+    with pytest.raises(JobStatusError):
+        job1.stop()
 
 
 def test_job_enable_node(job1, testjob1):
@@ -250,7 +255,7 @@ def test_job_get_times(job1):
     assert avg == 0.0
     assert rem == 0.0
     # Case 2b: Job rendered some frames before it was stopped.
-    job1.frames_completed = [i for i in range(25)]
+    job1.frames_completed = set(i for i in range(25))
     elapsed, avg, rem = job1.get_times()
     # 100 seconds to render 25 frames => 4 sec/frame and 304s remaining
     assert elapsed == 100.0
@@ -260,7 +265,7 @@ def test_job_get_times(job1):
     # Case 3: Job currently rendering (time_start has been set, time_stop has not)
     job1.time_stop = 0.0
     # Case 3a: Job just started, no frames finished yet
-    job1.frames_completed = []
+    job1.frames_completed = set()
     assert job1.time_start > 0.0
     elapsed, avg, rem = job1.get_times()
     # RenderThread is mocked, so elapsed will increase but no frames will ever finish
@@ -268,7 +273,7 @@ def test_job_get_times(job1):
     assert avg == 0.0
     assert rem == 0.0
     # Case 3b: Job has been rendering for a while, some frames finished
-    job1.frames_completed = [i for i in range(25)]
+    job1.frames_completed = set(i for i in range(25))
     assert job1.time_stop == 0.0
     job1.time_start = time.time() - 100
     elapsed, avg, rem = job1.get_times()
@@ -292,7 +297,7 @@ def test_job_dump(job1, job2, testjob1, testjob2):
         "time_elapsed": 0.0,
         "time_avg_per_frame": 0.0,
         "time_remaining": 0.0,
-        "frames_completed": [],
+        "frames_completed": set(),
         "progress": 0.0,
         "node_status": {
             node: {

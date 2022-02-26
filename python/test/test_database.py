@@ -43,7 +43,9 @@ def db_path():
 
 @pytest.fixture(scope="module")
 def db(db_path):
-    yield StateDatabase(db_path)
+    db = StateDatabase(db_path)
+    db.initialize()
+    yield db
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +56,8 @@ def cursor(db_path):
     con.close()
 
 
-def test_database_initialize(db, cursor):
+def test_database_initialize(db_path, cursor):
+    db = StateDatabase(db_path)
     db.initialize()
     cursor.execute("SELECT tbl_name, sql FROM sqlite_schema WHERE type='table'")
     assert cursor.fetchall() == [

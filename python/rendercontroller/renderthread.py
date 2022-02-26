@@ -7,7 +7,14 @@ import os.path
 import re
 import shlex
 from typing import Type, Optional
-from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED, LOG_EVERYTHING
+from rendercontroller.constants import (
+    WAITING,
+    RENDERING,
+    STOPPED,
+    FINISHED,
+    FAILED,
+    LOG_EVERYTHING,
+)
 from rendercontroller.util import Config
 
 
@@ -73,7 +80,6 @@ class BlenderRenderThread(RenderThread):
     """
 
     def __init__(self, *args, **kwargs):
-        # TODO Expose status as property, let master thread reach in and get it when needed.  No need for retqueue.
         super().__init__(*args, **kwargs)
         self.pid: Optional[int] = None
         # Allow multiple regex patterns to support the different Blender output formats
@@ -111,9 +117,12 @@ class BlenderRenderThread(RenderThread):
         """Runs in a new threading.Thread and renders the specified frame."""
         self.logger.debug("Started worker thread.")
         self.status = RENDERING
-        #FIXME pgrep -i option does not exist in linux, but not sure if case is the same on mac vs linux.
-        # need to check and fix if necessary.
-        cmd = f"{shlex.quote(self.execpath)} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & pgrep -n blender"
+        if self.node in self.config.macs:
+            # Blender may be upper case in MacOS, but Linux pgrep implementations may lack -i option.
+            pgrep = "pgrep -i -n blender"
+        else:
+            pgrep = "pgrep -n blender"
+        cmd = f"{shlex.quote(self.execpath)} -b -noaudio {shlex.quote(self.path)} -f {self.frame} & {pgrep}"
         proc = subprocess.Popen(
             [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
         )
@@ -134,7 +143,7 @@ class BlenderRenderThread(RenderThread):
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")
             return
-        self.logger.log(level=LOG_EVERYTHING, msg=f"STDOUT \"{line}\"")
+        self.logger.log(level=LOG_EVERYTHING, msg=f'STDOUT "{line}"')
         # Try to get progress from rendered parts
         if line.startswith("Fra:"):
             for regex in self.patterns:
@@ -168,7 +177,8 @@ class Terragen3RenderThread(RenderThread):
         self.logger.warning(
             "DEPRECATION WARNING: Terragen 3 support is no longer maintained and may be removed from future versions. "
             "If you are still using Terragen 3, please let me know by opening an issue at "
-            "https://github.com/jbadson/render_controller")
+            "https://github.com/jbadson/render_controller"
+        )
         self.pid: Optional[int] = None
         if self.node in self.config.macs:
             self.execpath = self.config.terragenpath_mac
@@ -200,8 +210,15 @@ class Terragen3RenderThread(RenderThread):
         """Runs in a new threading.Thread and renders the specified frame."""
         self.logger.debug("Started worker thread.")
         self.status = RENDERING
-        cmd = f"{shlex.quote(self.execpath)} -p {shlex.quote(self.path)} -hide " \
-            + f"-exit -r -f {self.frame} & pgrep -n Terragen & wait"
+        if self.node in self.config.macs:
+            # Terragen may be upper case in MacOS, but Linux pgrep implementations may lack -i option.
+            pgrep = "pgrep -i -n terragen"
+        else:
+            pgrep = "pgrep -n terragen"
+        cmd = (
+            f"{shlex.quote(self.execpath)} -p {shlex.quote(self.path)} -hide "
+            + f"-exit -r -f {self.frame} & {pgrep} & wait"
+        )
         proc = subprocess.Popen(
             [shutil.which("ssh"), self.node, cmd], stdout=subprocess.PIPE
         )
@@ -222,10 +239,10 @@ class Terragen3RenderThread(RenderThread):
             self.status = FAILED
             self.logger.warning("Failed to render: broken pipe.")
             return
-        self.logger.log(level=LOG_EVERYTHING, msg=f"STDOUT \"{line}\"")
+        self.logger.log(level=LOG_EVERYTHING, msg=f'STDOUT "{line}"')
         # Terragen prints percent progress during render pass, so try to find that.
         if line.startswith("Rendering"):
-            #NOTE: terragen ALWAYS has at least 2 passes, so progress will go to 100% at least twice.
+            # NOTE: terragen ALWAYS has at least 2 passes, so progress will go to 100% at least twice.
             # We could track pass names, but probably not worth the effort since it doesn't affect
             # overall render progress.
             for part in line.split():

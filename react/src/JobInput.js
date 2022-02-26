@@ -180,12 +180,8 @@ class JobInput extends Component {
 
   selectAllNodes() {
     this.setState(state => {
-      let newNodes = state.renderNodes;
-      for (var name in newNodes) {
-        newNodes[name] = true;
-      }
       return {
-        renderNodes: newNodes,
+        nodesEnabled: this.state.renderNodes,
         useAllNodes: true,
       }
     });
@@ -193,12 +189,8 @@ class JobInput extends Component {
 
   deselectAllNodes() {
     this.setState(state => {
-      let newNodes = state.renderNodes;
-      for (var name in newNodes) {
-        newNodes[name] = false;
-      }
       return {
-        renderNodes: newNodes,
+        nodesEnabled: [],
         useAllNodes: false,
       }
     });

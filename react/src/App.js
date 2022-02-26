@@ -30,6 +30,13 @@ class App extends Component {
     this.setState({selectedJob: jobId})
   }
 
+  selectFirstJob() {
+    const { selectedJob, serverJobs } = this.state;
+    if (!selectedJob && serverJobs.length > 0) {
+      this.selectJob(serverJobs[0].id);
+    }
+  }
+
   deselectJob() {
     this.setState({selectedJob: null});
     this.selectFirstJob();
@@ -60,9 +67,13 @@ class App extends Component {
   }
 
   clearFinishedJobs() {
-    const { serverJobs } = this.state;
+    const { serverJobs, selectedJob } = this.state;
     serverJobs.forEach(job => {
       if (job.status === "Finished") {
+        if (selectedJob == job.id) {
+          // Deselect job to prevent status pane from making API calls with deleted job id.
+          this.setState({selectedJob: null});
+        }
         axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + job.id)
           .then(
             (error) => {console.error(error.message)}
@@ -116,13 +127,6 @@ class App extends Component {
     this.setState({
       serverJobs: sortedJobs
     })
-  }
-
-  selectFirstJob() {
-    const { selectedJob, serverJobs } = this.state;
-    if (!selectedJob && serverJobs.length > 0) {
-      this.selectJob(serverJobs[0].id);
-    }
   }
 
   componentDidMount() {

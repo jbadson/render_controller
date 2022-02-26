@@ -1,6 +1,7 @@
 import time
+import json
 import sqlite3
-from typing import List, Sequence, Dict
+from typing import List, Sequence, Dict, Tuple
 
 
 class StateDatabase(object):
@@ -23,7 +24,9 @@ class StateDatabase(object):
             "queue_position INTEGER",
             "timestamp FLOAT",
         ]
-        self.execute(f"CREATE TABLE IF NOT EXISTS jobs ({', '.join(jobs_schema)})")
+        self.execute(
+            f"CREATE TABLE IF NOT EXISTS jobs ({', '.join(jobs_schema)})", commit=True
+        )
 
     def insert_job(
         self,
@@ -39,24 +42,36 @@ class StateDatabase(object):
         queue_position: int,
     ) -> None:
         """Adds a new RenderJob to the database."""
-        framestr = ",".join([str(i) for i in frames_completed])
-        render_nodes = ",".join(render_nodes)
-        self.execute(
-            f"INSERT INTO jobs VALUES ('{id}', '{status}', '{path}', {start_frame}, {end_frame}, "
-            + f"'{render_nodes}', {time_start}, {time_stop}, '{framestr}', {queue_position}, "
-            + f"{time.time()})",
-            commit=True,
+        query = (
+            "INSERT INTO jobs (id, status, path, start_frame, end_frame, render_nodes, time_start, time_stop, "
+            "frames_completed, queue_position, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
+        params = (
+            id,
+            status,
+            path,
+            start_frame,
+            end_frame,
+            json.dumps(render_nodes),
+            time_start,
+            time_stop,
+            json.dumps(tuple(frames_completed)),  # Because set is not JSON serializable.
+            queue_position,
+            time.time(),
+        )
+        self.execute(query, params, commit=True)
 
     def update_job_status(self, id: str, status: str) -> None:
         self.execute(
-            f"UPDATE jobs SET status='{status}', timestamp={time.time()} WHERE id='{id}'",
+            f"UPDATE jobs SET status = ?, timestamp = ? WHERE id = ?",
+            (status, time.time(), id),
             commit=True,
         )
 
     def update_job_time_start(self, id: str, time_start: float) -> None:
         self.execute(
-            f"UPDATE jobs SET time_start={time_start}, timestamp={time.time()} WHERE id='{id}'",
+            f"UPDATE jobs SET time_start = ?, timestamp = ? WHERE id = ?",
+            (time_start, time.time(), id),
             commit=True,
         )
 
@@ -66,23 +81,24 @@ class StateDatabase(object):
             commit=True,
         )
 
-    def update_job_frames_completed(self, id: str, frames_completed: List[int]) -> None:
-        framestr = ",".join([str(i) for i in frames_completed])
+    def update_job_frames_completed(self, id: str, frames_completed: Sequence[int]) -> None:
         self.execute(
-            f"UPDATE jobs SET frames_completed='{framestr}', timestamp={time.time()} WHERE id='{id}'",
+            f"UPDATE jobs SET frames_completed = ?, timestamp = ? WHERE id = ?",
+            (json.dumps(tuple(frames_completed)), time.time(), id),
             commit=True,
         )
 
     def update_job_queue_position(self, id: str, queue_position: int) -> None:
         self.execute(
-            f"UPDATE jobs SET queue_position={queue_position}, timestamp={time.time()} WHERE id='{id}'",
+            f"UPDATE jobs SET queue_position = ?, timestamp = ? WHERE id = ?",
+            (queue_position, time.time(), id),
             commit=True,
         )
 
     def update_nodes(self, job_id: str, render_nodes: Sequence[str]) -> None:
-        render_nodes = ",".join(render_nodes)
         self.execute(
-            f"UPDATE jobs SET render_nodes='{render_nodes}', timestamp={time.time()} WHERE id='{job_id}'",
+            f"UPDATE jobs SET render_nodes = ?, timestamp = ? WHERE id = ?",
+            (json.dumps(render_nodes), time.time(), job_id),
             commit=True,
         )
 
@@ -94,19 +110,19 @@ class StateDatabase(object):
             "path": row[2],
             "start_frame": row[3],
             "end_frame": row[4],
-            "render_nodes": row[5].split(","),
+            "render_nodes": json.loads(row[5]),
             "time_start": row[6],
             "time_stop": row[7],
-            "frames_completed": [int(i) for i in row[8].split(",")] if row[8] else [],
+            "frames_completed": json.loads(row[8]),
             "queue_position": row[9],
             "timestamp": row[10],
         }
 
     def get_job(self, id) -> Dict:
-        job = self.execute(f"SELECT * FROM jobs WHERE id='{id}'")
-        if len(job) > 1:
+        jobs = self.execute(f"SELECT * FROM jobs WHERE id = ?", (id,))
+        if len(jobs) > 1:
             raise KeyError("Multiple jobs found with same id.")
-        return self._parse_job_row(job[0])
+        return self._parse_job_row(jobs[0])
 
     def get_all_jobs(self) -> List[Dict]:
         """Returns a list of all job records ordered by queue position (ascending)."""
@@ -117,13 +133,12 @@ class StateDatabase(object):
         return ret
 
     def delete_job(self, id) -> None:
-        self.execute(f"DELETE FROM jobs WHERE id='{id}'", commit=True)
+        self.execute(f"DELETE FROM jobs WHERE id = ?", (id,), commit=True)
 
-    def execute(self, query: str, commit: bool = False) -> List:
-        # FIXME make this sane. Just want to get something working for now.
+    def execute(self, query: str, params: Tuple = (), commit: bool = False) -> List:
         con = sqlite3.connect(self.filepath)
         cursor = con.cursor()
-        cursor.execute(query)
+        cursor.execute(query, params)
         ret = cursor.fetchall()
         if commit:
             con.commit()

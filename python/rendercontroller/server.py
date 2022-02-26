@@ -303,7 +303,6 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
             logger.warning("Job ID not specified in '%s'" % self.parsed_path)
             self.send_error(HTTPStatus.BAD_REQUEST, "Job ID not specified")
             return
-        # FIXME Fails messily if job status is wrong
         try:
             self.controller.start(self.parsed_path.target)
         except JobNotFoundError:
@@ -362,7 +361,6 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.exception("Error while creating job")
             error = str(e)
-            # TODO: Be more specific
             return self.send_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 "Failed to create job",

@@ -170,7 +170,10 @@ class RenderController(object):
                 path=j["path"],
                 start_frame=j["start_frame"],
                 end_frame=j["end_frame"],
-                render_nodes=j["render_nodes"],
+                # Filter nodes in case configured nodes changed while server was offline.
+                render_nodes=[
+                    n for n in j["render_nodes"] if n in self.config.render_nodes
+                ],
                 status=j["status"],
                 time_start=j["time_start"],
                 time_stop=j["time_stop"],
@@ -234,7 +237,6 @@ class RenderController(object):
 
     def start(self, job_id: str) -> None:
         """Starts rendering specified job."""
-        # TODO raise exception if fails
         self._try_get_job(job_id).render()
 
     def start_next(self) -> Optional[str]:

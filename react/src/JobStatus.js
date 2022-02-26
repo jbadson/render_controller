@@ -128,7 +128,6 @@ class JobStatusPane extends Component {
   stopJob() {
     axios.post(process.env.REACT_APP_BACKEND_API + "/job/stop/" + this.props.jobId)
     .then(
-      //FIXME: Add confirmation of some kind
       (result) => {console.log(result)},
       (error) => {console.error(error.message)}
     );

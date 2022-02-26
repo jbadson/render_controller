@@ -73,9 +73,6 @@ class Executor(object):
         return 0.0
 
     def is_idle(self) -> bool:
-        # FIXME Still not sure how to deal with this.  Executor is idle if thread does not exist, or if thread.status
-        # is finished or stopped (waiting implies it's about to start).  But still need way for mainloop to register
-        # that a thread has finished. Going with ack_done for now, but not sure it's the right approach.
         return self.idle
 
     def ack_done(self) -> None:
@@ -121,6 +118,7 @@ class Executor(object):
 
 class RenderJob(object):
     """Represents a project to be rendered."""
+
     def __init__(
         self,
         config: Type[Config],
@@ -339,8 +337,6 @@ class RenderJob(object):
         if self.time_start and self.time_stop:
             # Job was stopped or finished. Server downtime is irrelevant but, we must still
             # account for the render time that has already elapsed.
-            # FIXME this works when restoring a job, but not when restarting a stopped job.
-            # In that case, offset should be time.time() - self.stop_time
             correction = self.time_stop - self.time_start
             self.time_stop = 0.0
         self.time_start = time.time() - correction
@@ -434,7 +430,6 @@ class RenderJob(object):
                     # Node is idle, assign next frame
                     frame = self.queue.get()
                     self.logger.info(f"Sending frame {frame} to {node}.")
-                    # TODO Implement terragen thread?
                     executor.render(frame)
 
         self.logger.debug("Master thread exited.")

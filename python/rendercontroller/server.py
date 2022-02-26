@@ -377,7 +377,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         self.send_json(self.controller.render_nodes)
 
     def enable_node(self) -> None:
-        """Enables a node for rendering."""
+        """Enables a node for rendering on a particular job."""
         if not self.parsed_path.target:
             return self.send_error(HTTPStatus.BAD_REQUEST, "No node specified")
         try:
@@ -393,7 +393,7 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
         self.send_all_headers()
 
     def disable_node(self) -> None:
-        """Disables a node for rendering."""
+        """Disables a node for rendering on a particular job."""
         if not self.parsed_path.target:
             self.send_error(HTTPStatus.BAD_REQUEST, "No node specified")
             return

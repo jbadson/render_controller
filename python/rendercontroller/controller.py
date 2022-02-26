@@ -11,10 +11,9 @@ from rendercontroller.database import StateDatabase
 from rendercontroller.util import Config
 from rendercontroller.exceptions import (
     JobNotFoundError,
-    NodeNotFoundError,
     JobStatusError,
 )
-from rendercontroller.constants import WAITING, RENDERING, STOPPED, FINISHED, FAILED
+from rendercontroller.constants import WAITING, RENDERING
 
 logger = logging.getLogger("controller")
 
@@ -24,7 +23,7 @@ class RenderQueue(object):
     Ordered iterable that represents a queue of render jobs.
 
     This is something like a hybrid of a list and an OrderedDict, which allows accessing
-    elements both by index and key and adds some higher level methods specific to render jobs.
+    elements both by index and key, and adds some higher level methods specific to render jobs.
     """
 
     def __init__(self):
@@ -49,7 +48,7 @@ class RenderQueue(object):
         return f"RenderQueue{tuple(f'{k}:{v}' for k, v in self.jobs.items())}"
 
     def __getitem__(self, item: int) -> RenderJob:
-        """Returns job by position.  This is the same as get_by_index()."""
+        """Returns job by index (queue position).  This is the same as get_by_position()."""
         return tuple(self.jobs.values())[item]
 
     def __contains__(self, id) -> bool:
@@ -61,7 +60,7 @@ class RenderQueue(object):
         self.jobs[job.id] = job
 
     def pop(self, id: str) -> RenderJob:
-        """Remove and return a job by id."""
+        """Remove and return a job by its id."""
         return self.jobs.pop(id)
 
     def get_by_id(self, id: str) -> RenderJob:
@@ -69,11 +68,11 @@ class RenderQueue(object):
         return self.jobs[id]
 
     def get_by_position(self, index: int) -> RenderJob:
-        """Returns job located at given position, else raises IndexError."""
+        """Returns job by its position in queue (index), else raises IndexError."""
         return self.__getitem__(index)
 
     def insert(self, job: RenderJob, index: int) -> None:
-        """Inserts a job at a specific position."""
+        """Inserts a job at a specific position in queue (index)."""
         items = list(self.jobs.items())
         items.insert(index, (job.id, job))
         self.jobs = OrderedDict(items)
@@ -85,7 +84,7 @@ class RenderQueue(object):
         return list(self.jobs.values())
 
     def move(self, id: str, index: int) -> None:
-        """Moves job specified by `id` to a new position."""
+        """Moves job specified by `id` to a new position (index)."""
         job = self.jobs.pop(id)
         self.insert(job, index)
 
@@ -105,7 +104,7 @@ class RenderQueue(object):
         return n
 
     def get_position(self, id: str) -> int:
-        """Returns position of job in queue."""
+        """Returns position of job in queue (i.e. it's index)."""
         n = 0
         for i in self.jobs.keys():
             if i == id:
@@ -160,7 +159,7 @@ class RenderController(object):
         logger.info("Disabled autostart")
 
     def restore_jobs(self, jobs: List[Dict]):
-        """Create new RenderJob instances from data persisted to disk. Used to restore server state after restart."""
+        """Create new RenderJobs from a list of job parameter dicts. Used to restore server state after restart."""
         for j in jobs:
             logger.info(f"Restoring job {j['id']} from disk.")
             job = RenderJob(
@@ -240,17 +239,14 @@ class RenderController(object):
         self._try_get_job(job_id).render()
 
     def start_next(self) -> Optional[str]:
-        """Starts next job in queue and return job ID.  If no jobs in queue, returns None."""
+        """Starts next job in queue and returns job ID.  If no jobs in queue, returns None."""
         job = self.queue.get_next_waiting()
         if job:
             job.render()
             return job.id
         return None
 
-    def stop(
-        self,
-        job_id: str,
-    ) -> None:
+    def stop(self, job_id: str) -> None:
         """Stops the specified job."""
         self._try_get_job(job_id).stop()
 

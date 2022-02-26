@@ -73,13 +73,19 @@ class Executor(object):
         return 0.0
 
     def is_idle(self) -> bool:
+        """Returns True if node is ready to render a frame.
+
+        This implies that the node is not only technically able to accept a new frame, but also if it has finished
+        rendering a frame, that the caller has called `ack_done()` to signify that any post-render tasks have been
+        completed and the node should be made available for rendering.
+        """
         return self.idle
 
     def ack_done(self) -> None:
-        """Notifies this object that the caller has registered that the frame in progress has finished or was stopped.
+        """Acknowledges that a frame has finished rendering.
 
-        This is necessary to ensure the caller has had an opportunity to perform necessary cleanup
-        tasks before this object is marked as idle and ready to accept another frame.
+        This is necessary to ensure the caller has had an opportunity to perform necessary post-render tasks before
+        the node is marked as idle and ready to accept another frame.
         """
         if self.thread and self.thread.status == RENDERING:
             raise RuntimeError("Render is not done.")
@@ -276,7 +282,7 @@ class RenderJob(object):
         return elapsed, avg, rem
 
     def dump(self) -> Dict[str, Any]:
-        """Returns dict of key job parameters."""
+        """Returns dict of all necessary information to define this job's current state."""
         elapsed, avg, rem = self.get_times()
         return {
             "id": self.id,
@@ -305,7 +311,7 @@ class RenderJob(object):
     def get_nodes_status(self) -> Dict:
         """Returns a dict containing status for each node.
 
-        Similar to self.node_status but modified for external use."""
+        Similar to the `node_status` instance variable, but modified for external use."""
         ret = {}
         for node, executor in self.node_status.items():
             ret[node] = {

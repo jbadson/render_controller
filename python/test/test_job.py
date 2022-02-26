@@ -4,25 +4,7 @@ from unittest import mock
 from rendercontroller.job import RenderJob
 from rendercontroller.constants import WAITING, RENDERING, FINISHED, STOPPED, FAILED
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
-
-
-class LoopStopper(object):
-    """Mocks a boolean object, but changes value after it's been accessed a set number of times.
-
-    Allows a while loop to be stopped after a set number of iterations for testing purposes."""
-
-    def __init__(self, max_count=1):
-        self.max_count = max_count
-        self.call_count = 0
-
-    def __bool__(self):
-        if self.call_count >= self.max_count:
-            return True
-        self.call_count += 1
-        return False
-
-    def reset(self):
-        self.call_count = 0
+from rendercontroller.util import LoopStopper
 
 
 @pytest.fixture(scope="function")

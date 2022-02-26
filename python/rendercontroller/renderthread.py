@@ -10,7 +10,6 @@ from typing import Type, Optional
 from rendercontroller.constants import (
     WAITING,
     RENDERING,
-    STOPPED,
     FINISHED,
     FAILED,
     LOG_EVERYTHING,
@@ -24,7 +23,7 @@ class RenderThread(object):
     At a minimum, subclasses must implement the `worker` and `stop` methods, and assign values to the
     public instance variables described below.
 
-        status: str = Status of render process: status.WAITING, status.RENDERING, status.FINISHED, or status.FAILED.
+        status: str = Status of render process: WAITING, RENDERING, FINISHED, or FAILED.
         progress: float = Percent progress of this render process.
         time_stop: float = Epoch time when this render processes ended.
     """

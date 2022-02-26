@@ -15,9 +15,7 @@ def get_file_type(entry: os.DirEntry) -> str:
 
 
 def list_dir(directory: str) -> List[Dict[str, Any]]:
-    """
-    Presents the output of os.scandir() as something JSON-serializable.
-    """
+    """Presents the output of os.scandir() as something JSON-serializable."""
     contents = []
     for i in os.scandir(directory):
         contents.append(
@@ -83,3 +81,22 @@ class Config(object):
         if default:
             return default
         raise AttributeError(attr)
+
+
+class LoopStopper(object):
+    """Mocks a boolean object, but changes value after it's been accessed a set number of accesses.
+
+    Allows an infinite loop to be stopped after a set number of iterations for testing purposes."""
+
+    def __init__(self, max_count=1):
+        self.max_count = max_count
+        self.call_count = 0
+
+    def __bool__(self):
+        if self.call_count >= self.max_count:
+            return True
+        self.call_count += 1
+        return False
+
+    def reset(self):
+        self.call_count = 0

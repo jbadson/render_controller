@@ -119,9 +119,7 @@ class RenderController(object):
     def __init__(self, config: Type[Config]) -> None:
         self.config = config
         self.queue = RenderQueue()
-        self.db = StateDatabase(
-            os.path.join(self.config.work_dir, DBFILE_NAME)
-        )
+        self.db = StateDatabase(os.path.join(self.config.work_dir, DBFILE_NAME))
         self.db.initialize()
         self.task_thread = TaskThread(self)
         self.task_thread.start()

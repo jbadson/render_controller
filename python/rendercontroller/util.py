@@ -79,9 +79,46 @@ class Config(object):
         """Getter method that allows setting a default value."""
         if hasattr(cls, attr):
             return getattr(cls, attr)
-        if default:
-            return default
-        raise AttributeError(attr)
+        return default
+
+
+class MultiCounter(object):
+    """An object that can hold a collection of named counters, with associated convenience methods.
+
+    If `strict` is set to True, then counters must be initialized by the set() or reset() methods
+    before use.  If `strict` is False, then calling get(), inc(), or dec() on an unrecognized counter
+    will cause that counter to be first initialized as zero before the requested operation is performed.
+    """
+
+    def __init__(self, strict: bool = False):
+        self.strict = strict
+        self.counters = {}
+
+    def _init_if_unknown(self, counter):
+        if not self.strict and counter not in self.counters:
+            self.counters[counter] = 0
+
+    def set(self, counter: str, value: int) -> None:
+        self.counters[counter] = value
+
+    def get(self, counter: str) -> int:
+        self._init_if_unknown(counter)
+        return self.counters[counter]
+
+    def inc(self, counter: str) -> None:
+        self._init_if_unknown(counter)
+        self.counters[counter] += 1
+
+    def dec(self, counter: str) -> None:
+        self._init_if_unknown(counter)
+        self.counters[counter] -= 1
+
+    def reset(self, counter: str) -> None:
+        self.counters[counter] = 0
+
+    def reset_all(self) -> None:
+        for key in self.counters:
+            self.counters[key] = 0
 
 
 class MagicBool(object):

@@ -183,7 +183,7 @@ class RenderJob(object):
         self.time_offset = time_offset
 
         self._stop: bool = False
-        self.test: bool = False  # Enables some instrumentation for unit testing
+        self._test_obj = None  # Unit tests can inject something here to instrument methods for testing.
         self.db = StateDatabase(os.path.join(self.config.work_dir, DBFILE_NAME))
         self.master_thread: threading.Thread
         self.executors: Dict[str, Executor] = {}
@@ -457,12 +457,13 @@ class RenderJob(object):
         """Runs in a new threading.Thread.  Manages the rendering of all the frames for this job."""
         self.logger.debug("Started master thread.")
         # Counts only used for unit testing.
-        self.outer_count = 0
-        self.inner_count = 0
+        if self._test_obj:
+            self._test_obj.reset("outer_count")
+            self._test_obj.reset("inner_count")
         while True:
             time.sleep(0.01)
-            if self.test:
-                self.outer_count += 1
+            if self._test_obj:
+                self._test_obj.inc("outer_count")
             if self._stop:
                 # Stop requested, but keep going until all executors have finished and we have ack'd them.
                 if not self.executors_active():
@@ -477,11 +478,11 @@ class RenderJob(object):
                 self._pop_skipped_node()
 
             # Iterate through nodes, check status, and assign frames.
-            if self.test:
-                self.inner_count = 0
+            if self._test_obj:
+                self._test_obj.reset("inner_count")
             for node in self.config.render_nodes:
-                if self.test:
-                    self.inner_count += 1
+                if self._test_obj:
+                    self._test_obj.inc("inner_count")
                 executor = self.executors[node]
                 if self._executor_is_ready(executor) and not self.queue.empty():
                     frame = self.queue.get()

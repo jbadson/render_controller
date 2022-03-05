@@ -6,7 +6,7 @@ import rendercontroller.job
 from rendercontroller.job import RenderJob
 from rendercontroller.constants import WAITING, RENDERING, FINISHED, STOPPED, FAILED
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
-from rendercontroller.util import MagicBool
+from rendercontroller.util import MagicBool, MultiCounter
 
 
 @pytest.fixture(scope="function")
@@ -360,7 +360,7 @@ def test_job_disable_node(job1, testjob1):
     job1.disable_node(newnode)
     assert newnode not in job1.get_enabled_nodes()
     assert len(job1.get_enabled_nodes()) == 1
-    nodes_expected = ("node2", )
+    nodes_expected = ("node2",)
     job1.db.update_nodes.assert_called_with(testjob1["id"], nodes_expected)
     job1.db.update_nodes.reset_mock()
 
@@ -788,7 +788,7 @@ def test_job_executor_is_ready(ffin, ffail, job1):
 @mock.patch("rendercontroller.job.RenderJob._render_finished")
 def test_job_mainloop_1(rfin, execs_active, job1):
     """Tests first block of mainloop: loop exit conditions."""
-    job1.test = True  # Enable loop counters
+    job1._test_obj = MultiCounter()  # To count loop iterations.
     job1.queue = mock.MagicMock(name="threading.LiFoQueue")
     job1.queue.empty.return_value = False
 
@@ -797,15 +797,17 @@ def test_job_mainloop_1(rfin, execs_active, job1):
     execs_active.return_value = False
     job1._mainloop()
     rfin.assert_not_called()
-    assert job1.outer_count == 1
-    assert job1.inner_count == 0
+    assert job1._test_obj.get("outer_count") == 1
+    assert job1._test_obj.get("inner_count") == 0
 
     # Case 2: Stop requested, executors still running => loop until executors done
-    execs_active.return_value = MagicBool(True, 1)  # Loop won't exit unless _stop = True and executors_active() = False
+    execs_active.return_value = MagicBool(
+        True, 1
+    )  # Loop won't exit unless _stop = True and executors_active() = False
     job1._mainloop()
     rfin.assert_not_called()
-    assert job1.outer_count == 2
-    assert job1.inner_count == 4
+    assert job1._test_obj.get("outer_count") == 2
+    assert job1._test_obj.get("inner_count") == 4
 
     # Case 3: Stop not requested, queue empty, executors done => render finished
     job1._stop = MagicBool(False, 1)
@@ -813,8 +815,8 @@ def test_job_mainloop_1(rfin, execs_active, job1):
     execs_active.return_value = False
     job1._mainloop()
     rfin.assert_called_once()
-    assert job1.outer_count == 1
-    assert job1.inner_count == 0
+    assert job1._test_obj.get("outer_count") == 1
+    assert job1._test_obj.get("inner_count") == 0
 
     # Case 4: Stop not requested, queue empty, executors still running => loop until executors done
     job1._stop.reset()
@@ -822,8 +824,8 @@ def test_job_mainloop_1(rfin, execs_active, job1):
     execs_active.return_value = MagicBool(True, 1)
     job1._mainloop()
     rfin.assert_not_called()
-    assert job1.outer_count == 2
-    assert job1.inner_count == 4
+    assert job1._test_obj.get("outer_count") == 2
+    assert job1._test_obj.get("inner_count") == 4
 
 
 @mock.patch("rendercontroller.job.RenderJob._pop_skipped_node")
@@ -831,14 +833,14 @@ def test_job_mainloop_2(pop, job1, render_nodes, testjob1):
     """Tests second block of mainloop: all nodes in skip list"""
     stop = MagicBool(False, 1)
     job1._stop = stop
-    job1.test = True
+    job1._test_obj = MultiCounter()
     pop.assert_not_called()
     job1.skip_list = testjob1["render_nodes"]
     assert len(job1.skip_list) == 2
 
     job1._mainloop()
     pop.assert_called_once()
-    assert job1.outer_count == 2
+    assert job1._test_obj.get("outer_count") == 2
 
     # Edge case: skip list longer than enabled nodes
     pop.reset_mock()
@@ -848,7 +850,7 @@ def test_job_mainloop_2(pop, job1, render_nodes, testjob1):
     stop.reset()
     job1._mainloop()
     pop.assert_called_once()
-    assert job1.outer_count == 2
+    assert job1._test_obj.get("outer_count") == 2
 
 
 @mock.patch("rendercontroller.job.RenderJob._executor_is_ready")
@@ -857,7 +859,7 @@ def test_job_mainloop_3(execs_active, exec_ready, render_nodes, job1):
     """Tests first unit of inner (node) loop: node has thread assigned -> check status."""
     stop = MagicBool(False, 1)
     job1._stop = stop
-    job1.test = True  # Enable loop counters
+    job1._test_obj = MultiCounter()  # To count loop iterations
     execs_active.return_value = False
     job1.queue = mock.MagicMock(name="threading.LiFoQueue")
     job1.queue.empty.return_value = False
@@ -868,9 +870,11 @@ def test_job_mainloop_3(execs_active, exec_ready, render_nodes, job1):
     exec_ready.return_value = False
     job1._mainloop()
     # Loop counters to make sure we're really hitting both loops.
-    assert job1.outer_count == 2
-    assert job1.inner_count == 4
-    assert job1.queue.empty.call_count == 1  # Not called in inner loop if not _executor_is_ready()
+    assert job1._test_obj.get("outer_count") == 2
+    assert job1._test_obj.get("inner_count") == 4
+    assert (
+        job1.queue.empty.call_count == 1
+    )  # Not called in inner loop if not _executor_is_ready()
 
     job1.queue.get.assert_not_called()
     for ex in job1.executors.values():
@@ -879,13 +883,17 @@ def test_job_mainloop_3(execs_active, exec_ready, render_nodes, job1):
     # Case 2: Executor is ready and queue is empty => do nothing
     stop.reset()
     job1.queue.reset_mock()
-    job1.queue.empty.return_value = MagicBool(False, 1)  # Otherwise it will exit with _render_finished()
+    job1.queue.empty.return_value = MagicBool(
+        False, 1
+    )  # Otherwise it will exit with _render_finished()
     exec_ready.return_value = True
 
     job1._mainloop()
-    assert job1.outer_count == 2
-    assert job1.inner_count == 4
-    assert job1.queue.empty.call_count == 5  # Once in outer loop, then once for each node.
+    assert job1._test_obj.get("outer_count") == 2
+    assert job1._test_obj.get("inner_count") == 4
+    assert (
+        job1.queue.empty.call_count == 5
+    )  # Once in outer loop, then once for each node.
     job1.queue.get.assert_not_called()
     for ex in job1.executors.values():
         ex.render.assert_not_called()
@@ -898,9 +906,11 @@ def test_job_mainloop_3(execs_active, exec_ready, render_nodes, job1):
     job1.queue.get.return_value = 5
 
     job1._mainloop()
-    assert job1.outer_count == 2
-    assert job1.inner_count == 4
-    assert job1.queue.empty.call_count == 2  # Once in outer loop, then once for the one ready executor
+    assert job1._test_obj.get("outer_count") == 2
+    assert job1._test_obj.get("inner_count") == 4
+    assert (
+        job1.queue.empty.call_count == 2
+    )  # Once in outer loop, then once for the one ready executor
     job1.queue.get.assert_called_once()
     for name, ex in job1.executors.items():
         if name == "node1":

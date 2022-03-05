@@ -36,7 +36,10 @@ def test_config_set_get():
 def test_config_bad_key():
     conf = Config
     with pytest.raises(AttributeError):
-        conf.get("bogus_val")
-    with pytest.raises(AttributeError):
-        assert conf.bogus_val == True
+        assert conf.bogus_val is True
+
+
+def test_config_get_default():
+    conf = Config
+    assert conf.get("bogus_val") is None
     assert conf.get("bogus_val", default="something") == "something"

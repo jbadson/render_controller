@@ -7,7 +7,7 @@ from typing import Sequence, Dict, Any, Type, List, Optional
 from uuid import uuid4
 from collections import OrderedDict
 from rendercontroller.job import RenderJob
-from rendercontroller.database import StateDatabase
+from rendercontroller.database import StateDatabase, DBFILE_NAME
 from rendercontroller.util import Config
 from rendercontroller.exceptions import (
     JobNotFoundError,
@@ -120,7 +120,7 @@ class RenderController(object):
         self.config = config
         self.queue = RenderQueue()
         self.db = StateDatabase(
-            os.path.join(self.config.work_dir, "rcontroller.sqlite")
+            os.path.join(self.config.work_dir, DBFILE_NAME)
         )
         self.db.initialize()
         self.task_thread = TaskThread(self)
@@ -164,7 +164,6 @@ class RenderController(object):
             logger.info(f"Restoring job {j['id']} from disk.")
             job = RenderJob(
                 config=self.config,
-                db=self.db,
                 id=j["id"],
                 path=j["path"],
                 start_frame=j["start_frame"],
@@ -199,7 +198,6 @@ class RenderController(object):
         """
         job = RenderJob(
             config=self.config,
-            db=self.db,
             id=uuid4().hex,
             path=path,
             start_frame=start_frame,

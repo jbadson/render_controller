@@ -20,7 +20,7 @@ from rendercontroller.renderthread import (
 )
 from rendercontroller.util import format_time, Config
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
-from rendercontroller.database import StateDatabase
+from rendercontroller.database import StateDatabase, DBFILE_NAME
 
 
 class Executor(object):
@@ -34,11 +34,19 @@ class Executor(object):
     which is why we don't want RenderJob to invoke them directly.
     """
 
-    def __init__(self, config: Type[Config], job_id: str, path: str, node: str):
+    def __init__(
+        self,
+        config: Type[Config],
+        job_id: str,
+        path: str,
+        node: str,
+        enabled: bool = False,
+    ):
         self.config = config
         self.job_id = job_id
         self.node = node
         self.path = path
+        self.enabled = enabled
         self.idle: bool = True
         self.thread: Optional[RenderThread] = None
 
@@ -77,6 +85,16 @@ class Executor(object):
         if self.thread:
             return self.thread.elapsed_time()
         return 0.0
+
+    def enable(self) -> None:
+        self.enabled = True
+
+    def disable(self) -> None:
+        self.enabled = False
+
+    def is_enabled(self) -> bool:
+        # FIXME this is redundant, along with is_idle.  Pick a convention and stick to it.
+        return self.enabled
 
     def is_idle(self) -> bool:
         """Returns True if node is ready to render a frame.
@@ -138,12 +156,11 @@ class RenderJob(object):
     def __init__(
         self,
         config: Type[Config],
-        db: StateDatabase,
         id: str,
         path: str,
         start_frame: int,
         end_frame: int,
-        render_nodes: List[str],
+        render_nodes: Tuple[str, ...],
         status: str = WAITING,
         time_start: float = 0.0,
         time_stop: float = 0.0,
@@ -151,21 +168,28 @@ class RenderJob(object):
         frames_completed: Optional[Set[int]] = None,
     ):
         self.config = config
-        self.db = db
         self.id = id
         self.path = path
         if start_frame > end_frame:
             raise ValueError("End frame cannot be less than start frame.")
         self.start_frame = start_frame
         self.end_frame = end_frame
-        self.nodes_enabled: List[str] = render_nodes
+        for node in render_nodes:
+            if node not in self.config.render_nodes:
+                raise NodeNotFoundError(f"'{node}' not in configured render nodes")
         self.status = status
         self.time_start = time_start
         self.time_stop = time_stop
         self.time_offset = time_offset
+
         self._stop: bool = False
+        self.test: bool = False  # Enables some instrumentation for unit testing
+        self.db = StateDatabase(os.path.join(self.config.work_dir, DBFILE_NAME))
         self.master_thread: threading.Thread
-        self._reset_render_state()
+        self.executors: Dict[str, Executor] = {}
+        self.logger = logging.getLogger(
+            f"{self.id} {os.path.basename(self.path)} RenderJob"
+        )
 
         # In order to restore a partially-rendered job from disk, we need to know exactly which frames
         # have already been rendered.  This cannot be a simple count because the process of returning
@@ -181,21 +205,16 @@ class RenderJob(object):
             if frame not in self.frames_completed:
                 self.queue.put(frame)
 
-        # Nodes are added to skip_list when they fail to render a frame. This temporarily disables
-        # the node to prevent the scheduler from continuously trying to assign frames to a node
-        # that is having some kind of problem.  Nodes are removed from skip_list in FiFo order for
-        # each frame successfully rendered on another node, or if all nodes end up in skip_list.
+        # Nodes are added to skip_list when they fail to render a frame.  Nodes are not assigned
+        # new frames while in the list. This is to prevent the frame from being continually reassigned
+        # to the offline node, which can result in it not being successfully re-rendered until all other
+        # frames have finished, or in certain cases a deadlock.
         self.skip_list: List[str] = []
-        self.node_status: Dict[str, Executor] = {}
-        for node in config.render_nodes:
-            self.node_status[node] = Executor(self.config, self.id, self.path, node)
 
-        self.logger = logging.getLogger(
-            f"{self.id} {os.path.basename(self.path)} RenderJob"
-        )
+        self._reset_render_state(render_nodes)
         self.logger.info(
             f"placed in queue to render frames {self.start_frame}-{self.end_frame} on nodes "
-            f"{', '.join(self.nodes_enabled)} with ID {self.id}"
+            f"{', '.join(self.get_enabled_nodes())} with ID {self.id}"
         )
         if self.status == RENDERING:
             self._set_status(WAITING)
@@ -213,7 +232,7 @@ class RenderJob(object):
         if self.time_start or self.time_stop:
             # Resuming a render
             self.logger.debug("Resetting render state.")
-            self._reset_render_state()
+            self._reset_render_state(self.get_enabled_nodes())
         self._set_status(RENDERING)
         self._start_timer()
         self.master_thread.start()
@@ -224,22 +243,16 @@ class RenderJob(object):
             raise JobStatusError("Job is not rendering.")
         self.logger.info("Stopping job.")
         self._stop = True
-        # Ensure all rendering frames are put back in queue.  Do not leave this to
-        # _mainloop because there is a chance frames could be missed depending on
-        # where in the nested iterations the _stop flag is detected.
-        for executor in self.node_status.values():
+        for executor in self.executors.values():
             executor.stop()
-            if executor.frame:
-                self.queue.put(executor.frame)
-        if self.master_thread and self.master_thread.is_alive():
+        if self.master_thread.is_alive():
             self.logger.debug(f"Waiting for master thread to exit.")
             self.master_thread.join()
         self._stop_timer()
         self._set_status(STOPPED)
         elapsed, avg, rem = self.get_times()
         self.logger.info(
-            f"Stopped render after {format_time(elapsed)}. Avg time per frame: {format_time(avg)}. "
-            + "It may take a few moments for all render processes to terminate."
+            f"Stopped render after {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."
         )
 
     def reset_waiting(self) -> None:
@@ -250,23 +263,27 @@ class RenderJob(object):
 
     def enable_node(self, node: str) -> None:
         """Enables a node for rendering on this job."""
-        if node not in self.config.render_nodes:
-            raise NodeNotFoundError(f"'{node}' is not in list of known render nodes")
-        if node in self.nodes_enabled:
+        try:
+            ex = self.executors[node]
+        except KeyError:
+            raise NodeNotFoundError(f"'{node}' is not a recognized render node.")
+        if ex.is_enabled():
             return
-        self.nodes_enabled.append(node)
+        ex.enable()
         self.logger.info(f"Enabled {node} for rendering.")
-        self.db.update_nodes(self.id, self.nodes_enabled)
+        self.db.update_nodes(self.id, self.get_enabled_nodes())
 
     def disable_node(self, node: str) -> None:
         """Disables a node for rendering on this job."""
-        if node not in self.config.render_nodes:
-            raise NodeNotFoundError(f"'{node}' is not in list of known render nodes")
-        if node not in self.nodes_enabled:
+        try:
+            ex = self.executors[node]
+        except KeyError:
+            raise NodeNotFoundError(f"'{node}' is not a recognized render node.")
+        if not ex.is_enabled():
             return
-        self.nodes_enabled.remove(node)
+        ex.disable()
         self.logger.info(f"Disabled {node} for rendering.")
-        self.db.update_nodes(self.id, self.nodes_enabled)
+        self.db.update_nodes(self.id, self.get_enabled_nodes())
 
     def get_progress(self) -> float:
         """Returns percent complete."""
@@ -303,7 +320,8 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            "nodes_enabled": self.nodes_enabled,
+            # FIXME Does anything actually use this? If so, can we use node_status instead?
+            "nodes_enabled": self.get_enabled_nodes(),
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,
@@ -315,30 +333,36 @@ class RenderJob(object):
             "node_status": self.get_nodes_status(),
         }
 
-    def frames_rendering(self) -> bool:
+    def executors_active(self) -> bool:
         """Returns True if any frames are currently rendering, else False."""
-        for executor in self.node_status.values():
+        for executor in self.executors.values():
             if not executor.is_idle():
                 return True
         return False
 
-    def get_nodes_status(self) -> Dict:
-        """Returns a dict containing status for each node.
+    def get_enabled_nodes(self) -> Tuple[str, ...]:
+        return tuple(ex.node for ex in self.executors.values() if ex.is_enabled())
 
-        Similar to the `node_status` instance variable, but modified for external use."""
+    def get_nodes_status(self) -> Dict:
+        """Returns a dict containing status for each render node."""
         ret = {}
-        for node, executor in self.node_status.items():
+        for node, executor in self.executors.items():
             ret[node] = {
                 "frame": executor.frame,
                 "progress": executor.progress,
-                "enabled": True if node in self.nodes_enabled else False,
-                "rendering": True if not executor.is_idle() else False,
+                "enabled": executor.is_enabled(),
+                "rendering": not executor.is_idle(),
             }
         return ret
 
-    def _reset_render_state(self) -> None:
+    def _reset_render_state(self, nodes_enabled: Sequence[str]) -> None:
         """Resets internal state in preparation for rendering."""
         self._stop = False
+        for node in self.config.render_nodes:
+            enable = True if node in nodes_enabled else False
+            self.executors[node] = Executor(
+                self.config, self.id, self.path, node, enable
+            )
         self.master_thread = threading.Thread(target=self._mainloop, daemon=True)
 
     def _start_timer(self) -> None:
@@ -379,12 +403,11 @@ class RenderJob(object):
             f"Finished render in {format_time(elapsed)}. Avg time per frame: {format_time(avg)}."
         )
 
-    def _frame_finished(self, node: str):
+    def _frame_finished(self, executor: Executor) -> None:
         """Marks a frame as finished and prepares the node to receive a new frame."""
-        executor = self.node_status[node]
         self.queue.task_done()
         self.logger.info(
-            f"Finished frame {executor.frame} on {node} after {format_time(executor.elapsed_time())}."
+            f"Finished frame {executor.frame} on {executor.node} after {format_time(executor.elapsed_time())}."
         )
         self.frames_completed.add(executor.frame)
         executor.ack_done()
@@ -392,14 +415,15 @@ class RenderJob(object):
         # Frame successfully finished, try to pop a node from skip list
         self._pop_skipped_node()
 
-    def _frame_failed(self, node: str):
+    def _frame_failed(self, executor: Executor) -> None:
         """Marks a frame as failed and returns it to queue."""
-        executor = self.node_status[node]
-        self.logger.warning(f"Failed to render {executor.frame} on {node}.")
+        self.logger.warning(f"Failed to render {executor.frame} on {executor.node}.")
         self.queue.put(executor.frame)
         self.logger.debug(f"Returned frame {executor.frame} to queue.")
-        self.skip_list.append(node)
-        self.logger.debug(f"Added {node} to skip list.")
+        if not self._stop:
+            # Doesn't count if failure was because job is being terminated.
+            self.skip_list.append(executor.node)
+            self.logger.debug(f"Added {executor.node} to skip list.")
         executor.ack_done()
 
     def _pop_skipped_node(self):
@@ -409,45 +433,57 @@ class RenderJob(object):
         node = self.skip_list.pop(0)
         self.logger.debug(f"Released {node} from skip list.")
 
+    def _executor_is_ready(self, executor: Executor) -> bool:
+        if not executor.is_idle():
+            # Check if executor is done and collect exit status.
+            if executor.status == FINISHED:
+                self._frame_finished(executor)
+            elif executor.status == FAILED:
+                self._frame_failed(executor)
+                return False
+            else:
+                # Executor still rendering
+                return False
+        if not executor.is_enabled():
+            return False
+        if executor.node in self.skip_list:
+            return False
+        if self._stop:
+            # Do not assign new frames, but keep going until all executors finish.
+            return False
+        return True
+
     def _mainloop(self) -> None:
         """Runs in a new threading.Thread.  Manages the rendering of all the frames for this job."""
         self.logger.debug("Started master thread.")
-        while not self._stop:
+        # Counts only used for unit testing.
+        self.outer_count = 0
+        self.inner_count = 0
+        while True:
             time.sleep(0.01)
-            if self.queue.empty() and not self.frames_rendering():
+            if self.test:
+                self.outer_count += 1
+            if self._stop:
+                # Stop requested, but keep going until all executors have finished and we have ack'd them.
+                if not self.executors_active():
+                    self.logger.debug("All executors done. Stopping mainloop")
+                    break
+            elif self.queue.empty() and not self.executors_active():
                 self._render_finished()
                 break
 
-            if len(self.skip_list) > 0 and len(self.skip_list) >= len(
-                self.nodes_enabled
-            ):
+            if self.skip_list and len(self.skip_list) >= len(self.get_enabled_nodes()):
                 self.logger.debug(f"All nodes are in skip list. Releasing oldest one.")
                 self._pop_skipped_node()
 
-            # Iterate through nodes, assign frames, and check status
+            # Iterate through nodes, check status, and assign frames.
+            if self.test:
+                self.inner_count = 0
             for node in self.config.render_nodes:
-                time.sleep(0.01)
-                if self._stop:
-                    # Cleanup is handled by the stop() method.
-                    break
-                # Check status of all nodes, not just enabled.  User may disable a node after a frame
-                # has been assigned, so we need to continue monitoring status until RenderThread ends.
-                executor = self.node_status[node]
-                if not executor.is_idle():
-                    if executor.status == FINISHED:
-                        self._frame_finished(node)
-                    elif executor.status == FAILED:
-                        self._frame_failed(node)
-                    continue
-                # Now check if any enabled nodes are ready for a new frame.
-                if node in self.nodes_enabled:
-                    if node in self.skip_list:
-                        continue
-                    if self.queue.empty():
-                        # All frames assigned, but not necessarily done rendering.
-                        # Continue iterating until all Executors report done.
-                        continue
-                    # Node is idle, assign next frame
+                if self.test:
+                    self.inner_count += 1
+                executor = self.executors[node]
+                if self._executor_is_ready(executor) and not self.queue.empty():
                     frame = self.queue.get()
                     self.logger.info(f"Sending frame {frame} to {node}.")
                     executor.render(frame)

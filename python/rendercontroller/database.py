@@ -4,6 +4,9 @@ import sqlite3
 from typing import List, Sequence, Dict, Tuple, Set
 
 
+DBFILE_NAME = "rcontroller.sqlite"
+
+
 class StateDatabase(object):
     """Interface for SQLite Database to store server state."""
 

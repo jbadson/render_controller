@@ -144,7 +144,6 @@ def test_controller_new_job(uuid, job, rc_empty):
     res = rc_empty.new_job(**testjob01)
     job.assert_called_with(
         config=rc_empty.config,
-        db=rc_empty.db,
         id=job_id,
         path=testjob01["path"],
         start_frame=testjob01["start_frame"],

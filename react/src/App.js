@@ -70,7 +70,7 @@ class App extends Component {
     const { serverJobs, selectedJob } = this.state;
     serverJobs.forEach(job => {
       if (job.status === "Finished") {
-        if (selectedJob == job.id) {
+        if (selectedJob === job.id) {
           // Deselect job to prevent status pane from making API calls with deleted job id.
           this.setState({selectedJob: null});
         }

@@ -59,6 +59,7 @@ class Config(object):
     log_file_path: str
     work_dir: str
     file_browser_base_dir: str
+    node_timeout: int
     render_nodes: List[str]
     macs: List[str]
     blenderpath_mac: str
@@ -83,20 +84,21 @@ class Config(object):
         raise AttributeError(attr)
 
 
-class LoopStopper(object):
+class MagicBool(object):
     """Mocks a boolean object, but changes value after it's been accessed a set number of accesses.
 
     Allows an infinite loop to be stopped after a set number of iterations for testing purposes."""
 
-    def __init__(self, max_count=1):
+    def __init__(self, initial_value=False, max_count=1):
+        self.initial = initial_value
         self.max_count = max_count
         self.call_count = 0
 
     def __bool__(self):
-        if self.call_count >= self.max_count:
-            return True
-        self.call_count += 1
-        return False
+        self.call_count += 1  # Want to keep track of call count even after state flips.
+        if self.call_count > self.max_count:
+            return not self.initial
+        return self.initial
 
     def reset(self):
         self.call_count = 0

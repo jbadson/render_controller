@@ -25,7 +25,11 @@ class RenderThread(object):
 
         status: str = Status of render process: WAITING, RENDERING, FINISHED, or FAILED.
         progress: float = Percent progress of this render process.
-        time_stop: float = Epoch time when this render processes ended.
+
+    Timers: This class includes two built-in timers: a render timer and a timeout timer. The render timer
+    measures the total time taken to render a frame. The timeout timer measures the time since the last
+    update received from the render process. The base class does not implement any action when the timeout
+    limit is exceeded, so subclasses should implement it as appropriate.
     """
 
     def __init__(
@@ -38,36 +42,57 @@ class RenderThread(object):
         self.status = WAITING
         self.progress: float = 0.0
         self.logger = logging.getLogger(
-            f"{job_id} {os.path.basename(self.path)} {self.__class__.__name__} "
-            f"{self.__class__.__name__} frame {frame} on {node}"
+            f"{job_id} {os.path.basename(self.path)} {self.__class__.__name__} frame {frame} on {node}"
         )
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.time_start: float = 0.0
         self.time_stop: float = 0.0
+        self.timeout_timer: float = 0.0
 
     def elapsed_time(self) -> float:
         """Returns time taken to render the frame in seconds."""
         if self.time_stop:
-            return self.time_start - self.time_stop
-        return self.time_start - time.time()
+            return self.time_stop - self.time_start
+        return time.time() - self.time_start
 
     def start(self) -> None:
         """Spawns worker thread and starts the render."""
         self.time_start = time.time()
+        self.timeout_timer = time.time()
         self.thread.start()
 
-    def stop(self) -> None:
-        """Must be implemented by subclasses.
+    def is_timed_out(self) -> bool:
+        """Returns True if `timeout_timer` exceeds the value for `node_timeout` set in config.
 
-        This method should terminate the active render process and ensure the `time_stop` instance variable is set.
+        The purpose of the timeout timer is to catch edge cases where the render node hangs or network
+        connectivity is interrupted, but for whatever reason the process does not explicitly fail.
+        The `node_timeout` threshold represents the maximum time we will wait between successive updates
+        from the node, *not* the max total render time.
+
+        Subclasses may choose whether and how to make use of this in their `worker()` implementation,
+        but generally this method should be called every time an update is received from the server, and
+        if it returns True the caller should treat the frame as failed.
         """
+        if (
+            self.timeout_timer
+            and time.time() - self.timeout_timer > self.config.node_timeout
+        ):
+            return True
+        return False
+
+    def stop_render_timer(self) -> None:
+        self.time_stop = time.time()
+
+    def stop(self) -> None:
+        """Must be implemented by subclasses.  This method should terminate the active render process."""
         raise NotImplementedError
 
     def worker(self) -> None:
         """Must be implemented by subclasses.
 
-        This method will be executed in a new threading.Thread. It must execute the render process and ensure
-        values are assigned to the `status`, `progress`, and `time_stop` instance variables.
+        This method will be executed in a new threading.Thread. It must execute the render process update
+        the `status` and `progress` instance variables.  It must also call stop_render_timer() when the
+        render process exits.
         """
         raise NotImplementedError
 
@@ -128,8 +153,12 @@ class BlenderRenderThread(RenderThread):
         for line in iter(proc.stdout.readline, ""):
             if self.status != RENDERING:
                 break
+            if self.is_timed_out():
+                self.status = FAILED
+                self.logger.warning("Failed to render: timed out")
+                break
             self.parse_line(line)
-        self.time_stop = time.time()
+        self.stop_render_timer()
         self.logger.debug("Worker thread exited.")
 
     def parse_line(self, bline: bytes) -> None:
@@ -173,11 +202,6 @@ class Terragen3RenderThread(RenderThread):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.logger.warning(
-            "DEPRECATION WARNING: Terragen 3 support is no longer maintained and may be removed from future versions. "
-            "If you are still using Terragen 3, please let me know by opening an issue at "
-            "https://github.com/jbadson/render_controller"
-        )
         self.pid: Optional[int] = None
         if self.node in self.config.macs:
             self.execpath = self.config.terragenpath_mac
@@ -224,8 +248,12 @@ class Terragen3RenderThread(RenderThread):
         for line in iter(proc.stdout.readline, ""):
             if self.status != RENDERING:
                 break
+            if self.is_timed_out():
+                self.status = FAILED
+                self.logger.warning("Failed to render: timed out")
+                break
             self.parse_line(line)
-        self.time_stop = time.time()
+        self.stop_render_timer()
         self.logger.debug("Worker thread exited.")
 
     def parse_line(self, bline: bytes) -> None:
@@ -253,7 +281,7 @@ class Terragen3RenderThread(RenderThread):
         if line.strip().isdigit():
             pid = int(line.strip())
             # Terragen echos the frame number at the start of the render, so we must ignore that.
-            # If PID happens to the the same as the frame number, then this just means we cannot automatically
+            # If PID happens to be the same as the frame number, then this just means we cannot automatically
             # kill the remote render process if job is stopped. Not ideal, but not the end of the world.
             if pid != self.frame:
                 self.pid = pid

@@ -23,6 +23,9 @@ from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 from rendercontroller.database import StateDatabase, DBFILE_NAME
 
 
+threadlock = threading.Lock()
+
+
 class Executor(object):
     """Manages the execution of a render process on a particular node.
 
@@ -183,7 +186,9 @@ class RenderJob(object):
         self.time_offset = time_offset
 
         self._stop: bool = False
-        self._test_obj = None  # Unit tests can inject something here to instrument methods for testing.
+        self._test_obj = (
+            None  # Unit tests may use this to inject an instrumentation object.
+        )
         self.db = StateDatabase(os.path.join(self.config.work_dir, DBFILE_NAME))
         self.master_thread: threading.Thread
         self.executors: Dict[str, Executor] = {}
@@ -192,9 +197,8 @@ class RenderJob(object):
         )
 
         # In order to restore a partially-rendered job from disk, we need to know exactly which frames
-        # have already been rendered.  This cannot be a simple count because the process of returning
-        # a failed frame to queue can result in the sequence of completed frames being discontinuous
-        # if the job is stopped at the right moment.
+        # have already been rendered. This cannot be a simple count because various race conditions exist
+        # which may cause the sequence of completed frames to be discontinuous at certain times.
         self.frames_completed = frames_completed if frames_completed else set()
 
         # LiFo because we want to be able to put and re-render failed frames before moving on to others.
@@ -222,8 +226,9 @@ class RenderJob(object):
 
     def _set_status(self, status: str) -> None:
         """Sets job status and updates it in database."""
-        self.status = status
-        self.db.update_job_status(self.id, status)
+        with threadlock:  # This method can be called from both public methods and master_thread.
+            self.status = status
+            self.db.update_job_status(self.id, status)
 
     def render(self) -> None:
         """Starts the render."""
@@ -390,9 +395,10 @@ class RenderJob(object):
 
     def _stop_timer(self) -> None:
         """Stops the render timer."""
-        self.time_stop = time.time()
-        self.logger.debug(f"Stopped job timer: {self.time_stop}")
-        self.db.update_job_time_stop(self.id, self.time_stop)
+        with threadlock:  # This method can be called from both public methods and master_thread
+            self.time_stop = time.time()
+            self.logger.debug(f"Stopped job timer: {self.time_stop}")
+            self.db.update_job_time_stop(self.id, self.time_stop)
 
     def _render_finished(self) -> None:
         """Marks the render as finished."""

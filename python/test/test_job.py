@@ -2,11 +2,231 @@ import pytest
 import time
 from unittest import mock
 
-import rendercontroller.job
-from rendercontroller.job import RenderJob
-from rendercontroller.constants import WAITING, RENDERING, FINISHED, STOPPED, FAILED
+from rendercontroller.job import Executor, RenderJob
+from rendercontroller.constants import (
+    WAITING,
+    RENDERING,
+    FINISHED,
+    STOPPED,
+    FAILED,
+    BLENDER,
+    TERRAGEN,
+)
 from rendercontroller.exceptions import JobStatusError, NodeNotFoundError
 from rendercontroller.util import MagicBool, MultiCounter
+
+
+@pytest.fixture(scope="function")
+def render_nodes():
+    return ["node1", "node2", "node3", "node4"]
+
+
+@pytest.fixture(scope="function")
+def mconf(render_nodes):
+    c = mock.MagicMock(name="rendercontroller.util.Config")
+    c.render_nodes = render_nodes
+    return c
+
+
+### Test Executor
+
+
+@pytest.fixture(scope="function")
+def exec1_data(mconf):
+    return {
+        "config": mconf,
+        "job_id": "job01",
+        "node": "node1",
+        "path": "/tmp/job1.blend",
+    }
+
+
+@pytest.fixture(scope="function")
+def exec1(exec1_data):
+    return Executor(
+        config=exec1_data["config"],
+        job_id=exec1_data["job_id"],
+        node=exec1_data["node"],
+        path=exec1_data["path"],
+    )
+
+
+def test_executor_init(mconf):
+    # Case 1: Required params only
+    ex = Executor(config=mconf, job_id="job01", node="node1", path="/tmp/job1.blend")
+    assert ex.config == mconf
+    assert ex.job_id == "job01"
+    assert ex.node == "node1"
+    assert ex.path == "/tmp/job1.blend"
+    assert not ex.enabled
+    assert ex.idle
+    # We will test render engine selection separately
+
+    # Case 2: All params
+    ex = Executor(
+        config=mconf, job_id="job01", node="node1", path="/tmp/job1.blend", enabled=True
+    )
+    assert ex.config == mconf
+    assert ex.job_id == "job01"
+    assert ex.node == "node1"
+    assert ex.path == "/tmp/job1.blend"
+    assert ex.enabled
+    assert ex.idle
+
+
+def test_executor_render_engine_selection(mconf):
+    ex = Executor(config=mconf, job_id="job01", node="node1", path="/tmp/job1.blend")
+    assert ex.engine == BLENDER
+
+    ex = Executor(config=mconf, job_id="job01", node="node1", path="/tmp/job1.tgd")
+    assert ex.engine == TERRAGEN
+
+    with pytest.raises(ValueError):
+        Executor(config=mconf, job_id="job01", node="node1", path="/tmp/job1.bogus")
+
+
+def test_executor_status(exec1):
+    thread = mock.MagicMock(name="RenderThread")
+    assert exec1.thread is None
+    assert exec1.status == WAITING
+
+    # Assign thread
+    exec1.thread = thread
+    exec1.thread.status = RENDERING
+    assert exec1.status == RENDERING
+
+
+def test_executor_progress(exec1):
+    thread = mock.MagicMock(name="RenderThread")
+    assert exec1.thread is None
+    assert exec1.progress == 0.0
+
+    # Assign thread
+    exec1.thread = thread
+    exec1.thread.progress = 12.3
+    assert exec1.progress == 12.3
+
+
+def test_executor_frame(exec1):
+    thread = mock.MagicMock(name="RenderThread")
+    assert exec1.thread is None
+    assert exec1.frame is None
+
+    # Assign thread
+    exec1.thread = thread
+    exec1.thread.frame = 5
+    assert exec1.frame == 5
+
+
+def test_executor_elapsed_time(exec1):
+    thread = mock.MagicMock(name="RenderThread")
+    assert exec1.thread is None
+    assert exec1.elapsed_time() == 0.0
+
+    # Assign thread
+    exec1.thread = thread
+    exec1.thread.elapsed_time.return_value = 12.3
+    assert exec1.elapsed_time() == 12.3
+
+
+def test_executor_enable(exec1):
+    assert not exec1.is_enabled()
+    exec1.enable()
+    assert exec1.is_enabled()
+
+    # Nothing should happen if we call it again
+    exec1.enable()
+    assert exec1.is_enabled()
+
+
+def test_executor_disable(exec1):
+    exec1.enable()
+    assert exec1.is_enabled()
+    exec1.disable()
+    assert not exec1.is_enabled()
+
+    # Nothing should happen if we call it again
+    exec1.disable()
+    assert not exec1.is_enabled()
+
+
+@mock.patch("rendercontroller.job.BlenderRenderThread")
+def test_executor_is_idle_ack_done(bthread, exec1):
+    # Test normal sequence
+    assert exec1.is_idle()
+    exec1.render(1)
+    assert not exec1.is_idle()
+    exec1.ack_done()
+    assert exec1.is_idle()
+
+    # Edge case: ack_done called before render is actually finished
+    exec1.render(2)
+    bthread.return_value.status = RENDERING
+    assert not exec1.is_idle()
+    with pytest.raises(RuntimeError):
+        exec1.ack_done()
+
+
+@mock.patch("rendercontroller.job.BlenderRenderThread")
+def test_executor_render_blender(bthread, exec1, exec1_data):
+    bthread.return_value.status = WAITING
+    assert exec1.engine == BLENDER
+    exec1.render(5)
+    assert exec1.thread == bthread.return_value
+    assert exec1.thread.called_with(
+        exec1_data["config"],
+        exec1_data["job_id"],
+        exec1_data["node"],
+        exec1_data["path"],
+    )
+
+    # Special case: already rendering
+    bthread.return_value.status = RENDERING
+    with pytest.raises(RuntimeError):
+        exec1.render(6)
+
+
+@mock.patch("rendercontroller.job.Terragen3RenderThread")
+def test_executor_render_terragen(tthread, exec1, exec1_data):
+    tthread.return_value.status = WAITING
+    exec1.engine = TERRAGEN
+    exec1.path = "/tmp/job1.tgd"
+    exec1.render(5)
+    assert exec1.thread == tthread.return_value
+    assert exec1.thread.called_with(
+        exec1_data["config"], exec1_data["job_id"], exec1_data["node"], "/tmp/job1.tgd"
+    )
+
+    # Special case: already rendering
+    tthread.return_value.status = RENDERING
+    with pytest.raises(RuntimeError):
+        exec1.render(6)
+
+
+@mock.patch("rendercontroller.job.Terragen3RenderThread")
+@mock.patch("rendercontroller.job.BlenderRenderThread")
+def test_executor_render_unknown_engine(bthread, tthread, exec1):
+    bthread.return_value.status = WAITING
+    exec1.engine = "bogus"
+    with pytest.raises(RuntimeError):
+        exec1.render(5)
+    bthread.assert_not_called()
+    tthread.assert_not_called()
+
+
+@mock.patch("rendercontroller.job.BlenderRenderThread")
+def test_executor_stop(bthread, exec1):
+    assert not exec1.thread
+    exec1.stop()
+    bthread.return_value.stop.assert_not_called()
+
+    # Assign thread
+    exec1.render(1)
+    exec1.stop()
+    bthread.return_value.stop.assert_called_once()
+
+
+### Test RenderJob
 
 
 @pytest.fixture(scope="function")
@@ -41,18 +261,11 @@ def testjob2():
 
 
 @pytest.fixture(scope="function")
-def render_nodes():
-    return ["node1", "node2", "node3", "node4"]
-
-
-@pytest.fixture(scope="function")
 @mock.patch("rendercontroller.job.StateDatabase")
-def job1(db, render_nodes, testjob1):
+def job1(db, mconf, testjob1):
     """RenderJob fixture representing a newly enqueued job with default values."""
-    conf = mock.MagicMock(name="Config")
-    conf.render_nodes = render_nodes
     job = RenderJob(
-        config=conf,
+        config=mconf,
         id=testjob1["id"],
         path=testjob1["path"],
         start_frame=testjob1["start_frame"],
@@ -67,15 +280,13 @@ def job1(db, render_nodes, testjob1):
 @mock.patch("rendercontroller.job.StateDatabase")
 @mock.patch("rendercontroller.job.BlenderRenderThread")
 @mock.patch("rendercontroller.job.RenderJob._mainloop")
-def job2(ml, rt, db, render_nodes, testjob2):
+def job2(ml, rt, db, testjob2, mconf):
     """RenderJob fixture representing a job that is currently rendering.
 
     Mainloop is mocked to prevent render from starting automatically."""
-    conf = mock.MagicMock(name="Config")
     rt.return_value = None
-    conf.render_nodes = render_nodes
     job = RenderJob(
-        config=conf,
+        config=mconf,
         id=testjob2["id"],
         path=testjob2["path"],
         start_frame=testjob2["start_frame"],
@@ -93,12 +304,10 @@ def job2(ml, rt, db, render_nodes, testjob2):
 
 @mock.patch("rendercontroller.job.StateDatabase")
 @mock.patch("rendercontroller.job.RenderJob.render")
-@mock.patch("rendercontroller.controller.Config")
-def test_job_init_new(conf, render, db, render_nodes, testjob1):
+def test_job_init_new(render, db, render_nodes, testjob1, mconf):
     """Tests creating a new job with the minimum required parameters."""
-    conf.render_nodes = render_nodes
     j = RenderJob(
-        config=conf,
+        config=mconf,
         id=testjob1["id"],
         path=testjob1["path"],
         start_frame=testjob1["start_frame"],
@@ -107,7 +316,7 @@ def test_job_init_new(conf, render, db, render_nodes, testjob1):
     )
 
     # Check passed params
-    assert j.config is conf
+    assert j.config is mconf
     assert j.id == testjob1["id"]
     assert j.path == testjob1["path"]
     assert j.start_frame == testjob1["start_frame"]
@@ -134,7 +343,7 @@ def test_job_init_new(conf, render, db, render_nodes, testjob1):
     # Test startup tasks
     assert sorted(list(j.executors.keys())) == sorted(render_nodes)
     for name, ex in j.executors.items():
-        assert isinstance(ex, rendercontroller.job.Executor)
+        assert isinstance(ex, Executor)
         assert ex.node == name
         if name in testjob1["render_nodes"]:
             assert ex.is_enabled()
@@ -146,7 +355,7 @@ def test_job_init_new(conf, render, db, render_nodes, testjob1):
     # Case 1: start frame > end frame
     with pytest.raises(ValueError):
         RenderJob(
-            config=conf,
+            config=mconf,
             id="failjob",
             path="/tmp/failjob",
             start_frame=10,
@@ -156,7 +365,7 @@ def test_job_init_new(conf, render, db, render_nodes, testjob1):
     # Case 2: unknown render node
     with pytest.raises(NodeNotFoundError):
         RenderJob(
-            config=conf,
+            config=mconf,
             id="failjob",
             path="/tmp/failjob",
             start_frame=1,
@@ -166,13 +375,11 @@ def test_job_init_new(conf, render, db, render_nodes, testjob1):
 
 
 @mock.patch("rendercontroller.job.StateDatabase")
-@mock.patch("rendercontroller.controller.Config")
 @mock.patch("rendercontroller.job.RenderJob.render")
-def test_job_init_restore(render, conf, db, render_nodes, testjob2):
+def test_job_init_restore(render, db, render_nodes, testjob2, mconf):
     """Tests restoring a job from disk."""
-    conf.render_nodes = render_nodes
     j = RenderJob(
-        config=conf,
+        config=mconf,
         id=testjob2["id"],
         path=testjob2["path"],
         start_frame=testjob2["start_frame"],
@@ -186,7 +393,7 @@ def test_job_init_restore(render, conf, db, render_nodes, testjob2):
     )
 
     # Check passed params
-    assert j.config is conf
+    assert j.config is mconf
     assert j.id == testjob2["id"]
     assert j.path == testjob2["path"]
     assert j.start_frame == testjob2["start_frame"]
@@ -210,7 +417,7 @@ def test_job_init_restore(render, conf, db, render_nodes, testjob2):
     # Test startup tasks
     assert sorted(list(j.executors.keys())) == sorted(render_nodes)
     for node, ex in j.executors.items():
-        assert isinstance(ex, rendercontroller.job.Executor)
+        assert isinstance(ex, Executor)
         assert ex.node == node
         if node in testjob2["render_nodes"]:
             assert ex.is_enabled()
@@ -222,7 +429,7 @@ def test_job_init_restore(render, conf, db, render_nodes, testjob2):
     # Case 1: Unknown render node
     with pytest.raises(NodeNotFoundError):
         RenderJob(
-            config=conf,
+            config=mconf,
             id=testjob2["id"],
             path=testjob2["path"],
             start_frame=testjob2["start_frame"],

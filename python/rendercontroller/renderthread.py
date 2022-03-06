@@ -51,6 +51,8 @@ class RenderThread(object):
 
     def elapsed_time(self) -> float:
         """Returns time taken to render the frame in seconds."""
+        if not self.time_start:
+            return 0.0
         if self.time_stop:
             return self.time_stop - self.time_start
         return time.time() - self.time_start

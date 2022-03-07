@@ -7,9 +7,9 @@ RenderController consists of a backend service written in Python and a browser-b
 * Supports Linux and MacOS render nodes.
 * Simple browser-based user interface.
 * Works with Blender Cycles, Blender Eevee, and Terragen 3.
-* Can be (relatively) easily extended to work with any other render engine that can run from the command line.
+* Easily extensible to work with any render engine that allows command line rendering.
 * Queue as many renders as you want and they'll automatically start one at a time.
-* If a render node fails, its frames will automatically be assigned to other nodes.
+* If a render node fails, its frames will automatically be reassigned to other nodes.
 * Can manage nodes across multiple networks as long as they're reachable by SSH.
 * Includes a `framechecker` script to check directories for missing frames.
 
@@ -117,6 +117,4 @@ Endpoint | Description
 /config/autostart/disable | Disables autostart
 
 ## History
-I started writing this software in early 2014 while working for a small scientific animation group at the University of Colorado. I was interested in learning to code and we needed something to help us distribute frames to our render machines, so this seemed like a good first project. Although it served its purpose well, the code quality is what you'd expect from a total beginner. It really should be rewritten from the ground up, but I moved on from that job in early 2016 and the project went on hiatus.
-
-The animation group was resurrected in 2019, and I have made an effort to gradually improve this project since then.  As far as I'm aware, nobody outside the group is using this software so I tend not to pay much attention to introducing breaking changes.  If anyone is using it, please let me know and I will take that into account.
+I started writing this software in early 2014 while working for a small scientific animation group at the University of Colorado. I was interested in learning to code and we needed something to help us distribute frames to our render machines, so this seemed like a good first project. There are many things I might do differently if I were to write it again today, but it has nonetheless served its purpose well. I have intermittently maintained it since leaving that project in 2016, but as far as I'm aware nobody outside the project is currently using it so I have no plans for any major additions in the future.  If you are using it, please let me know and I will take that into account.

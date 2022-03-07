@@ -53,7 +53,6 @@ class Config(object):
 
     listen_addr: str
     listen_port: int
-    cors_origin: str
     autostart: bool
     log_level: str
     log_file_path: str

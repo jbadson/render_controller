@@ -159,10 +159,10 @@ class HttpHandler(http.server.SimpleHTTPRequestHandler):
 
     @classmethod
     def configure(
-        cls, controller: RenderController, origin: str, file_browser_base_dir: str
+        cls, controller: RenderController, file_browser_base_dir: str
     ) -> None:
         cls.controller = controller
-        cls.origin = origin
+        cls.origin = "*"  # API has no access control, so limiting this adds no value.
         cls.file_browser_base_dir = file_browser_base_dir
 
     def log_message(self, format: str, *args) -> None:
@@ -519,7 +519,7 @@ def main(config_path: str) -> int:
         return 1
 
     controller = RenderController(Config)
-    HttpHandler.configure(controller, Config.cors_origin, Config.file_browser_base_dir)
+    HttpHandler.configure(controller, Config.file_browser_base_dir)
     server = TCPServer(
         controller=controller,
         server_address=(Config.listen_addr, Config.listen_port),

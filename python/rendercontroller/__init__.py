@@ -2,7 +2,7 @@ import argparse
 import sys
 from . import server, controller, job, framechecker
 
-__version__ = "1.1.1"
+__version__ = "2.0.0"
 
 
 def main() -> int:

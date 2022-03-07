@@ -325,8 +325,6 @@ class RenderJob(object):
             "path": self.path,
             "start_frame": self.start_frame,
             "end_frame": self.end_frame,
-            # FIXME Does anything actually use this? If so, can we use node_status instead?
-            "nodes_enabled": self.get_enabled_nodes(),
             "status": self.status,
             "time_start": self.time_start,
             "time_stop": self.time_stop,

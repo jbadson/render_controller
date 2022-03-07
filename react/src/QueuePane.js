@@ -5,9 +5,9 @@ import JobSummary from './JobSummary';
 
 /**
  * Widget that displays a panel of job status widgets
- * @param {Array<Object>} serverJobs - Array of job status data
- * @param {string} selectedJob - ID of selected job.
- * @param {function} onJobClick - Function to call when a job widget is clicked.
+ * @prop {Array<Object>} serverJobs - Array of job status data
+ * @prop {string} selectedJob - ID of selected job.
+ * @prop {function} onJobClick - Function to call when a job widget is clicked.
  */
 class QueuePane extends Component {
 

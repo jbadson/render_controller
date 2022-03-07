@@ -6,11 +6,11 @@ import { fmtTime, getBasename } from './util';
 
 /**
  * Widget that displays summary render job info.
- * @param {string} filePath - Path to project file
- * @param {string} status - Job status
- * @param {float} progress - Percent complete
- * @param {float} timeRemaining - Time until render complete (sec)
- * @param {float} timeElapsed - Rendering time (sec)
+ * @prop {string} filePath - Path to project file
+ * @prop {string} status - Job status
+ * @prop {float} progress - Percent complete
+ * @prop {float} timeRemaining - Time until render complete (sec)
+ * @prop {float} timeElapsed - Rendering time (sec)
  */
 function JobSummary(props) {
     let style = "summary-container";

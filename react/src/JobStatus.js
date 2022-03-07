@@ -8,11 +8,11 @@ import { fmtTime, getBasename } from './util';
 
 /**
  * Render node status widget.
- * @param {string} name - Node Name
- * @param {string} jobId - ID of job this node is rendering
- * @param {boolean} isEnabled - Is node enabled for rendering?
- * @param {int} frame - Fram node is currently rendering
- * @param {float} progress - Percent frame complete
+ * @prop {string} name - Node Name
+ * @prop {string} jobId - ID of job this node is rendering
+ * @prop {boolean} isEnabled - Is node enabled for rendering?
+ * @prop {int} frame - Fram node is currently rendering
+ * @prop {float} progress - Percent frame complete
  */
 class NodeStatusBox extends Component {
   handleToggle() {
@@ -53,11 +53,11 @@ class NodeStatusBox extends Component {
 
 /**
  * Widget that displays detailed render job info.
- * @param {string} filePath - Path to project file
- * @param {string} status - Job status
- * @param {float} progress - Percent complete
- * @param {float} timeRemaining - Time until render complete (sec)
- * @param {float} timeElapsed - Rendering time (sec)
+ * @prop {string} filePath - Path to project file
+ * @prop {string} status - Job status
+ * @prop {float} progress - Percent complete
+ * @prop {float} timeRemaining - Time until render complete (sec)
+ * @prop {float} timeElapsed - Rendering time (sec)
  */
 function JobStatusBox(props) {
     let fillClass = "progress-fill";
@@ -98,8 +98,8 @@ function JobStatusBox(props) {
 
 /**
  * Widget to display comprehensive job info with render nodes.
- * @param {string} jobId - ID of render job
- * @param {function} onDelete - Action to take after job is deleted.
+ * @prop {string} jobId - ID of render job
+ * @prop {function} onDelete - Action to take after job is deleted.
  */
 class JobStatusPane extends Component {
   constructor(props) {
@@ -190,6 +190,13 @@ class JobStatusPane extends Component {
     )
   }
 
+  getNodesEnabled() {
+    const { node_status } = this.state.data;
+    const nodesEnabled = [];
+    Object.entries(node_status).forEach(([key, val]) => { if (val.enabled) { nodesEnabled.push(key)}});
+    return nodesEnabled;
+  }
+
   render() {
     const { data, error, showInputPane } = this.state;
     if (error) {
@@ -203,8 +210,8 @@ class JobStatusPane extends Component {
           path={data.path}
           startFrame={data.start_frame}
           endFrame={data.end_frame}
-          nodesEnabled={data.nodes_enabled}
-          useAllNodes={false}
+          renderNodes={Object.keys(data.node_status)}
+          nodesEnabled={this.getNodesEnabled()}
           onClose={this.toggleInputPane}
         />
       )

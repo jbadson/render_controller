@@ -4,9 +4,9 @@ import CheckBox from './CheckBox'
 
 /**
  * Displays settings in a popup overlay and closes when clicked outside.
- * @param {boolean} autostart - State of autostart setting
- * @param {function} onClose - Action to take when window is closed.
- * @param {function} toggleAutostart - Callback to flip state of autostart
+ * @prop {boolean} autostart - State of autostart setting
+ * @prop {function} onClose - Action to take when window is closed.
+ * @prop {function} toggleAutostart - Callback to flip state of autostart
  */
 class SettingsWidget extends Component {
   constructor(props) {

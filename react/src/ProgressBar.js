@@ -3,11 +3,11 @@ import './ProgressBar.css';
 
 /**
  * Horizontal progress bar widget
- * @param {string} barClass - className of progress bar inner div. Can be used
+ * @prop {string} barClass - className of progress bar inner div. Can be used
  *    to set height, border-radius, etc.
- * @param {string} fillClass - className of progress bar fill.
- * @param {float} percent - Progress percent
- * @param {boolean} noText - Do not show percent in text overlay.
+ * @prop {string} fillClass - className of progress bar fill.
+ * @prop {float} percent - Progress percent
+ * @prop {boolean} noText - Do not show percent in text overlay.
  */
 function ProgressBar(props) {
   const barClass = props.barClass || "progress-bar";

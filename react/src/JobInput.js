@@ -6,10 +6,10 @@ import { FileBrowserPopup } from './FileBrowser';
 
 /**
  * Number input field that changes CSS className if value contains a non-digit.
- * @param {string} name: Name attribute of HTML input
- * @param {string} label: Label text
- * @param {int} value: Contents of input field.
- * @param {function} onChange - Callback on input change.
+ * @prop {string} name: Name attribute of HTML input
+ * @prop {string} label: Label text
+ * @prop {int} value: Contents of input field.
+ * @prop {function} onChange - Callback on input change.
  */
 class NumberInput extends Component {
   constructor(props) {
@@ -49,8 +49,8 @@ class NumberInput extends Component {
 }
 
 /**
- * @param {boolean} checked -- Is node checked (active) ?
- * @param {string} name -- Node name (used as button text)
+ * @prop {boolean} checked -- Is node checked (active) ?
+ * @prop {string} name -- Node name (used as button text)
  */
 function NodeBox(props) {
   let className = "input-nodebox";
@@ -80,12 +80,12 @@ function LeftCheckBox(props) {
 
 /**
  * Widget for selecting render nodes.
- * @param {Array} renderNodes - Array of objects describing render nodes.
- * @param {Array} nodesEnabled - Array of objects describing enabled render nodes.
- * @param {boolean} useAll - Use all render nodes?
- * @param {callback} onSelectAll - Function to call if select all is clicked
- * @param {callback} onSelectNone - Function to call if select none is clicked
- * @param {callback} onCheckNode - Function to call if node button is checked
+ * @prop {Array} renderNodes - Array of objects describing render nodes.
+ * @prop {Array} nodesEnabled - Array of objects describing enabled render nodes.
+ * @prop {boolean} useAll - Use all render nodes?
+ * @prop {callback} onSelectAll - Function to call if select all is clicked
+ * @prop {callback} onSelectNone - Function to call if select none is clicked
+ * @prop {callback} onCheckNode - Function to call if node button is checked
  */
 function NodePicker(props) {
   return (
@@ -107,10 +107,10 @@ function NodePicker(props) {
       { props.useAll ||
       <li className="input-row">
         {props.renderNodes.map(name => {
-          var isChecked = false;
+          let isChecked = false;
           if (props.renderNodes.includes(name) && props.nodesEnabled.includes(name)) {
             isChecked = true;
-          };
+          }
           return (
               <NodeBox
                 key={name}
@@ -130,23 +130,32 @@ function NodePicker(props) {
 
 /**
  * Job input widget.
- * @param {function} onSubmit - Called when input is submitted.
- * @param {str} path - Initial path to set in browser.
- * @param {int} startFrame - Optional: Value to set in start frame field.
- * @param {int} endFrame - Optional: Value to set in end frame field.
- * @param {Object<string, boolean>} renderNodes - {nodeName: isEnabled, ... }
+ * @prop {function} onSubmit - Called when input is submitted.
+ * @prop {string} path - Initial path to set in browser.
+ * @prop {Array<string>} renderNodes - Array of all render nodes available on server.
+ * @prop {int} startFrame - Optional: Value to set in start frame field.
+ * @prop {int} endFrame - Optional: Value to set in end frame field.
+ * @prop {Array<string>} nodesEnabled - Optional: List of enabled render nodes.
  */
 class JobInput extends Component {
   constructor(props) {
     super(props);
+    let useAllNodes = false;
+    let nodesEnabled = props.nodesEnabled;
+    if (nodesEnabled === undefined) {
+      useAllNodes = true;
+      nodesEnabled = props.renderNodes;
+    } else if (props.renderNodes.length === nodesEnabled.length) {
+      useAllNodes = true;
+    }
     this.state = {
       path: props.path || '',
       startFrame: props.startFrame || '',
       endFrame: props.endFrame || '',
-      renderNodes: [], // Represents *all* render nodes configured on server
-      nodesEnabled: props.nodesEnabled || [], // Only those previously enabled on this job (for duplicating jobs)
+      renderNodes: props.renderNodes,
+      nodesEnabled: nodesEnabled,
+      useAllNodes: useAllNodes,
       showBrowser: false,
-      useAllNodes: (props.useAllNodes === undefined) ? true : props.useAllNodes,
     }
     this.toggleBrowser = this.toggleBrowser.bind(this);
     this.setPath = this.setPath.bind(this);
@@ -155,16 +164,6 @@ class JobInput extends Component {
     this.setNodeState = this.setNodeState.bind(this);
     this.handleChange = this.handleChange.bind(this);
     this.submit = this.submit.bind(this);
-  }
-
-  componentDidMount() {
-    if (this.state.renderNodes.length === 0) {
-      axios.get(process.env.REACT_APP_BACKEND_API + "/node/list")
-        .then(
-          (result) => {return this.setState({renderNodes: Array.from(result.data)})},
-          (error) => {console.log(error)},
-        )
-    }
   }
 
   toggleBrowser() {
@@ -179,33 +178,23 @@ class JobInput extends Component {
   }
 
   selectAllNodes() {
-    this.setState(state => {
-      return {
-        nodesEnabled: this.state.renderNodes,
-        useAllNodes: true,
-      }
-    });
+    this.setState({ nodesEnabled: this.state.renderNodes, useAllNodes: true });
   }
 
   deselectAllNodes() {
-    this.setState(state => {
-      return {
-        nodesEnabled: [],
-        useAllNodes: false,
-      }
-    });
+    this.setState({ nodesEnabled: [], useAllNodes: false });
   }
 
   setNodeState(node) {
-      const nodesEnabled = this.state.nodesEnabled;
-      var i;
-      i = nodesEnabled.indexOf(node);
-      if (i >= 0) {
-        nodesEnabled.delete(i);
-      } else {
-        nodesEnabled.push(node);
-      };
-      return this.setState({nodesEnabled: nodesEnabled});
+    const nodesEnabled = this.state.nodesEnabled;
+    let updatedNodes = [];
+    if (nodesEnabled.includes(node)) {
+      updatedNodes = nodesEnabled.filter((n) => { return n !== node });
+    } else {
+      updatedNodes = nodesEnabled;
+      updatedNodes.push(node);
+    }
+    this.setState({nodesEnabled: updatedNodes});
   }
 
   handleChange(event) {
@@ -231,7 +220,7 @@ class JobInput extends Component {
       selectedNodes = renderNodes;
     } else {
       selectedNodes = nodesEnabled;
-    };
+    }
 
     const ret = {
       path: path,

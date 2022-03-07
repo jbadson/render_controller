@@ -7,8 +7,8 @@ import { fmtUnixTimestamp } from './util';
 
 /**
  * A file browser widget for navigating the server-side filesystem.
- * @param {string} path - Initial directory to list on server.
- * @param {function} onFileClick - Action to take when a file is clicked.
+ * @prop {string} path - Initial directory to list on server.
+ * @prop {function} onFileClick - Action to take when a file is clicked.
  */
 class FileBrowser extends Component {
   constructor(props) {
@@ -200,9 +200,9 @@ class FileBrowser extends Component {
 
 /**
  * Displays FileBrowser in a popup overlay.
- * @param {string} path - Initial directory to list on server.
- * @param {function} onFileClick - Action to take when a file is clicked.
- * @param {function} onClose - Action to take when window is closed.
+ * @prop {string} path - Initial directory to list on server.
+ * @prop {function} onFileClick - Action to take when a file is clicked.
+ * @prop {function} onClose - Action to take when window is closed.
  */
 class FileBrowserPopup extends Component {
   constructor(props) {

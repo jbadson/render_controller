@@ -17,6 +17,7 @@ class App extends Component {
       showInputPane: false,
       showSettings: false,
       autostart: true,
+      renderNodes: [],
     }
     this.selectJob = this.selectJob.bind(this);
     this.toggleInputPane = this.toggleInputPane.bind(this);
@@ -68,18 +69,21 @@ class App extends Component {
 
   clearFinishedJobs() {
     const { serverJobs, selectedJob } = this.state;
+    const ids = [];
     serverJobs.forEach(job => {
       if (job.status === "Finished") {
-        if (selectedJob === job.id) {
-          // Deselect job to prevent status pane from making API calls with deleted job id.
-          this.setState({selectedJob: null});
-        }
+        ids.push(job.id);
         axios.post(process.env.REACT_APP_BACKEND_API + "/job/delete/" + job.id)
           .then(
             (error) => {console.error(error.message)}
           );
       }
     })
+    // Ensure deleted jobs are deselected to prevent bad API calls.
+    // Do this on final list to prevent race condition between this and selectFirstJob from getUpdate.
+    if (ids.includes(selectedJob)) {
+      this.setState({selectedJob: null});
+    }
   }
 
   getAutostart() {
@@ -102,7 +106,14 @@ class App extends Component {
         // Select first job if none are selected
         this.selectFirstJob();
       }
-      )
+      );
+    if (this.state.renderNodes.length === 0) {
+      axios.get(process.env.REACT_APP_BACKEND_API + "/node/list")
+          .then(
+              (result) => {this.setState({renderNodes: Array.from(result.data)})},
+              (error) => {console.log(error)},
+          );
+    }
   }
 
   /**
@@ -144,6 +155,7 @@ class App extends Component {
         <JobInput
           path=""
           onClose={this.toggleInputPane}
+          renderNodes={this.state.renderNodes}
         />
       )
     } else if (this.state.selectedJob) {
